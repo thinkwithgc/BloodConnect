@@ -41,6 +41,7 @@ export default defineConfig(({ mode }) => {
             /^\/data-deletion(\.html)?$/,
             /^\/donate(\.html)?$/,
             /^\/developers(\.html)?$/,
+            /^\/api-docs(\.html)?$/,
             /^\/api\//,
           ],
           // Network-first for API calls; precache the app shell.

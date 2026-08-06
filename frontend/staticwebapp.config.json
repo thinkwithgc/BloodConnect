@@ -14,11 +14,19 @@
     { "route": "/data-deletion", "rewrite": "/data-deletion.html" },
     { "route": "/donate", "rewrite": "/donate.html" },
     { "route": "/developers", "rewrite": "/developers.html" },
+    { "route": "/api-docs", "rewrite": "/api-docs.html" },
     {
       "route": "/api/vendor-webhook-v1.yaml",
       "headers": {
         "cache-control": "public, max-age=3600",
         "content-type": "text/yaml; charset=utf-8"
+      }
+    },
+    {
+      "route": "/api/vendor-webhook-v1.postman_collection.json",
+      "headers": {
+        "cache-control": "public, max-age=3600",
+        "content-type": "application/json; charset=utf-8"
       }
     },
     {

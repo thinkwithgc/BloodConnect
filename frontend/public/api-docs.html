@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Raktify API — Interactive Swagger UI | Vendor Push Webhook</title>
+<meta name="description" content="Interactive OpenAPI browser for the Raktify Vendor Push Webhook. Browse endpoints, inspect request/response schemas, try calls from the browser." />
+<link rel="canonical" href="https://raktify.choudhari.ngo/api-docs" />
+<link rel="icon" type="image/svg+xml" href="/icon.svg" />
+
+<meta property="og:type" content="article" />
+<meta property="og:site_name" content="Raktify" />
+<meta property="og:title" content="Raktify API — Interactive Swagger UI" />
+<meta property="og:description" content="Browse and try the Raktify Vendor Push Webhook endpoints." />
+<meta property="og:url" content="https://raktify.choudhari.ngo/api-docs" />
+<meta property="og:image" content="https://raktify.choudhari.ngo/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+
+<!-- Swagger UI CSS. Pinned major version so the visual doesn't drift under us. -->
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+
+<style>
+  :root {
+    --rk: #b8231a;
+    --ink: #1a1a1a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+  }
+  body { margin: 0; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; background: #fff; color: var(--ink); }
+  .topbar {
+    position: sticky; top: 0; z-index: 100; background: #fff;
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    max-width: 1200px; margin: 0 auto; padding: 10px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .wordmark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+  .brand-icon { width: 28px; height: 28px; }
+  .brand-wordmark { height: 22px; width: auto; }
+  .topbar-links { display: flex; align-items: center; gap: 16px; font-size: 13.5px; }
+  .topbar-links a { color: var(--muted); text-decoration: none; }
+  .topbar-links a:hover { color: var(--rk); }
+  .topbar-links a.cta { color: var(--rk); font-weight: 600; }
+
+  /* Swagger UI theme overrides — align to Raktify red. */
+  .swagger-ui .topbar { display: none; }
+  .swagger-ui .info .title { color: var(--ink); }
+  .swagger-ui .btn.execute { background: var(--rk); border-color: var(--rk); }
+  .swagger-ui .btn.execute:hover { background: #9a1d15; border-color: #9a1d15; }
+  .swagger-ui .opblock.opblock-post .opblock-summary-method { background: var(--rk); }
+  .swagger-ui .opblock.opblock-post { border-color: var(--rk); }
+  .swagger-ui .opblock.opblock-post .opblock-summary { border-color: var(--rk); }
+
+  #swagger-ui { padding: 12px 0; }
+
+  /* Guard rail: Swagger UI's "Try it out" makes real POSTs to the base URL.
+     Callers WITHOUT an HMAC-signed body will 401 — that's correct behavior
+     but confusing on a first click, so we surface a banner. */
+  .banner {
+    max-width: 1200px; margin: 12px auto; padding: 12px 18px;
+    background: #fffbeb; border: 1px solid #fcd34d; border-radius: 8px;
+    font-size: 13.5px; color: #78350f;
+  }
+  .banner b { color: #78350f; }
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="/">
+      <img class="brand-icon" src="/icon.svg" alt="Raktify" width="28" height="28" />
+      <img class="brand-wordmark" src="/wordmark-tm.svg" alt="Raktify" height="22" />
+    </a>
+    <div class="topbar-links">
+      <a href="/developers">Developer docs</a>
+      <a href="/api/vendor-webhook-v1.yaml">OpenAPI (YAML)</a>
+      <a class="cta" href="mailto:contact@choudhari.ngo?subject=Raktify%20vendor%20integration">Get a partner key</a>
+    </div>
+  </div>
+</nav>
+
+<div class="banner">
+  <b>Try-it-out note:</b> requests from Swagger UI hit the live production API.
+  Without a valid <code>X-Raktify-Partner-Key</code> + HMAC-signed <code>X-Raktify-Signature</code>
+  you'll receive <code>401 signature_mismatch</code> — that's correct behavior. For end-to-end
+  testing use the <a href="/api/vendor-webhook-v1.postman_collection.json">Postman collection</a>
+  (auto-signs) or <a href="/developers#hmac">write the client yourself</a>.
+</div>
+
+<div id="swagger-ui"></div>
+
+<!-- Swagger UI bundle (standalone). Same pinned major as the CSS above. -->
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js" crossorigin></script>
+<script>
+  window.addEventListener('load', () => {
+    window.ui = SwaggerUIBundle({
+      url: '/api/vendor-webhook-v1.yaml',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset.slice(1)],
+      layout: 'BaseLayout',
+      docExpansion: 'list',
+      defaultModelsExpandDepth: 1,
+      tryItOutEnabled: true,
+      persistAuthorization: true,
+    });
+  });
+</script>
+</body>
+</html>

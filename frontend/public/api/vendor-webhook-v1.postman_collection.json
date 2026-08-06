@@ -1,0 +1,151 @@
+{
+  "info": {
+    "_postman_id": "raktify-vendor-webhook-v1",
+    "name": "Raktify Vendor Push Webhook v1",
+    "description": "Public REST webhook contract for blood-bank software vendors (Safetrans/Strides, e-RaktKosh, BLIS, RAKT, hospital-homegrown) to push donor + donation records into Raktify.\n\n**Setup:**\n1. Import this collection into Postman.\n2. Open the collection's *Variables* tab, set `partner_key` and `partner_secret` from your Raktify integration email.\n3. Send any request — the pre-request script signs the raw body with HMAC-SHA256 and injects `X-Raktify-Signature` automatically.\n\n**Docs:** https://raktify.choudhari.ngo/developers\n**OpenAPI:** https://raktify.choudhari.ngo/api/vendor-webhook-v1.yaml\n\n**Get a partner key:** contact@choudhari.ngo",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      { "key": "key", "value": "X-Raktify-Partner-Key", "type": "string" },
+      { "key": "value", "value": "{{partner_key}}", "type": "string" },
+      { "key": "in", "value": "header", "type": "string" }
+    ]
+  },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// Sign the raw request body with HMAC-SHA256 keyed by {{partner_secret}}.",
+          "// Injects the resulting hex into X-Raktify-Signature. Runs before every",
+          "// request in the collection.",
+          "const secret = pm.collectionVariables.get('partner_secret');",
+          "if (!secret) {",
+          "  console.warn('Raktify: partner_secret not set — request will 401. Set it in the collection Variables tab.');",
+          "  return;",
+          "}",
+          "const rawBody = pm.request.body && pm.request.body.raw ? pm.request.body.raw : '';",
+          "const sig = CryptoJS.HmacSHA256(rawBody, secret).toString(CryptoJS.enc.Hex);",
+          "pm.request.headers.upsert({ key: 'X-Raktify-Signature', value: 'sha256=' + sig });"
+        ]
+      }
+    }
+  ],
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "https://raktify-api.azurewebsites.net",
+      "type": "string",
+      "description": "Raktify API root. Change to a local dev URL for local testing."
+    },
+    {
+      "key": "partner_key",
+      "value": "",
+      "type": "string",
+      "description": "Your pk_... identifier, one per hospital installation."
+    },
+    {
+      "key": "partner_secret",
+      "value": "",
+      "type": "string",
+      "description": "Partner secret (HMAC-SHA256 key). Revealed once at issuance; do NOT commit to git."
+    }
+  ],
+  "item": [
+    {
+      "name": "Donor registration",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"vendor_event_id\": \"op-2026-08-07-001\",\n  \"event_time\": \"2026-08-07T10:15:00+05:30\",\n  \"mobile\": \"+919876543210\",\n  \"full_name\": \"Ramesh Patil\",\n  \"date_of_birth\": \"1988-04-12\",\n  \"gender\": \"M\",\n  \"blood_group\": \"O+\",\n  \"pincode\": \"444601\",\n  \"preferred_language\": \"mr\",\n  \"consent_captured_at\": \"2026-08-07T10:15:00+05:30\"\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/webhooks/v1/donor-registration",
+          "host": ["{{base_url}}"],
+          "path": ["webhooks", "v1", "donor-registration"]
+        },
+        "description": "Upsert a donor by mobile.\n\nNew donors land with `consent_pending`. Raktify sends the donor a WhatsApp magic-link to accept consent on Raktify's own screen (DPDP §7). Matching is invisible to unconsented donors.\n\nRetries with the same `vendor_event_id` return the cached result (idempotent). Idempotency records retained 30 days."
+      },
+      "response": [
+        {
+          "name": "Success",
+          "originalRequest": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/webhooks/v1/donor-registration" }
+          },
+          "status": "Accepted",
+          "code": 202,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"raktify_donor_id\": \"6fda231f-9e7e-4a1d-8761-87e15f83d1ee\",\n  \"action\": \"created\",\n  \"is_new\": true,\n  \"consent_status\": \"pending\"\n}"
+        },
+        {
+          "name": "Signature mismatch",
+          "originalRequest": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/webhooks/v1/donor-registration" }
+          },
+          "status": "Unauthorized",
+          "code": 401,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"error\": \"signature_mismatch\"\n}"
+        }
+      ]
+    },
+    {
+      "name": "Donation",
+      "request": {
+        "method": "POST",
+        "header": [
+          { "key": "Content-Type", "value": "application/json" }
+        ],
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"vendor_event_id\": \"dn-2026-08-07-001\",\n  \"event_time\": \"2026-08-07T11:05:00+05:30\",\n  \"donor_mobile\": \"+919876543210\",\n  \"collection_date\": \"2026-08-07\",\n  \"component_code\": \"WB\",\n  \"volume_ml\": 350,\n  \"isbt_barcode\": \"W031369220\",\n  \"hb_gdl\": 13.5\n}",
+          "options": { "raw": { "language": "json" } }
+        },
+        "url": {
+          "raw": "{{base_url}}/webhooks/v1/donation",
+          "host": ["{{base_url}}"],
+          "path": ["webhooks", "v1", "donation"]
+        },
+        "description": "Record a donation event.\n\nDonor MUST already exist on Raktify — push `/donor-registration` first for a new donor. Returns `409 donor_not_found` otherwise; retry after the donor push.\n\nA verified donation automatically creates a blood_inventory bag row in QA (quarantine) status via a DB trigger."
+      },
+      "response": [
+        {
+          "name": "Success",
+          "originalRequest": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/webhooks/v1/donation" }
+          },
+          "status": "Accepted",
+          "code": 202,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"raktify_donor_id\": \"6fda231f-9e7e-4a1d-8761-87e15f83d1ee\",\n  \"raktify_donation_id\": \"4ab05951-f222-4e14-9993-4ea38372b777\",\n  \"action\": \"created\"\n}"
+        },
+        {
+          "name": "Donor not found",
+          "originalRequest": {
+            "method": "POST",
+            "url": { "raw": "{{base_url}}/webhooks/v1/donation" }
+          },
+          "status": "Conflict",
+          "code": 409,
+          "_postman_previewlanguage": "json",
+          "header": [{ "key": "Content-Type", "value": "application/json" }],
+          "body": "{\n  \"error\": \"donor_not_found\",\n  \"hint\": \"Push donor-registration first, then retry this donation event.\"\n}"
+        }
+      ]
+    }
+  ]
+}

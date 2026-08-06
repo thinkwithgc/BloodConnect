@@ -30,6 +30,7 @@
   "programmingModel": "REST",
   "targetPlatform": "Node.js, Java, Python, .NET (any HTTP + HMAC-SHA256)",
   "url": "https://raktify.choudhari.ngo/developers",
+  "sameAs": ["https://raktify.choudhari.ngo/api-docs"],
   "author": {
     "@type": "Organization",
     "name": "Choudhari EduHealth India Foundation",
@@ -70,8 +71,10 @@
     max-width: 980px; margin: 0 auto; padding: 10px 24px;
     display: flex; align-items: center; justify-content: space-between; gap: 12px;
   }
-  .wordmark { font-size: 20px; font-weight: 800; color: var(--ink); text-decoration: none; }
-  .wordmark .accent { color: var(--rk); }
+  .wordmark { display: inline-flex; align-items: center; gap: 10px; text-decoration: none; }
+  .wordmark img { display: block; }
+  .wordmark .brand-icon { width: 28px; height: 28px; }
+  .wordmark .brand-wordmark { height: 22px; width: auto; }
   .topbar-back { font-size: 13.5px; color: var(--muted); text-decoration: none; }
   .topbar-back:hover { color: var(--rk); }
 
@@ -154,7 +157,10 @@
 
 <nav class="topbar">
   <div class="topbar-inner">
-    <a class="wordmark" href="/"><span class="accent">Rakt</span>ify<sup style="font-size:9px;color:var(--muted);margin-left:2px">™</sup></a>
+    <a class="wordmark" href="/">
+      <img class="brand-icon" src="/icon.svg" alt="Raktify" width="28" height="28" />
+      <img class="brand-wordmark" src="/wordmark-tm.svg" alt="Raktify" height="22" />
+    </a>
     <a class="topbar-back" href="/">← Back to Raktify</a>
   </div>
 </nav>
@@ -419,8 +425,12 @@ requests.post(
     </div>
 
     <h2 id="openapi">OpenAPI 3.0 spec + tooling</h2>
-    <p>Machine-readable specification for auto-generating clients (Postman, Insomnia, openapi-generator, Zod-from-schema, etc.):</p>
-    <p><a href="/api/vendor-webhook-v1.yaml"><code>/api/vendor-webhook-v1.yaml</code></a> — OpenAPI 3.0.3, single source of truth.</p>
+    <p>Machine-readable spec for auto-generating clients, importing into Postman/Insomnia, or feeding into openapi-generator / Zod-from-schema:</p>
+    <ul>
+      <li><a href="/api-docs"><strong>Interactive Swagger UI</strong></a> — browse endpoints, see schemas, try requests from the browser.</li>
+      <li><a href="/api/vendor-webhook-v1.yaml"><code>/api/vendor-webhook-v1.yaml</code></a> — OpenAPI 3.0.3, single source of truth.</li>
+      <li><a href="/api/vendor-webhook-v1.postman_collection.json"><code>/api/vendor-webhook-v1.postman_collection.json</code></a> — Postman collection with an HMAC pre-request script; import → set two variables (partner key + secret) → Send. Signature is computed automatically per request.</li>
+    </ul>
     <p>The spec is versioned in the URL (<code>/webhooks/v1/</code>). Adding an optional field is not a version bump; changing semantics, removing, or renaming fields would be v2 and would run alongside v1.</p>
 
     <h2 id="contact">Contact + support</h2>

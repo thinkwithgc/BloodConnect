@@ -63,25 +63,48 @@ export default defineConfig(({ mode }) => {
     ],
     server: {
       port: 5173,
-      proxy: {
-        '/auth': apiTarget,
-        '/donors': apiTarget,
-        '/donations': apiTarget,
-        '/inventory': apiTarget,
-        '/requests': apiTarget,
-        '/coordinator': apiTarget,
-        '/community-leader': apiTarget,
-        '/dho': apiTarget,
-        '/lookback': apiTarget,
-        '/institutions': apiTarget,
-        '/onboarding': apiTarget,
-        '/admin': apiTarget,
-        '/camps': apiTarget,
-        '/registries': apiTarget,
-        '/geography': apiTarget,
-        '/reports': apiTarget,
-        '/health': apiTarget,
-      },
+      // Any API prefix that also has a client-side route at the same base
+      // path (e.g. /admin, /hospital, /consent) MUST bypass proxying for
+      // top-level HTML navigations — otherwise a fresh browser load of
+      // `/consent/:token` gets JSON-proxied to the backend, hits the app's
+      // 404 catch-all, and never reaches React Router. `bypass` returning
+      // the URL tells http-proxy-middleware "serve this from Vite instead".
+      // Fetches from within a loaded page send Accept: application/json and
+      // pass through the proxy normally.
+      proxy: (() => {
+        const apiWithSpaBypass = {
+          target: apiTarget,
+          changeOrigin: false,
+          bypass(req) {
+            if (req.method === 'GET' && (req.headers.accept || '').includes('text/html')) {
+              return req.url;
+            }
+          },
+        };
+        const entries = [
+          '/auth',
+          '/donors',
+          '/donations',
+          '/inventory',
+          '/requests',
+          '/coordinator',
+          '/community-leader',
+          '/dho',
+          '/lookback',
+          '/institutions',
+          '/onboarding',
+          '/admin',
+          '/camps',
+          '/registries',
+          '/geography',
+          '/reports',
+          '/health',
+          '/hospital',
+          '/consent',
+          '/webhooks',
+        ];
+        return Object.fromEntries(entries.map((p) => [p, apiWithSpaBypass]));
+      })(),
     },
   };
 });

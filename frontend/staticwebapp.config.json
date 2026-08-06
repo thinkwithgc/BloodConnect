@@ -5,7 +5,8 @@
     "exclude": [
       "/assets/*",
       "/api/*",
-      "*.{js,css,svg,png,ico,webmanifest,json,txt,xml,yaml,yml}"
+      "/llms.txt",
+      "*.{js,css,svg,png,ico,webmanifest,json,txt,xml,yaml,yml,md}"
     ]
   },
   "routes": [
@@ -14,7 +15,25 @@
     { "route": "/data-deletion", "rewrite": "/data-deletion.html" },
     { "route": "/donate", "rewrite": "/donate.html" },
     { "route": "/developers", "rewrite": "/developers.html" },
-    { "route": "/api-docs", "rewrite": "/api-docs.html" },
+    {
+      "route": "/api-docs",
+      "redirect": "/developers#interactive-browser",
+      "statusCode": 301
+    },
+    {
+      "route": "/developers.md",
+      "headers": {
+        "cache-control": "public, max-age=3600",
+        "content-type": "text/markdown; charset=utf-8"
+      }
+    },
+    {
+      "route": "/llms.txt",
+      "headers": {
+        "cache-control": "public, max-age=3600",
+        "content-type": "text/plain; charset=utf-8"
+      }
+    },
     {
       "route": "/api/vendor-webhook-v1.yaml",
       "headers": {

@@ -21,6 +21,10 @@
 <meta name="twitter:title" content="Raktify Developer API — Vendor Push Webhook" />
 <meta name="twitter:description" content="Sync donor + donation records from your BB software into Raktify. HMAC-authenticated REST." />
 
+<!-- Swagger UI CSS — loaded up-front so the inline #interactive-browser
+     section below is styled from the first paint. -->
+<link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+
 <!-- Structured data: Google surfaces APIReference in developer-doc SERPs -->
 <script type="application/ld+json">
 {
@@ -151,6 +155,26 @@
 
   footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
   footer a { color: var(--muted); }
+
+  /* Get-started tools grid — the top-of-page "everything in one place" hero. */
+  .tools-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin: 16px 0 8px; }
+  .tool-card {
+    display: block; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px;
+    text-decoration: none; color: var(--ink); background: #fff; transition: border-color 0.15s;
+  }
+  .tool-card:hover { border-color: var(--rk); }
+  .tool-card .t { font-weight: 600; font-size: 14px; color: var(--rk); }
+  .tool-card .d { font-size: 12.5px; color: var(--muted); margin-top: 3px; line-height: 1.4; }
+
+  /* Swagger UI theming — align to Raktify red without redoing the whole framework. */
+  #swagger-ui .swagger-ui .topbar { display: none; }
+  #swagger-ui .swagger-ui .info { display: none; } /* our page already tells the story */
+  #swagger-ui .swagger-ui .btn.execute { background: var(--rk); border-color: var(--rk); }
+  #swagger-ui .swagger-ui .btn.execute:hover { background: var(--rk-dark); border-color: var(--rk-dark); }
+  #swagger-ui .swagger-ui .opblock.opblock-post .opblock-summary-method { background: var(--rk); }
+  #swagger-ui .swagger-ui .opblock.opblock-post { border-color: var(--rk); }
+  #swagger-ui .swagger-ui .opblock.opblock-post .opblock-summary { border-color: var(--rk); }
+  #swagger-ui { border: 1px solid var(--line); border-radius: 12px; padding: 8px; margin: 12px 0; }
 </style>
 </head>
 <body>
@@ -185,7 +209,8 @@
     <a href="#errors">Errors</a>
 
     <a class="section" href="#consent">Consent flow</a>
-    <a class="section" href="#openapi">OpenAPI + SDK</a>
+    <a class="section" href="#interactive-browser">Interactive browser</a>
+    <a class="section" href="#openapi">Downloads &amp; tooling</a>
     <a class="section" href="#contact">Contact + support</a>
   </aside>
 
@@ -195,6 +220,26 @@
 
     <div class="oneliner">
       <strong>One-line pitch for your engineering team:</strong> your software already captures every donor registration and every collection event; a single HMAC-signed HTTPS POST after each event mirrors it into Raktify so donors can be reached for compatible requests in their district. No polling, no scraping, no dual-entry, no BSP.
+    </div>
+
+    <h4>Everything you need, in one place</h4>
+    <div class="tools-grid">
+      <a class="tool-card" href="#interactive-browser">
+        <div class="t">Interactive API browser →</div>
+        <div class="d">Swagger UI, right here on this page. Browse endpoints, expand schemas, see examples.</div>
+      </a>
+      <a class="tool-card" href="/api/vendor-webhook-v1.postman_collection.json">
+        <div class="t">Postman collection ↓</div>
+        <div class="d">Import → set two variables → Send. HMAC is auto-signed by the collection's pre-request script.</div>
+      </a>
+      <a class="tool-card" href="/api/vendor-webhook-v1.yaml">
+        <div class="t">OpenAPI 3.0 (YAML) ↓</div>
+        <div class="d">Machine-readable source of truth. Import into openapi-generator, Insomnia, or your own tooling.</div>
+      </a>
+      <a class="tool-card" href="/developers.md">
+        <div class="t">Markdown (for AI assistants) ↓</div>
+        <div class="d">Give this URL to Claude / ChatGPT / any coding assistant. It's optimized for LLM context — the whole integration in one file.</div>
+      </a>
     </div>
 
     <h2 id="overview">Overview</h2>
@@ -424,12 +469,16 @@ requests.post(
       <b>What this means for you:</b> Your operator does not need to collect Raktify-specific consent in your software. If your donor registration form has a "share with Raktify" checkbox, great — pass the timestamp in <code>consent_captured_at</code> as an audit signal. But Raktify's own consent step is the authoritative capture. Your push starts a conversation; the donor closes it on our side.
     </div>
 
-    <h2 id="openapi">OpenAPI 3.0 spec + tooling</h2>
-    <p>Machine-readable spec for auto-generating clients, importing into Postman/Insomnia, or feeding into openapi-generator / Zod-from-schema:</p>
+    <h2 id="interactive-browser">Interactive API browser</h2>
+    <p>Browse the full OpenAPI 3.0 spec below — expand any endpoint to see the schema, examples, and error responses. Requests you fire from here hit the live production API; without a valid <code>X-Raktify-Partner-Key</code> + HMAC signature they'll return <code>401 signature_mismatch</code> (that's the correct auth response). For real end-to-end testing use the <a href="/api/vendor-webhook-v1.postman_collection.json">Postman collection</a> — it auto-signs with your partner secret.</p>
+    <div id="swagger-ui"></div>
+
+    <h2 id="openapi">Downloads &amp; tooling</h2>
+    <p>All artifacts for the vendor push webhook. Machine-readable and human-readable in one place.</p>
     <ul>
-      <li><a href="/api-docs"><strong>Interactive Swagger UI</strong></a> — browse endpoints, see schemas, try requests from the browser.</li>
-      <li><a href="/api/vendor-webhook-v1.yaml"><code>/api/vendor-webhook-v1.yaml</code></a> — OpenAPI 3.0.3, single source of truth.</li>
-      <li><a href="/api/vendor-webhook-v1.postman_collection.json"><code>/api/vendor-webhook-v1.postman_collection.json</code></a> — Postman collection with an HMAC pre-request script; import → set two variables (partner key + secret) → Send. Signature is computed automatically per request.</li>
+      <li><a href="/api/vendor-webhook-v1.yaml"><code>/api/vendor-webhook-v1.yaml</code></a> — OpenAPI 3.0.3, single source of truth. Import into openapi-generator, Insomnia, Postman.</li>
+      <li><a href="/api/vendor-webhook-v1.postman_collection.json"><code>/api/vendor-webhook-v1.postman_collection.json</code></a> — Postman v2.1 collection with an HMAC-SHA256 pre-request script; import, set <code>partner_key</code> + <code>partner_secret</code>, hit Send.</li>
+      <li><a href="/developers.md"><code>/developers.md</code></a> — Markdown version of this whole page. Feed it to Claude / ChatGPT / any AI coding assistant as context and ask it to write the client for you in any language.</li>
     </ul>
     <p>The spec is versioned in the URL (<code>/webhooks/v1/</code>). Adding an optional field is not a version bump; changing semantics, removing, or renaming fields would be v2 and would run alongside v1.</p>
 
@@ -448,5 +497,27 @@ requests.post(
   </main>
 </div>
 
+<!-- Swagger UI bundle. Loads only on visit (not part of the SPA). Google's
+     crawler renders JS but the primary content is above; even if the render
+     budget is exhausted the interactive section just doesn't populate — the
+     rest of the page still ranks. -->
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin defer></script>
+<script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js" crossorigin defer></script>
+<script>
+  window.addEventListener('load', function () {
+    if (typeof SwaggerUIBundle === 'undefined') return;
+    window.ui = SwaggerUIBundle({
+      url: '/api/vendor-webhook-v1.yaml',
+      dom_id: '#swagger-ui',
+      deepLinking: true,
+      presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset.slice(1)],
+      layout: 'BaseLayout',
+      docExpansion: 'list',
+      defaultModelsExpandDepth: 1,
+      tryItOutEnabled: true,
+      persistAuthorization: true,
+    });
+  });
+</script>
 </body>
 </html>

@@ -39,6 +39,11 @@
     <priority>0.7</priority>
   </url>
   <url>
+    <loc>https://raktify.choudhari.ngo/developers.md</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+  <url>
     <loc>https://raktify.choudhari.ngo/register</loc>
     <changefreq>monthly</changefreq>
     <priority>0.9</priority>

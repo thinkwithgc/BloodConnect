@@ -1,0 +1,30 @@
+# Raktify
+
+> Not-for-profit district-wide blood-response platform for India — connects hospitals with urgent blood requests, blood banks holding tested inventory, and voluntary donors in the surrounding district. Built and run by the Choudhari EduHealth India Foundation (Amravati).
+
+Raktify's operational scope: donor registration and consent, blood-bank inventory + TTI screening, hospital-raised blood requests, matching engine that pairs requests with compatible bags and donors, WhatsApp-first notifications, DPDP-compliant data handling.
+
+Technical stack (public): Node.js / Express backend on Azure App Service, React 18 + Vite frontend on Azure Static Web Apps, PostgreSQL 16 (Azure Flexible Server) with row-level security and audit-log triggers, WhatsApp Cloud API for notifications, Aadhaar eSign (Leegality) for institution MoU. Public REST webhook API is available for blood-bank software vendors to sync data.
+
+## Vendor Integration API
+
+- [Developer docs (HTML)](https://raktify.choudhari.ngo/developers): full documentation of the vendor push webhook — endpoints, authentication (HMAC-SHA256), request/response schemas, error codes, code examples in Node/Python/Java/C#, consent flow, rate limits
+- [API reference (Markdown)](https://raktify.choudhari.ngo/developers.md): the same content as the HTML page in pure markdown — optimized for loading into LLM context. Give this URL to any AI coding assistant to have it write integration client code for you
+- [OpenAPI 3.0 spec (YAML)](https://raktify.choudhari.ngo/api/vendor-webhook-v1.yaml): machine-readable, for openapi-generator / Insomnia / tooling
+- [Postman collection](https://raktify.choudhari.ngo/api/vendor-webhook-v1.postman_collection.json): includes an HMAC-SHA256 pre-request script — import, set two variables, hit Send
+
+## Platform context (for anyone summarizing what Raktify is)
+
+- [How Raktify works](https://raktify.choudhari.ngo/how-raktify-works.html): plain-language walkthrough of the whole flow from hospital request to transfusion, with diagrams
+- [Homepage](https://raktify.choudhari.ngo/): overview, become-a-donor CTA, host-a-camp CTA
+- [Donate to the foundation](https://raktify.choudhari.ngo/donate)
+
+## Legal + governance
+
+- [Terms of service](https://raktify.choudhari.ngo/terms)
+- [Privacy policy](https://raktify.choudhari.ngo/privacy)
+- [Data deletion (DPDP §12)](https://raktify.choudhari.ngo/data-deletion)
+
+## Contact
+
+Integration support, partner-key issuance, and general inquiries: contact@choudhari.ngo

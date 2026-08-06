@@ -26,6 +26,8 @@ const dhoRouter = require('./routes/dho');
 const communityLeaderRouter = require('./routes/communityLeader');
 const donorAlertsRouter = require('./routes/donorAlerts');
 const hospitalRouter = require('./routes/hospital');
+const vendorWebhooksRouter = require('./routes/vendor-webhooks');
+const consentRouter = require('./routes/consent');
 
 // Spec §10 security hardening:
 //   - Helmet with a strict CSP (no inline scripts; API only serves JSON)
@@ -137,6 +139,10 @@ function createApp() {
   app.use('/requests', requestsRouter);
   app.use('/coordinator', coordinatorRouter);
   app.use('/lookback', lookbackRouter);
+  // Vendor push webhooks (public REST contract) — mount BEFORE the generic
+  // /webhooks router so /webhooks/v1/* matches these routes even though the
+  // more general prefix also covers them.
+  app.use('/webhooks/v1', vendorWebhooksRouter);
   app.use('/webhooks', webhooksRouter);
   app.use('/admin', adminRouter);
   app.use('/reports', reportsRouter);
@@ -147,6 +153,7 @@ function createApp() {
   app.use('/community-leader', communityLeaderRouter);
   app.use('/donor-alerts', donorAlertsRouter);
   app.use('/hospital', hospitalRouter);
+  app.use('/consent', consentRouter);
   // Public community profile endpoint — sibling of /community-leader,
   // mounted under /community (singular) to keep the URL friendly for
   // sharing. Exported as publicRouter from the same file so we keep all

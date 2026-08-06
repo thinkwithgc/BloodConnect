@@ -282,6 +282,26 @@ const TEMPLATE_HANDLERS = {
       parameters: [{ type: 'text', text: String(vars.mobilise_token || '') }],
     },
   ],
+
+  // donor_consent_invite — Utility. Magic-link asking a donor pushed into
+  // Raktify by a BB software vendor to accept / decline / defer on our own
+  // /consent/:token screen. Body vars: donor_first_name,
+  // source_institution_display_name. URL button variable is the consent token.
+  DONOR_CONSENT_INVITE: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.donor_first_name || '') },
+        { type: 'text', text: String(vars.source_institution_display_name || '') },
+      ],
+    },
+    {
+      type: 'button',
+      sub_type: 'url',
+      index: '0',
+      parameters: [{ type: 'text', text: String(vars.consent_token || '') }],
+    },
+  ],
 };
 
 function buildComponents(templateType, variables) {

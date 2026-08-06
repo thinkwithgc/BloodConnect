@@ -22,6 +22,8 @@
     "smoke": "node scripts/smoke_test.js",
     "smoke:frontend": "npm --workspace frontend run build",
     "smoke:whatsapp-hmac": "node scripts/smoke_whatsapp_webhook_hmac.js",
+    "seed:dev-vendor": "node scripts/seed_dev_vendor.js",
+    "sim:vendor-push": "node scripts/vendor_push_simulator.js",
     "verify": "npm run lint && npm run format:check && npm run migrate:status && npm run smoke",
     "prepare": "husky || true"
   },

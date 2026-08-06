@@ -16,6 +16,7 @@ import { OnboardingDetail } from './pages/admin/OnboardingDetail.jsx';
 import { ReportsViewer } from './pages/admin/ReportsViewer.jsx';
 import { InstitutionApply } from './pages/onboarding/InstitutionApply.jsx';
 import { SetupPassword } from './pages/onboarding/SetupPassword.jsx';
+import { DonorConsent } from './pages/consent/DonorConsent.jsx';
 import { HostCamp } from './pages/camps/HostCamp.jsx';
 import { CampOrganizerDashboard } from './pages/camps/CampOrganizerDashboard.jsx';
 import { PublicCampPage } from './pages/camps/PublicCampPage.jsx';
@@ -63,6 +64,7 @@ export default function App() {
           backwards compatibility with any in-flight tokens issued before
           the URL switch. */}
       <Route path="/activate/:token" element={<SetupPassword />} />
+      <Route path="/consent/:token" element={<DonorConsent />} />
       <Route path="/camps/host" element={<HostCamp />} />
       <Route path="/camp/:token" element={<CampOrganizerDashboard />} />
       <Route path="/c/:slug" element={<PublicCampPage />} />

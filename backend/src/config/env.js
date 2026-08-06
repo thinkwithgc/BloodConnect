@@ -117,6 +117,11 @@ const env = {
       coord_prefire_warn: optional('WHATSAPP_TEMPLATE_COORD_PREFIRE_WARN', null),
       coord_critical_new: optional('WHATSAPP_TEMPLATE_COORD_CRITICAL_NEW', null),
       community_leader_mobilise: optional('WHATSAPP_TEMPLATE_COMMUNITY_LEADER_MOBILISE', null),
+      // donor_consent_invite — magic-link WhatsApp to a donor whose data was
+      // pushed into Raktify by a BB software vendor (Safetrans etc.). Asks the
+      // donor to accept / decline / defer on Raktify's own /consent/:token
+      // screen. See PR (a) of the vendor-webhook integration plan.
+      donor_consent_invite: optional('WHATSAPP_TEMPLATE_DONOR_CONSENT_INVITE', null),
     },
   },
 

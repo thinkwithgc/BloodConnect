@@ -4,7 +4,8 @@
     "rewrite": "/index.html",
     "exclude": [
       "/assets/*",
-      "*.{js,css,svg,png,ico,webmanifest,json,txt,xml}"
+      "/api/*",
+      "*.{js,css,svg,png,ico,webmanifest,json,txt,xml,yaml,yml}"
     ]
   },
   "routes": [
@@ -12,6 +13,14 @@
     { "route": "/terms", "rewrite": "/terms.html" },
     { "route": "/data-deletion", "rewrite": "/data-deletion.html" },
     { "route": "/donate", "rewrite": "/donate.html" },
+    { "route": "/developers", "rewrite": "/developers.html" },
+    {
+      "route": "/api/vendor-webhook-v1.yaml",
+      "headers": {
+        "cache-control": "public, max-age=3600",
+        "content-type": "text/yaml; charset=utf-8"
+      }
+    },
     {
       "route": "/assets/*",
       "headers": { "cache-control": "public, max-age=31536000, immutable" }

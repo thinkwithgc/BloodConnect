@@ -40,6 +40,8 @@ export default defineConfig(({ mode }) => {
             /^\/terms(\.html)?$/,
             /^\/data-deletion(\.html)?$/,
             /^\/donate(\.html)?$/,
+            /^\/developers(\.html)?$/,
+            /^\/api\//,
           ],
           // Network-first for API calls; precache the app shell.
           runtimeCaching: [

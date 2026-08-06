@@ -1,0 +1,442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Raktify Developer API — Blood Bank Software Vendor Integration | REST Webhook</title>
+<meta name="description" content="Public REST webhook API for Indian blood-bank software vendors (Safetrans, e-RaktKosh, BLIS, RAKT and homegrown) to push donor and donation records into Raktify. HMAC-SHA256 authenticated, idempotent, DPDP-compliant. Built by Choudhari EduHealth India Foundation." />
+<meta name="keywords" content="blood bank software API, donor push webhook, Raktify integration, Safetrans integration, e-RaktKosh integration, blood donor REST API India, HMAC webhook, blood bank software vendor" />
+<meta name="author" content="Choudhari EduHealth India Foundation" />
+<link rel="canonical" href="https://raktify.choudhari.ngo/developers" />
+<link rel="icon" type="image/svg+xml" href="/icon.svg" />
+
+<!-- OG / Twitter -->
+<meta property="og:type" content="article" />
+<meta property="og:site_name" content="Raktify" />
+<meta property="og:title" content="Raktify Developer API — Blood Bank Software Vendor Integration" />
+<meta property="og:description" content="REST webhook for BB software vendors to sync donor + donation records into Raktify. HMAC auth, idempotent, DPDP-compliant." />
+<meta property="og:url" content="https://raktify.choudhari.ngo/developers" />
+<meta property="og:image" content="https://raktify.choudhari.ngo/og-image.png" />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="Raktify Developer API — Vendor Push Webhook" />
+<meta name="twitter:description" content="Sync donor + donation records from your BB software into Raktify. HMAC-authenticated REST." />
+
+<!-- Structured data: Google surfaces APIReference in developer-doc SERPs -->
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "APIReference",
+  "name": "Raktify Vendor Push Webhook API",
+  "programmingModel": "REST",
+  "targetPlatform": "Node.js, Java, Python, .NET (any HTTP + HMAC-SHA256)",
+  "url": "https://raktify.choudhari.ngo/developers",
+  "author": {
+    "@type": "Organization",
+    "name": "Choudhari EduHealth India Foundation",
+    "url": "https://raktify.choudhari.ngo/"
+  },
+  "documentation": "https://raktify.choudhari.ngo/developers",
+  "about": "Public REST webhook contract for blood-bank software vendors to push donor and donation records into Raktify, a district-wide blood-response platform serving Amravati and expanding across India."
+}
+</script>
+
+<style>
+  :root {
+    --rk: #b8231a;
+    --rk-dark: #9a1d15;
+    --ink: #1a1a1a;
+    --muted: #64748b;
+    --line: #e2e8f0;
+    --code-bg: #f5f6f8;
+    --code-border: #e5e7eb;
+    --cream: #faf7f2;
+    --success: #047857;
+    --warn: #b45309;
+    --err: #b8231a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+    color: var(--ink); margin: 0; background: #fff; line-height: 1.6;
+  }
+  a { color: var(--rk); }
+  a:hover { color: var(--rk-dark); }
+
+  .topbar {
+    position: sticky; top: 0; z-index: 10; background: #fff;
+    border-bottom: 1px solid var(--line);
+  }
+  .topbar-inner {
+    max-width: 980px; margin: 0 auto; padding: 10px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  }
+  .wordmark { font-size: 20px; font-weight: 800; color: var(--ink); text-decoration: none; }
+  .wordmark .accent { color: var(--rk); }
+  .topbar-back { font-size: 13.5px; color: var(--muted); text-decoration: none; }
+  .topbar-back:hover { color: var(--rk); }
+
+  .layout { max-width: 980px; margin: 0 auto; padding: 32px 24px 80px; display: grid; grid-template-columns: 200px 1fr; gap: 32px; }
+  @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } .toc { display: none; } }
+
+  .toc {
+    position: sticky; top: 64px; align-self: start; font-size: 13.5px;
+    border-left: 2px solid var(--line); padding-left: 12px;
+  }
+  .toc a { display: block; color: var(--muted); text-decoration: none; padding: 3px 0; }
+  .toc a:hover { color: var(--rk); }
+  .toc a.section { color: var(--ink); font-weight: 600; margin-top: 12px; }
+  .toc a.section:first-child { margin-top: 0; }
+
+  h1 { font-size: 32px; margin: 0 0 4px; letter-spacing: -0.01em; }
+  h1 .accent { color: var(--rk); }
+  .sub { color: var(--muted); font-size: 15.5px; margin: 0 0 24px; }
+  .oneliner {
+    background: var(--cream); border-left: 5px solid var(--rk); border-radius: 8px;
+    padding: 14px 18px; font-size: 15.5px; margin: 24px 0;
+  }
+
+  h2 { font-size: 22px; margin: 44px 0 10px; padding: 0; border-bottom: 2px solid var(--rk); padding-bottom: 6px; }
+  h3 { font-size: 17px; margin: 24px 0 8px; }
+  h4 { font-size: 14px; margin: 16px 0 6px; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); }
+
+  p, li { font-size: 15px; }
+  code { font-family: 'SF Mono', Consolas, 'Roboto Mono', monospace; font-size: 13px; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--code-border); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13px; line-height: 1.55; margin: 12px 0;
+  }
+  pre code { background: transparent; padding: 0; }
+
+  .endpoint {
+    border: 1px solid var(--line); border-radius: 12px; padding: 0; margin: 20px 0;
+    overflow: hidden;
+  }
+  .endpoint-head {
+    background: #fafafa; border-bottom: 1px solid var(--line); padding: 12px 16px;
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  }
+  .method {
+    background: var(--rk); color: #fff; font-size: 12px; font-weight: 700;
+    padding: 3px 8px; border-radius: 4px; letter-spacing: 0.03em;
+  }
+  .path { font-family: 'SF Mono', Consolas, monospace; font-size: 14px; font-weight: 600; }
+  .endpoint-body { padding: 16px 20px; }
+  .endpoint-body h4:first-child { margin-top: 0; }
+
+  table { border-collapse: collapse; width: 100%; margin: 8px 0 16px; font-size: 13.5px; }
+  th { background: var(--cream); text-align: left; padding: 8px 10px; border: 1px solid var(--line); font-size: 12px; text-transform: uppercase; letter-spacing: 0.03em; }
+  td { padding: 8px 10px; border: 1px solid var(--line); vertical-align: top; }
+  td code { font-size: 12.5px; }
+
+  .callout {
+    border-radius: 8px; padding: 12px 16px; margin: 16px 0;
+    border: 1px solid; font-size: 14px;
+  }
+  .callout.note { background: #fffbeb; border-color: #fcd34d; }
+  .callout.warn { background: #fef3c7; border-color: #f59e0b; }
+  .callout.info { background: #eff6ff; border-color: #93c5fd; }
+  .callout b { display: block; margin-bottom: 4px; }
+
+  .pill {
+    display: inline-block; font-size: 11.5px; font-weight: 600;
+    padding: 2px 7px; border-radius: 4px; background: #e5e7eb; color: #374151;
+    text-transform: uppercase; letter-spacing: 0.04em;
+  }
+  .pill.required { background: #fee2e2; color: #b91c1c; }
+  .pill.optional { background: #dbeafe; color: #1e40af; }
+  .pill.utility { background: #dcfce7; color: #166534; }
+
+  footer { margin-top: 64px; padding-top: 20px; border-top: 1px solid var(--line); color: var(--muted); font-size: 12.5px; }
+  footer a { color: var(--muted); }
+</style>
+</head>
+<body>
+
+<nav class="topbar">
+  <div class="topbar-inner">
+    <a class="wordmark" href="/"><span class="accent">Rakt</span>ify<sup style="font-size:9px;color:var(--muted);margin-left:2px">™</sup></a>
+    <a class="topbar-back" href="/">← Back to Raktify</a>
+  </div>
+</nav>
+
+<div class="layout">
+  <aside class="toc">
+    <a class="section" href="#overview">Overview</a>
+    <a href="#who">Who this is for</a>
+    <a href="#quickstart">Quickstart</a>
+
+    <a class="section" href="#auth">Authentication</a>
+    <a href="#hmac">HMAC-SHA256</a>
+    <a href="#partner-key">Getting a partner key</a>
+
+    <a class="section" href="#endpoints">Endpoints</a>
+    <a href="#donor-registration">Donor registration</a>
+    <a href="#donation">Donation</a>
+
+    <a class="section" href="#reliability">Reliability</a>
+    <a href="#idempotency">Idempotency</a>
+    <a href="#rate-limits">Rate limits</a>
+    <a href="#errors">Errors</a>
+
+    <a class="section" href="#consent">Consent flow</a>
+    <a class="section" href="#openapi">OpenAPI + SDK</a>
+    <a class="section" href="#contact">Contact + support</a>
+  </aside>
+
+  <main>
+    <h1>Raktify <span class="accent">Developer</span> API</h1>
+    <p class="sub">Public REST webhook contract for blood-bank software vendors to sync donor and donation records into Raktify, India's district-wide blood-response platform.</p>
+
+    <div class="oneliner">
+      <strong>One-line pitch for your engineering team:</strong> your software already captures every donor registration and every collection event; a single HMAC-signed HTTPS POST after each event mirrors it into Raktify so donors can be reached for compatible requests in their district. No polling, no scraping, no dual-entry, no BSP.
+    </div>
+
+    <h2 id="overview">Overview</h2>
+    <p>Raktify is a not-for-profit blood-response platform built by <a href="https://raktify.choudhari.ngo/">Choudhari EduHealth India Foundation</a>. It runs the matching pipeline between hospitals with urgent blood requests, blood banks holding tested inventory, and voluntary donors in the surrounding district.</p>
+    <p>Blood banks already run software — Safetrans (Strides), e-RaktKosh, BLIS, RAKT, or homegrown Excel/Access systems. Asking a technician to <em>also</em> type each donor and donation into Raktify is friction that will kill adoption. Instead we publish a single webhook contract: your software pushes an event, our platform mirrors it. Direction is <strong>vendor → Raktify (push)</strong> — you don't need to open any inbound ports or expose credentials.</p>
+
+    <h3 id="who">Who this is for</h3>
+    <ul>
+      <li><strong>BB software vendors</strong> (Safetrans/Strides, e-RaktKosh, BLIS, RAKT, and any homegrown system) who want their hospital clients to appear in Raktify's matching pool without dual data entry.</li>
+      <li><strong>Hospital IT teams</strong> maintaining in-house BB software; you can implement the client yourself in ~1 day.</li>
+      <li><strong>Standards-based tools</strong> — we publish an <a href="#openapi">OpenAPI 3.0 spec</a>. Any language that can HTTP + HMAC-SHA256 can integrate.</li>
+    </ul>
+
+    <h3 id="quickstart">Quickstart</h3>
+    <ol>
+      <li><a href="#partner-key">Request a partner key</a> for each hospital installation you integrate.</li>
+      <li>Every donor registration your operator completes: POST to <code>/webhooks/v1/donor-registration</code>.</li>
+      <li>Every donation event (draw + TTI screening result): POST to <code>/webhooks/v1/donation</code>.</li>
+      <li>Sign each request body with your partner key's HMAC-SHA256 secret; carry <code>X-Raktify-Partner-Key</code> and <code>X-Raktify-Signature</code> headers.</li>
+      <li>Include a <code>vendor_event_id</code> in every payload. Retries with the same ID are safe (idempotent).</li>
+    </ol>
+
+    <h2 id="auth">Authentication</h2>
+
+    <h3 id="hmac">HMAC-SHA256 request signing</h3>
+    <p>Every request MUST carry two headers:</p>
+    <table>
+      <thead><tr><th>Header</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td><code>X-Raktify-Partner-Key</code></td><td>Your <code>pk_...</code> identifier — one per hospital installation.</td></tr>
+        <tr><td><code>X-Raktify-Signature</code></td><td><code>sha256=&lt;hex&gt;</code> — HMAC-SHA256 over the raw request body, keyed by your partner secret.</td></tr>
+        <tr><td><code>Content-Type</code></td><td><code>application/json</code></td></tr>
+      </tbody>
+    </table>
+
+    <h4>Signing example (Node)</h4>
+<pre><code>const crypto = require('crypto');
+const body = JSON.stringify(payload);
+const signature = crypto
+  .createHmac('sha256', PARTNER_SECRET)
+  .update(body)
+  .digest('hex');
+
+fetch('https://raktify-api.azurewebsites.net/webhooks/v1/donor-registration', {
+  method: 'POST',
+  headers: {
+    'Content-Type': 'application/json',
+    'X-Raktify-Partner-Key': 'pk_your_key_here',
+    'X-Raktify-Signature': 'sha256=' + signature,
+  },
+  body,
+});</code></pre>
+
+    <h4>Signing example (Python)</h4>
+<pre><code>import hmac, hashlib, json, requests
+
+body = json.dumps(payload).encode('utf-8')
+sig = hmac.new(PARTNER_SECRET.encode('utf-8'), body, hashlib.sha256).hexdigest()
+
+requests.post(
+    'https://raktify-api.azurewebsites.net/webhooks/v1/donor-registration',
+    data=body,
+    headers={
+        'Content-Type': 'application/json',
+        'X-Raktify-Partner-Key': 'pk_your_key_here',
+        'X-Raktify-Signature': 'sha256=' + sig,
+    },
+)</code></pre>
+
+    <div class="callout warn">
+      <b>Sign the raw body bytes, not the parsed object.</b> If your HTTP client serializes JSON differently from what you passed to the HMAC (key ordering, whitespace, escaping), the signature will not verify. Serialize once, sign that byte string, send that byte string.
+    </div>
+
+    <h3 id="partner-key">Getting a partner key</h3>
+    <p>Partner keys are issued per hospital installation. If your software serves five hospitals, you get five distinct keys — that way we can revoke a single hospital's key without affecting the others.</p>
+    <p>To request a key, contact <a href="mailto:contact@choudhari.ngo?subject=Raktify%20vendor%20integration">contact@choudhari.ngo</a> with:</p>
+    <ul>
+      <li>Vendor / company name</li>
+      <li>Hospital(s) currently using your software that want Raktify integration</li>
+      <li>Technical contact for the integration engineer</li>
+    </ul>
+    <p>We reply with the <code>partner_key</code> and the <code>HMAC secret</code> (revealed exactly once — save it into your credentials store immediately). Self-service issuance via an admin panel is on the roadmap.</p>
+
+    <h2 id="endpoints">Endpoints</h2>
+    <p><strong>Base URL:</strong> <code>https://raktify-api.azurewebsites.net</code></p>
+    <p>All request and response bodies are JSON. Successful writes return <code>202 Accepted</code> (the row is stored and the consent flow is enqueued asynchronously).</p>
+
+    <div class="endpoint" id="donor-registration">
+      <div class="endpoint-head">
+        <span class="method">POST</span>
+        <span class="path">/webhooks/v1/donor-registration</span>
+        <span class="pill utility">Idempotent</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Upsert a donor by mobile. A donor pushed for the first time is stored with <code>consent_pending</code> — we send them a WhatsApp with a magic link to accept on Raktify's own consent screen (DPDP §7). Matching and alerts don't reach unconsented donors.</p>
+
+        <h4>Request body</h4>
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Required?</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>vendor_event_id</code></td><td>string</td><td><span class="pill required">Required</span></td><td>Your side's event ID; used for idempotency. Max 255 chars.</td></tr>
+            <tr><td><code>event_time</code></td><td>ISO 8601 datetime</td><td><span class="pill required">Required</span></td><td>When the operator completed the registration in your software.</td></tr>
+            <tr><td><code>mobile</code></td><td>string</td><td><span class="pill required">Required</span></td><td>Indian mobile, +91 prefix or 10-digit; we normalize.</td></tr>
+            <tr><td><code>full_name</code></td><td>string</td><td><span class="pill required">Required</span></td><td>2–200 chars. Encrypted at rest.</td></tr>
+            <tr><td><code>date_of_birth</code></td><td>YYYY-MM-DD</td><td><span class="pill required">Required</span></td><td>Donor must be 18–65 (DB constraint).</td></tr>
+            <tr><td><code>gender</code></td><td>enum</td><td><span class="pill required">Required</span></td><td><code>M</code> / <code>F</code> / <code>O</code></td></tr>
+            <tr><td><code>blood_group</code></td><td>string</td><td><span class="pill optional">Optional</span></td><td><code>A+</code>, <code>A-</code>, <code>B+</code>, <code>B-</code>, <code>AB+</code>, <code>AB-</code>, <code>O+</code>, <code>O-</code>. Trusts your BB's attestation.</td></tr>
+            <tr><td><code>pincode</code></td><td>string</td><td><span class="pill optional">Optional</span></td><td>Indian 6-digit.</td></tr>
+            <tr><td><code>village_id</code></td><td>integer</td><td><span class="pill optional">Optional</span></td><td>LGD code — if you have it. Preferred over pincode.</td></tr>
+            <tr><td><code>address_line</code></td><td>string</td><td><span class="pill optional">Optional</span></td><td>Encrypted at rest.</td></tr>
+            <tr><td><code>abha_id</code></td><td>string(17)</td><td><span class="pill optional">Optional</span></td><td>ABHA ID if captured.</td></tr>
+            <tr><td><code>aadhaar_last4</code></td><td>string(4)</td><td><span class="pill optional">Optional</span></td><td>Never full Aadhaar.</td></tr>
+            <tr><td><code>preferred_language</code></td><td>enum</td><td><span class="pill optional">Optional</span></td><td><code>mr</code> / <code>hi</code> / <code>en</code>. Default <code>mr</code>.</td></tr>
+            <tr><td><code>consent_captured_at</code></td><td>ISO 8601 datetime</td><td><span class="pill optional">Optional</span></td><td>Timestamp your software captured the donor's "share with Raktify" tick. Belt-and-braces — the primary consent is always captured on Raktify's own /consent screen.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout note">
+          <b>Unknown fields are silently ignored.</b> If your software collects fields we don't require (email, guardian details, occupation, past-donation notes, whatever) — send them through anyway. We drop what we don't use. This means adding new fields your side does not require us to release a new API version.
+        </div>
+
+        <h4>Response — 202 Accepted</h4>
+<pre><code>{
+  "raktify_donor_id": "6fda231f-9e7e-4a1d-8761-87e15f83d1ee",
+  "action": "created",             // "created" | "updated_pending" | "updated_consented"
+  "is_new": true,
+  "consent_status": "pending"      // "pending" | "active"
+}</code></pre>
+
+        <h4>Error responses</h4>
+        <table>
+          <thead><tr><th>Code</th><th>Body</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>401</td><td><code>{"error":"signature_mismatch"}</code></td><td>HMAC did not verify. Check secret + body-bytes.</td></tr>
+            <tr><td>401</td><td><code>{"error":"unknown_partner_key"}</code></td><td>Partner key not recognized.</td></tr>
+            <tr><td>403</td><td><code>{"error":"partner_key_revoked"}</code></td><td>Key exists but is inactive.</td></tr>
+            <tr><td>422</td><td><code>{"error":"invalid_input", "details":{...}}</code></td><td>Zod validation error; <code>details</code> pinpoints the offending field.</td></tr>
+            <tr><td>422</td><td><code>{"error":"invalid_mobile"}</code></td><td>Not an Indian mobile.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="endpoint" id="donation">
+      <div class="endpoint-head">
+        <span class="method">POST</span>
+        <span class="path">/webhooks/v1/donation</span>
+        <span class="pill utility">Idempotent</span>
+      </div>
+      <div class="endpoint-body">
+        <p>Record a donation event. The donor MUST already exist on Raktify — push <code>/donor-registration</code> first for a new donor and retry.</p>
+
+        <h4>Request body</h4>
+        <table>
+          <thead><tr><th>Field</th><th>Type</th><th>Required?</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td><code>vendor_event_id</code></td><td>string</td><td><span class="pill required">Required</span></td><td>Your side's event ID.</td></tr>
+            <tr><td><code>event_time</code></td><td>ISO 8601 datetime</td><td><span class="pill required">Required</span></td><td>When the operator recorded the donation.</td></tr>
+            <tr><td><code>donor_mobile</code></td><td>string</td><td><span class="pill required">Required</span></td><td>The join key back to the donor (same as the earlier registration).</td></tr>
+            <tr><td><code>collection_date</code></td><td>YYYY-MM-DD</td><td><span class="pill required">Required</span></td><td>Must not be in the future (DB constraint).</td></tr>
+            <tr><td><code>component_code</code></td><td>string</td><td><span class="pill required">Required</span></td><td>Matches Raktify's <code>blood_components.code</code> — <code>WB</code>, <code>PRBC</code>, <code>FFP</code>, <code>PLT</code>, <code>CRYO</code>. Case-insensitive.</td></tr>
+            <tr><td><code>volume_ml</code></td><td>integer</td><td><span class="pill required">Required</span></td><td>1–1000.</td></tr>
+            <tr><td><code>isbt_barcode</code></td><td>string</td><td><span class="pill required">Required</span></td><td>Bag barcode. Must be unique across Raktify.</td></tr>
+            <tr><td><code>hb_gdl</code></td><td>number</td><td><span class="pill optional">Optional</span></td><td>Donor Hb at draw (g/dL).</td></tr>
+          </tbody>
+        </table>
+
+        <h4>Response — 202 Accepted</h4>
+<pre><code>{
+  "raktify_donor_id": "6fda231f-9e7e-4a1d-8761-87e15f83d1ee",
+  "raktify_donation_id": "4ab05951-f222-4e14-9993-4ea38372b777",
+  "action": "created"
+}</code></pre>
+
+        <h4>Error responses</h4>
+        <table>
+          <thead><tr><th>Code</th><th>Body</th><th>Meaning</th></tr></thead>
+          <tbody>
+            <tr><td>409</td><td><code>{"error":"donor_not_found"}</code></td><td>Donor with that mobile hasn't been pushed yet. Retry after <code>/donor-registration</code>.</td></tr>
+            <tr><td>422</td><td><code>{"error":"unknown_component"}</code></td><td><code>component_code</code> doesn't match <code>blood_components.code</code>.</td></tr>
+            <tr><td>422</td><td><code>{"error":"invalid_input"}</code></td><td>Field-level Zod error.</td></tr>
+          </tbody>
+        </table>
+
+        <div class="callout note">
+          <b>The trigger automatically creates a blood_inventory bag row</b> in QA (quarantine) status when a verified donation lands. TTI screening results follow when your operator marks them in your software; that's a future extension of the API.
+        </div>
+      </div>
+    </div>
+
+    <h2 id="reliability">Reliability</h2>
+
+    <h3 id="idempotency">Idempotency</h3>
+    <p>Every request MUST include <code>vendor_event_id</code>. If your delivery layer retries after a network blip, retries with the same <code>(partner_key, vendor_event_id)</code> pair return the original result cached from the first attempt — the same <code>raktify_donor_id</code>, the same status. This lets you use at-least-once delivery semantics safely.</p>
+    <p>Idempotency records are retained for 30 days. Beyond that, a repeat of an old <code>vendor_event_id</code> is treated as a fresh request.</p>
+
+    <h3 id="rate-limits">Rate limits</h3>
+    <p>Currently 100 requests / IP / minute globally. Your partner key isn't rate-limited separately — the global limit is generous enough for any normal BB workflow (a busy blood bank processes ~50 donations per day). If you need higher throughput for a batch backfill, contact us to arrange a temporary uplift.</p>
+    <p>Responses on rate-limit: <code>429</code> with <code>{"error":"rate_limit_global"}</code> and a <code>Retry-After</code> header. Back off + retry.</p>
+
+    <h3 id="errors">Error reference</h3>
+    <table>
+      <thead><tr><th>HTTP</th><th>Error code</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td>202</td><td>(success)</td><td>Row stored (or idempotent replay).</td></tr>
+        <tr><td>401</td><td><code>missing_partner_key</code>, <code>missing_signature</code>, <code>signature_mismatch</code>, <code>unknown_partner_key</code>, <code>invalid_partner_key_format</code></td><td>Fix auth headers.</td></tr>
+        <tr><td>403</td><td><code>partner_key_revoked</code></td><td>Contact us for a new key.</td></tr>
+        <tr><td>409</td><td><code>donor_not_found</code></td><td>Push <code>/donor-registration</code> first.</td></tr>
+        <tr><td>422</td><td><code>invalid_input</code>, <code>invalid_mobile</code>, <code>unknown_component</code></td><td>Fix payload; do NOT retry with same body.</td></tr>
+        <tr><td>429</td><td><code>rate_limit_global</code></td><td>Honor <code>Retry-After</code>, then retry.</td></tr>
+        <tr><td>500</td><td><code>internal_error</code></td><td>Transient — retry with backoff.</td></tr>
+      </tbody>
+    </table>
+
+    <h2 id="consent">Consent flow — what happens after your push</h2>
+    <p>India's Digital Personal Data Protection Act (DPDP §7) requires explicit donor consent before we process their PII for platform purposes. Your push tells us the donor exists at a specific blood bank; consent is captured separately on Raktify's own screen.</p>
+    <ol>
+      <li>Your push lands. Donor row is created with <code>consent_data_use=false</code> and <code>consent_pending_since=NOW()</code>.</li>
+      <li>Raktify sends the donor a WhatsApp (approved Meta template <code>donor_consent_invite</code>) with a magic link to <code>https://raktify.choudhari.ngo/consent/&lt;token&gt;</code>.</li>
+      <li>The donor sees Raktify's own consent screen — what data we hold, what we'll do with it, their DPDP rights — and taps <strong>Accept</strong>, <strong>Decline</strong>, or defers.</li>
+      <li><strong>Accept:</strong> <code>consent_data_use</code> flips to true; the donor becomes visible to matching for compatible requests in their district.</li>
+      <li><strong>Decline:</strong> we run the donor-erasure scrub (mobile tombstoned, name and address wiped) within seconds.</li>
+      <li><strong>No response in 14 days:</strong> the same scrub runs automatically. We don't retain PII we have no lawful basis to process.</li>
+    </ol>
+
+    <div class="callout info">
+      <b>What this means for you:</b> Your operator does not need to collect Raktify-specific consent in your software. If your donor registration form has a "share with Raktify" checkbox, great — pass the timestamp in <code>consent_captured_at</code> as an audit signal. But Raktify's own consent step is the authoritative capture. Your push starts a conversation; the donor closes it on our side.
+    </div>
+
+    <h2 id="openapi">OpenAPI 3.0 spec + tooling</h2>
+    <p>Machine-readable specification for auto-generating clients (Postman, Insomnia, openapi-generator, Zod-from-schema, etc.):</p>
+    <p><a href="/api/vendor-webhook-v1.yaml"><code>/api/vendor-webhook-v1.yaml</code></a> — OpenAPI 3.0.3, single source of truth.</p>
+    <p>The spec is versioned in the URL (<code>/webhooks/v1/</code>). Adding an optional field is not a version bump; changing semantics, removing, or renaming fields would be v2 and would run alongside v1.</p>
+
+    <h2 id="contact">Contact + support</h2>
+    <ul>
+      <li><strong>Get a partner key / start integration:</strong> <a href="mailto:contact@choudhari.ngo?subject=Raktify%20vendor%20integration">contact@choudhari.ngo</a></li>
+      <li><strong>Report a bug or ask a question:</strong> same address — reply time is typically same day IST business hours.</li>
+      <li><strong>About the platform:</strong> <a href="/how-raktify-works.html">How Raktify works</a> · <a href="/">Home</a></li>
+      <li><strong>Legal:</strong> <a href="/terms">Terms</a> · <a href="/privacy">Privacy</a> · <a href="/data-deletion">Data deletion</a></li>
+    </ul>
+
+    <footer>
+      Raktify™ is an initiative of the <a href="https://raktify.choudhari.ngo/">Choudhari EduHealth India Foundation</a>, a Section 8 not-for-profit in India. This developer API is open to any BB software vendor at no cost. Trademark filed and pending.
+    </footer>
+
+  </main>
+</div>
+
+</body>
+</html>

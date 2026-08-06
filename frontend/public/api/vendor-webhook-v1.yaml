@@ -1,0 +1,381 @@
+# Raktify Vendor Push Webhook API — OpenAPI 3.0 spec
+#
+# Public contract for blood-bank software vendors (Safetrans/Strides,
+# e-RaktKosh, BLIS, RAKT, hospital-homegrown systems) to push donor and
+# donation records into Raktify.
+#
+# Companion HTML documentation: https://raktify.choudhari.ngo/developers
+# Request a partner key: contact@choudhari.ngo
+#
+# Versioning: adding an OPTIONAL field is not a version bump. Removing,
+# renaming, or changing the semantics of an existing field would be v2 and
+# would run alongside v1 at /webhooks/v2/*.
+openapi: 3.0.3
+info:
+  title: Raktify Vendor Push Webhook
+  version: 1.0.0
+  summary: BB software vendor → Raktify donor + donation event push.
+  description: |
+    Public REST webhook contract for Indian blood-bank software vendors to
+    sync donor and donation records into Raktify without dual data entry.
+
+    - **HMAC-SHA256 authenticated.** Every request carries `X-Raktify-Partner-Key`
+      + `X-Raktify-Signature` headers. See the [developer docs](https://raktify.choudhari.ngo/developers)
+      for the signing recipe.
+    - **Idempotent.** Every request carries `vendor_event_id`; retries with the
+      same value replay the cached outcome for 30 days.
+    - **DPDP-compliant.** Vendor pushes donor state as "pending"; Raktify sends
+      the donor a WhatsApp magic link to accept consent on Raktify's own site.
+    - **Vendor superset accepted.** Unknown fields are silently ignored — send
+      through whatever your software captures; only the fields listed here
+      influence Raktify state.
+
+    Raktify is a not-for-profit platform run by Choudhari EduHealth India
+    Foundation. Integration is free.
+  contact:
+    name: Raktify integration support
+    email: contact@choudhari.ngo
+    url: https://raktify.choudhari.ngo/developers
+  license:
+    name: See Terms
+    url: https://raktify.choudhari.ngo/terms
+  termsOfService: https://raktify.choudhari.ngo/terms
+
+servers:
+  - url: https://raktify-api.azurewebsites.net
+    description: Production
+  # A sandbox environment is on the roadmap. Contact us for a test partner key.
+
+security:
+  - PartnerKey: []
+    PartnerSignature: []
+
+paths:
+  /webhooks/v1/donor-registration:
+    post:
+      summary: Upsert a donor by mobile.
+      description: |
+        Upsert a donor. New donors land with `consent_data_use=false` and
+        `consent_pending_since` set; Raktify sends a WhatsApp magic link so
+        the donor can accept on Raktify's own consent screen (DPDP §7).
+        Existing donors have their non-consent fields refreshed; consent
+        state is only ever changed by the donor themselves.
+      operationId: pushDonorRegistration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/DonorRegistration'
+            examples:
+              minimal:
+                summary: Minimal required fields
+                value:
+                  vendor_event_id: 'op-2026-08-07-001'
+                  event_time: '2026-08-07T10:15:00+05:30'
+                  mobile: '+919876543210'
+                  full_name: 'Ramesh Patil'
+                  date_of_birth: '1988-04-12'
+                  gender: 'M'
+              complete:
+                summary: With blood group + address + language
+                value:
+                  vendor_event_id: 'op-2026-08-07-002'
+                  event_time: '2026-08-07T10:22:00+05:30'
+                  mobile: '+919876543211'
+                  full_name: 'Priya Deshmukh'
+                  date_of_birth: '1990-11-03'
+                  gender: 'F'
+                  blood_group: 'O+'
+                  pincode: '444601'
+                  address_line: '12 Jaistambh Chowk, Amravati'
+                  preferred_language: 'mr'
+                  consent_captured_at: '2026-08-07T10:22:00+05:30'
+      responses:
+        '202':
+          description: Accepted. Row stored (or idempotent replay of an earlier identical request).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DonorRegistrationResult'
+              examples:
+                created:
+                  summary: New donor created
+                  value:
+                    raktify_donor_id: '6fda231f-9e7e-4a1d-8761-87e15f83d1ee'
+                    action: 'created'
+                    is_new: true
+                    consent_status: 'pending'
+                idempotentReplay:
+                  summary: Idempotent replay (same vendor_event_id)
+                  value:
+                    raktify_donor_id: '6fda231f-9e7e-4a1d-8761-87e15f83d1ee'
+                    idempotent_replay: true
+                    action: 'created'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/PartnerKeyRevoked'
+        '422':
+          $ref: '#/components/responses/InvalidInput'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+  /webhooks/v1/donation:
+    post:
+      summary: Record a donation event.
+      description: |
+        Records a donation. Donor MUST already exist on Raktify — push
+        `/donor-registration` first for a new donor and retry. A verified
+        donation automatically creates a blood_inventory bag row in QA
+        (quarantine) status.
+      operationId: pushDonation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Donation'
+            examples:
+              wholeBlood:
+                summary: Whole blood collection
+                value:
+                  vendor_event_id: 'dn-2026-08-07-001'
+                  event_time: '2026-08-07T11:05:00+05:30'
+                  donor_mobile: '+919876543211'
+                  collection_date: '2026-08-07'
+                  component_code: 'WB'
+                  volume_ml: 350
+                  isbt_barcode: 'W031369220'
+                  hb_gdl: 13.5
+      responses:
+        '202':
+          description: Accepted. Donation stored + inventory bag auto-created.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DonationResult'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/PartnerKeyRevoked'
+        '409':
+          description: Donor not found. Push /donor-registration first.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                error: 'donor_not_found'
+                hint: 'Push donor-registration first, then retry this donation event.'
+        '422':
+          description: Validation failed (unknown component, malformed body, etc.).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              examples:
+                unknownComponent:
+                  value:
+                    error: 'unknown_component'
+                    hint: 'component_code must match a value in blood_components.code (WB, PRBC, FFP, PLT, CRYO, ...).'
+                invalidInput:
+                  value:
+                    error: 'invalid_input'
+                    details:
+                      _errors: []
+                      volume_ml:
+                        _errors: ['Number must be greater than 0']
+        '429':
+          $ref: '#/components/responses/RateLimited'
+
+components:
+  securitySchemes:
+    PartnerKey:
+      type: apiKey
+      in: header
+      name: X-Raktify-Partner-Key
+      description: Your `pk_...` identifier — one per hospital installation.
+    PartnerSignature:
+      type: apiKey
+      in: header
+      name: X-Raktify-Signature
+      description: |
+        `sha256=<hex>` where `<hex>` is `HMAC-SHA256(raw_body_bytes, partner_secret)`.
+        Sign the RAW bytes you send — parsed JSON re-serialization changes the
+        bytes and breaks the signature.
+
+  schemas:
+    DonorRegistration:
+      type: object
+      required: [vendor_event_id, event_time, mobile, full_name, date_of_birth, gender]
+      additionalProperties: true # vendor superset accepted; unknown fields ignored
+      properties:
+        vendor_event_id:
+          type: string
+          maxLength: 255
+          description: Your side's event ID; used for idempotency.
+        event_time:
+          type: string
+          format: date-time
+          description: When the operator completed the registration in your software.
+        mobile:
+          type: string
+          description: Indian mobile, +91 prefix or 10-digit; we normalize.
+          example: '+919876543210'
+        full_name:
+          type: string
+          minLength: 2
+          maxLength: 200
+          description: Encrypted at rest.
+        date_of_birth:
+          type: string
+          format: date
+          description: YYYY-MM-DD. Donor must be aged 18–65.
+        gender:
+          type: string
+          enum: [M, F, O]
+        blood_group:
+          type: string
+          enum: [A+, A-, B+, B-, AB+, AB-, O+, O-]
+          description: Attested by the pushing blood bank — written to `donors.blood_group_verified`.
+        pincode:
+          type: string
+          pattern: '^[1-9]\d{5}$'
+        village_id:
+          type: integer
+          minimum: 1
+          description: LGD code. Preferred over pincode when your software has it.
+        address_line:
+          type: string
+          description: Encrypted at rest.
+        abha_id:
+          type: string
+          minLength: 17
+          maxLength: 17
+        aadhaar_last4:
+          type: string
+          minLength: 4
+          maxLength: 4
+          description: Never full Aadhaar.
+        preferred_language:
+          type: string
+          enum: [mr, hi, en]
+          default: mr
+        consent_captured_at:
+          type: string
+          format: date-time
+          description: |
+            Optional audit signal — timestamp your software captured the
+            donor's "share with Raktify" tick. Non-authoritative; Raktify's
+            own /consent screen is the DPDP legal-basis capture.
+
+    DonorRegistrationResult:
+      type: object
+      required: [raktify_donor_id, action]
+      properties:
+        raktify_donor_id:
+          type: string
+          format: uuid
+        action:
+          type: string
+          enum: [created, updated_pending, updated_consented]
+        is_new:
+          type: boolean
+        consent_status:
+          type: string
+          enum: [pending, active]
+        idempotent_replay:
+          type: boolean
+          description: true if this response is a cached replay of an earlier request.
+
+    Donation:
+      type: object
+      required: [vendor_event_id, event_time, donor_mobile, collection_date, component_code, volume_ml, isbt_barcode]
+      additionalProperties: true
+      properties:
+        vendor_event_id: { type: string, maxLength: 255 }
+        event_time: { type: string, format: date-time }
+        donor_mobile:
+          type: string
+          description: Must match the mobile of a donor previously pushed via /donor-registration.
+        collection_date:
+          type: string
+          format: date
+          description: Must not be in the future.
+        component_code:
+          type: string
+          minLength: 1
+          maxLength: 8
+          description: Matches `blood_components.code` (WB, PRBC, FFP, PLT, CRYO, ...).
+          example: WB
+        volume_ml:
+          type: integer
+          minimum: 1
+          maximum: 1000
+        isbt_barcode:
+          type: string
+          minLength: 3
+          maxLength: 50
+          description: Must be unique across Raktify.
+        hb_gdl:
+          type: number
+          description: Donor haemoglobin at draw (g/dL).
+
+    DonationResult:
+      type: object
+      required: [raktify_donor_id, raktify_donation_id, action]
+      properties:
+        raktify_donor_id: { type: string, format: uuid }
+        raktify_donation_id: { type: string, format: uuid }
+        action: { type: string, enum: [created] }
+        idempotent_replay: { type: boolean }
+
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+          description: Machine-readable error code.
+        hint:
+          type: string
+          description: Human-readable hint for the vendor engineer.
+        details:
+          type: object
+          description: Zod validation error details (for 422 invalid_input).
+
+  responses:
+    Unauthorized:
+      description: HMAC verification failed or partner key missing.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          examples:
+            signatureMismatch:
+              value: { error: 'signature_mismatch' }
+            missingPartnerKey:
+              value: { error: 'missing_partner_key' }
+            unknownKey:
+              value: { error: 'unknown_partner_key' }
+    PartnerKeyRevoked:
+      description: Partner key exists but has been revoked.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 'partner_key_revoked' }
+    InvalidInput:
+      description: Payload failed validation.
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: 100 req/IP/min global limit hit. Honor Retry-After.
+      headers:
+        Retry-After:
+          schema: { type: integer }
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+          example: { error: 'rate_limit_global' }

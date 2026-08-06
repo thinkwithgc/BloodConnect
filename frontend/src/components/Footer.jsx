@@ -26,6 +26,7 @@ export function Footer({ variant = 'full' }) {
             <a href="/privacy" className="hover:text-rk-700">Privacy</a>
             <a href="/terms" className="hover:text-rk-700">Terms</a>
             <a href="/data-deletion" className="hover:text-rk-700">Data deletion</a>
+            <a href="/developers" className="hover:text-rk-700">For developers</a>
             <span className="text-stone-400">© {year}</span>
           </nav>
         </div>
@@ -144,6 +145,11 @@ export function Footer({ variant = 'full' }) {
               <li>
                 <a href="/data-deletion" className="hover:text-rk-700">
                   Data deletion
+                </a>
+              </li>
+              <li>
+                <a href="/developers" className="hover:text-rk-700">
+                  For developers
                 </a>
               </li>
             </ul>

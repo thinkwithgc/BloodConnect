@@ -1,4 +1,5 @@
-import { useQuery } from '@tanstack/react-query';
+import { useState } from 'react';
+import { useMutation, useQuery } from '@tanstack/react-query';
 
 import { apiRequest } from '../../lib/api.js';
 
@@ -42,6 +43,109 @@ function KpiCard({ label, value, tone, hint }) {
       <div className={'mt-1 text-3xl font-bold ' + (tone || 'text-slate-900')}>{value}</div>
       {hint ? <div className="mt-1 text-xs text-slate-400">{hint}</div> : null}
     </div>
+  );
+}
+
+function fmtExpiryLabel(iso) {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  const now = Date.now();
+  if (t <= now) return 'expired';
+  const hours = Math.round((t - now) / 3_600_000);
+  if (hours < 48) return `${hours}h left`;
+  const days = Math.round(hours / 24);
+  return `${days}d left`;
+}
+
+function PendingBbAdminPanel() {
+  const [copied, setCopied] = useState(false);
+
+  const q = useQuery({
+    queryKey: ['hospital', 'pending-bb-admin'],
+    queryFn: () => apiRequest('GET', '/hospital/pending-bb-admin'),
+    // Poll gently so once the BB admin consumes their token the panel
+    // disappears without a page refresh.
+    staleTime: 60_000,
+    refetchInterval: 120_000,
+    refetchOnWindowFocus: true,
+  });
+
+  const resend = useMutation({
+    mutationFn: () => apiRequest('POST', '/hospital/pending-bb-admin/resend'),
+  });
+
+  if (!q.data?.pending) return null;
+  const d = q.data;
+
+  return (
+    <article className="rk-card border border-amber-300 bg-amber-50">
+      <h2 className="text-sm font-semibold uppercase tracking-wide text-amber-900">
+        In-house blood bank — activate BB admin
+      </h2>
+      <p className="mt-1 text-sm text-amber-900">
+        Your blood bank <strong>{d.child_institution.display_name}</strong> is provisioned but
+        its admin hasn't set a password yet. Share this activation link with the BB team, or
+        resend to your registered WhatsApp number.
+      </p>
+      <div className="mt-3 space-y-2 text-sm">
+        <div>
+          <span className="text-xs uppercase tracking-wide text-amber-800">Username</span>
+          <div className="font-mono text-amber-900">{d.username}</div>
+        </div>
+        <div>
+          <span className="text-xs uppercase tracking-wide text-amber-800">Activation URL</span>
+          <div className="flex items-center gap-2">
+            <input
+              className="flex-1 rounded-md border border-amber-300 bg-white px-2 py-1 font-mono text-xs text-amber-900"
+              value={d.setup_url}
+              readOnly
+              onFocus={(e) => e.target.select()}
+            />
+            <button
+              type="button"
+              className="rounded-md border border-amber-400 bg-white px-2 py-1 text-xs font-medium text-amber-900 hover:bg-amber-100"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(d.setup_url);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                } catch {
+                  /* clipboard rejection — the input is already selectable */
+                }
+              }}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
+            <button
+              type="button"
+              className="rounded-md border border-amber-500 bg-amber-500 px-2 py-1 text-xs font-medium text-white hover:bg-amber-600 disabled:opacity-60"
+              onClick={() => resend.mutate()}
+              disabled={resend.isPending}
+            >
+              {resend.isPending ? '…' : 'Send via WhatsApp'}
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-amber-800">
+            Expires: {new Date(d.expires_at).toLocaleString('en-IN')} ·{' '}
+            <strong>{fmtExpiryLabel(d.expires_at)}</strong>
+          </p>
+          {resend.data ? (
+            <p className="mt-1 text-xs text-amber-800">
+              {resend.data.sent
+                ? `Sent via ${resend.data.provider}.`
+                : 'Send attempted — check delivery status; retry in 1 min if needed.'}
+            </p>
+          ) : null}
+          {resend.error ? (
+            <p className="mt-1 text-xs text-rk-700">
+              {resend.error?.response?.data?.error === 'rate_limit_resend'
+                ? 'Wait a minute before resending.'
+                : `Resend failed: ${resend.error?.response?.data?.error || 'unknown'}`}
+            </p>
+          ) : null}
+        </div>
+      </div>
+    </article>
   );
 }
 
@@ -116,6 +220,10 @@ export function HospitalDashboard({ onRaise }) {
           hint="raised → fulfilled"
         />
       </div>
+
+      {/* In-house BB admin activation — only rendered for hospitals with a
+          paired BB child whose admin hasn't consumed the setup token yet. */}
+      <PendingBbAdminPanel />
 
       {/* District availability grid */}
       <article className="rk-card">

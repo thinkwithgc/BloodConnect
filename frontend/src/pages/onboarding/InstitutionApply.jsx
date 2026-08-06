@@ -6,30 +6,74 @@ import { Header } from '../../components/Header.jsx';
 import { apiRequest } from '../../lib/api.js';
 
 // Client-side mirror of backend/src/routes/onboarding.js applySchema.
-// Backend re-validates; this keeps UX snappy.
-const schema = z.object({
-  kind: z.enum(['HO', 'BB']),
-  shortname: z.string().regex(/^[a-z][a-z0-9_-]{2,31}$/, 'invalid_shortname'),
-  legal_name: z.string().min(2),
-  display_name: z.string().min(2),
-  state_id: z.number().int().positive(),
-  district_id: z.number().int().positive(),
-  taluka_id: z.number().int().positive().optional(),
-  address_line: z.string().min(5),
-  pincode: z.string().regex(/^[1-9]\d{5}$/, 'invalid_pincode'),
-  cdsco_licence_number: z.string().optional(),
-  cdsco_licence_expires: z.string().optional(),
-  hospital_registration_no: z.string().optional(),
-  primary_contact_name: z.string().min(2),
-  primary_contact_designation: z.string().optional(),
-  primary_contact_mobile: z
-    .string()
-    .regex(/^(\+?91[-\s]?)?[6-9]\d{9}$/, 'invalid_mobile'),
-  primary_contact_email: z.string().email().optional().or(z.literal('')),
-  has_inhouse_blood_bank: z.boolean().optional(),
-  is_blood_bank_software_user: z.boolean().optional(),
-  software_vendor: z.string().optional(),
-});
+// Backend re-validates; this keeps UX snappy. The `.superRefine` block below
+// mirrors the backend's conditional required-ness for CDSCO fields — kept in
+// sync by hand; if backend refine rules change, mirror them here.
+const schema = z
+  .object({
+    kind: z.enum(['HO', 'BB']),
+    shortname: z.string().regex(/^[a-z][a-z0-9_-]{2,31}$/, 'invalid_shortname'),
+    legal_name: z.string().min(2),
+    display_name: z.string().min(2),
+    state_id: z.number().int().positive(),
+    district_id: z.number().int().positive(),
+    taluka_id: z.number().int().positive().optional(),
+    address_line: z.string().min(5),
+    pincode: z.string().regex(/^[1-9]\d{5}$/, 'invalid_pincode'),
+    cdsco_licence_number: z.string().optional(),
+    cdsco_licence_expires: z.string().optional(),
+    hospital_registration_no: z.string().optional(),
+    primary_contact_name: z.string().min(2),
+    primary_contact_designation: z.string().optional(),
+    primary_contact_mobile: z
+      .string()
+      .regex(/^(\+?91[-\s]?)?[6-9]\d{9}$/, 'invalid_mobile'),
+    primary_contact_email: z.string().email().optional().or(z.literal('')),
+    has_inhouse_blood_bank: z.boolean().optional(),
+    is_blood_bank_software_user: z.boolean().optional(),
+    software_vendor: z.string().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.kind === 'BB') {
+      if (!data.cdsco_licence_number) {
+        ctx.addIssue({
+          path: ['cdsco_licence_number'],
+          code: z.ZodIssueCode.custom,
+          message: 'required_for_blood_bank',
+        });
+      }
+      if (!data.cdsco_licence_expires) {
+        ctx.addIssue({
+          path: ['cdsco_licence_expires'],
+          code: z.ZodIssueCode.custom,
+          message: 'required_for_blood_bank',
+        });
+      }
+    }
+    if (data.kind === 'HO' && data.has_inhouse_blood_bank === true) {
+      if (!data.cdsco_licence_number) {
+        ctx.addIssue({
+          path: ['cdsco_licence_number'],
+          code: z.ZodIssueCode.custom,
+          message: 'required_for_inhouse_bb',
+        });
+      }
+      if (!data.cdsco_licence_expires) {
+        ctx.addIssue({
+          path: ['cdsco_licence_expires'],
+          code: z.ZodIssueCode.custom,
+          message: 'required_for_inhouse_bb',
+        });
+      }
+      if (data.shortname.length > 23) {
+        ctx.addIssue({
+          path: ['shortname'],
+          code: z.ZodIssueCode.custom,
+          message: 'shortname_max_23_for_inhouse_bb',
+        });
+      }
+    }
+  });
 
 function Field({ label, hint, children, error }) {
   return (
@@ -138,11 +182,6 @@ export function InstitutionApply() {
       setTopError('Please review the highlighted fields.');
       return;
     }
-    if (parsed.data.kind === 'BB' && !parsed.data.cdsco_licence_number) {
-      setErrors({ cdsco_licence_number: 'required_for_blood_bank' });
-      setTopError('CDSCO licence number is required for blood banks.');
-      return;
-    }
 
     setSubmitting(true);
     try {
@@ -176,6 +215,17 @@ export function InstitutionApply() {
             <dl className="grid grid-cols-2 gap-2 rounded-md bg-slate-50 p-3 text-sm">
               <dt className="text-slate-500">Application ID</dt>
               <dd className="font-mono text-xs text-slate-800">{submitted.institution_id}</dd>
+              {submitted.child_institution_id ? (
+                <>
+                  <dt className="text-slate-500">Linked blood bank ID</dt>
+                  <dd className="font-mono text-xs text-slate-800">
+                    {submitted.child_institution_id}
+                    <span className="ml-2 text-slate-500">
+                      @{submitted.child_shortname}
+                    </span>
+                  </dd>
+                </>
+              ) : null}
               <dt className="text-slate-500">Status</dt>
               <dd>
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
@@ -186,10 +236,12 @@ export function InstitutionApply() {
               <dd className="text-slate-700">{submitted.next_step}</dd>
             </dl>
             <p className="text-xs text-slate-500">
-              Our NGO admin team will verify your licence (and CDSCO registration for blood banks)
-              within 2 working days and contact your primary contact on the mobile number you
-              provided. Once the MoU is signed via OTP-eSign, you will receive login credentials
-              by WhatsApp.
+              Our NGO admin team will verify your licence within 2 working days and contact your
+              primary contact on the mobile number you provided. Once the MoU is signed via
+              Aadhaar eSign, you will receive login credentials by WhatsApp.
+              {submitted.child_institution_id
+                ? ' The linked blood bank shares this MoU — its admin credentials will be surfaced on your hospital dashboard after activation.'
+                : ''}
             </p>
             <Link to="/" className="rk-button-secondary inline-block">
               Back to home
@@ -201,6 +253,11 @@ export function InstitutionApply() {
   }
 
   const isBB = form.kind === 'BB';
+  // CDSCO fields render for a standalone BB, OR for an HO that ticks the
+  // in-house-BB checkbox — because in that case the paired child BB row
+  // needs the licence.
+  const showCdsco = isBB || (form.kind === 'HO' && form.has_inhouse_blood_bank === true);
+  const showHospReg = form.kind === 'HO';
 
   return (
     <div className="min-h-full">
@@ -282,7 +339,11 @@ export function InstitutionApply() {
             </Field>
             <Field
               label="Shortname"
-              hint="Lowercase letters, digits, dash, underscore (3–32 chars). Becomes your portal email prefix."
+              hint={
+                form.kind === 'HO' && form.has_inhouse_blood_bank
+                  ? 'Lowercase letters, digits, dash, underscore (3–23 chars for paired hospital + blood bank onboarding).'
+                  : 'Lowercase letters, digits, dash, underscore (3–32 chars). Becomes your portal email prefix.'
+              }
               error={errors.shortname}
             >
               <input
@@ -304,6 +365,13 @@ export function InstitutionApply() {
                 />
                 Yes
               </label>
+              {form.kind === 'HO' && form.has_inhouse_blood_bank ? (
+                <p className="mt-2 text-xs text-slate-500">
+                  Ticking this creates a linked blood-bank entity that shares this MoU. You will
+                  receive activation credentials for both — the hospital admin over WhatsApp, and
+                  the blood bank admin surfaced on your hospital dashboard once activated.
+                </p>
+              ) : null}
             </Field>
           </section>
 
@@ -391,9 +459,29 @@ export function InstitutionApply() {
             <h2 className="col-span-full text-sm font-semibold uppercase tracking-wide text-slate-500">
               Regulatory
             </h2>
-            {isBB ? (
+            {showHospReg ? (
+              <Field
+                label="Hospital registration number"
+                hint="Clinical Establishments Act number, if any"
+              >
+                <input
+                  className="rk-input"
+                  value={form.hospital_registration_no}
+                  onChange={(e) => update('hospital_registration_no', e.target.value)}
+                />
+              </Field>
+            ) : null}
+            {showCdsco ? (
               <>
-                <Field label="CDSCO licence number" error={errors.cdsco_licence_number}>
+                <Field
+                  label="CDSCO licence number"
+                  hint={
+                    form.kind === 'HO'
+                      ? 'For your in-house blood bank — under the Drugs & Cosmetics Act.'
+                      : undefined
+                  }
+                  error={errors.cdsco_licence_number}
+                >
                   <input
                     className="rk-input"
                     value={form.cdsco_licence_number}
@@ -408,21 +496,11 @@ export function InstitutionApply() {
                     className="rk-input"
                     value={form.cdsco_licence_expires}
                     onChange={(e) => update('cdsco_licence_expires', e.target.value)}
+                    required
                   />
                 </Field>
               </>
-            ) : (
-              <Field
-                label="Hospital registration number"
-                hint="Clinical Establishments Act number, if any"
-              >
-                <input
-                  className="rk-input"
-                  value={form.hospital_registration_no}
-                  onChange={(e) => update('hospital_registration_no', e.target.value)}
-                />
-              </Field>
-            )}
+            ) : null}
             <Field label="Existing blood-bank software?">
               <label className="mt-1 inline-flex items-center gap-2 text-sm text-slate-700">
                 <input

@@ -25,6 +25,7 @@ const registriesRouter = require('./routes/registries');
 const dhoRouter = require('./routes/dho');
 const communityLeaderRouter = require('./routes/communityLeader');
 const donorAlertsRouter = require('./routes/donorAlerts');
+const hospitalRouter = require('./routes/hospital');
 
 // Spec §10 security hardening:
 //   - Helmet with a strict CSP (no inline scripts; API only serves JSON)
@@ -145,6 +146,7 @@ function createApp() {
   app.use('/dho', dhoRouter);
   app.use('/community-leader', communityLeaderRouter);
   app.use('/donor-alerts', donorAlertsRouter);
+  app.use('/hospital', hospitalRouter);
   // Public community profile endpoint — sibling of /community-leader,
   // mounted under /community (singular) to keep the URL friendly for
   // sharing. Exported as publicRouter from the same file so we keep all

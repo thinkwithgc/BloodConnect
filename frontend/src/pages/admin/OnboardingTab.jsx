@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiRequest } from '../../lib/api.js';
@@ -51,12 +52,20 @@ export function OnboardingTab() {
 
   const verify = useMutation({
     mutationFn: (id) => apiRequest('POST', `/onboarding/verify/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] });
+      // Row flips PE → VE; move the filter with it so the admin can immediately
+      // Send-MoU rather than staring at an emptied PE list.
+      setStatus('VE');
+    },
   });
 
   const generateMou = useMutation({
     mutationFn: (id) => apiRequest('POST', `/onboarding/generate-mou/${id}`),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] }),
+    // Deliberately stay on the VE filter after Send-MoU — the row only leaves
+    // VE when the eSign webhook flips it to AC, and the detail page (or a
+    // React Query refetch on window focus) picks that up asynchronously.
   });
 
   const rows = listQ.data?.applications || [];
@@ -92,7 +101,11 @@ export function OnboardingTab() {
 
       {generateMou.data ? (
         <div className="rk-card border border-amber-300 bg-amber-50 text-sm">
-          <p className="font-semibold text-amber-900">eSign request created</p>
+          <p className="font-semibold text-amber-900">
+            {generateMou.data.cached
+              ? 'Existing eSign request returned (no new document created)'
+              : 'eSign request created'}
+          </p>
           <p className="mt-1 text-amber-900">
             Provider: <span className="font-mono">{generateMou.data.provider}</span> · Doc ID:{' '}
             <span className="font-mono">{generateMou.data.doc_id}</span>
@@ -104,9 +117,13 @@ export function OnboardingTab() {
               rel="noreferrer"
               className="mt-1 inline-block text-amber-800 underline"
             >
-              Open sign URL (dev) →
+              Open sign URL →
             </a>
           ) : null}
+          <p className="mt-2 text-xs text-amber-800">
+            The signatory will receive this URL on WhatsApp from Leegality. The URL persists on
+            the detail page — a refresh won't lose it.
+          </p>
         </div>
       ) : null}
 
@@ -128,10 +145,25 @@ export function OnboardingTab() {
               return (
                 <tr key={r.id}>
                   <td className="px-3 py-2">
-                    <div className="font-medium text-slate-900">{r.legal_name}</div>
+                    <Link
+                      to={`/admin/onboarding/${r.id}`}
+                      className="font-medium text-slate-900 hover:text-rk-700 hover:underline"
+                    >
+                      {r.legal_name}
+                    </Link>
                     <div className="font-mono text-[10px] text-slate-400">@{r.shortname}</div>
                   </td>
-                  <td className="px-3 py-2">{KIND_LABEL[r.kind] || r.kind}</td>
+                  <td className="px-3 py-2">
+                    {KIND_LABEL[r.kind] || r.kind}
+                    {r.has_inhouse_blood_bank ? (
+                      <span
+                        className="ml-1 rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600"
+                        title="Hospital with in-house blood bank — paired application"
+                      >
+                        +BB
+                      </span>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2">
                     <div className="text-slate-800">{r.primary_contact_name}</div>
                     <div className="font-mono text-xs text-slate-500">
@@ -190,10 +222,11 @@ export function OnboardingTab() {
       </div>
 
       <p className="text-xs text-slate-500">
-        PE → VE: NGO admin verifies CDSCO licence / hospital registration outside the system,
-        then clicks Verify. VE → AC: clicking Send MoU triggers a Leegality eSign request to the
-        primary contact's WhatsApp. The eSign webhook auto-provisions the institutional admin
-        login and flips status to AC.
+        PE → VE: click applicant name for full submission detail, then Verify to confirm both
+        licences (hospital registration + CDSCO if in-house BB). VE → AC: Send MoU triggers an
+        Aadhaar eSign request via Leegality; refresh-safe (URL persists on the detail page).
+        The eSign webhook then auto-provisions admin logins and flips status to AC — for paired
+        applications, the blood-bank admin's credentials surface on the hospital dashboard.
       </p>
     </section>
   );

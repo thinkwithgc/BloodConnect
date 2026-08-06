@@ -17,6 +17,7 @@
 name: Azure Static Web Apps CI/CD - raktify-web
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main

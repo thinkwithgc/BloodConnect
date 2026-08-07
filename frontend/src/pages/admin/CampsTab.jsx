@@ -769,42 +769,199 @@ function CreateCampForm({ onCreated }) {
   );
 }
 
+const REG_STATUS = {
+  RG: { label: 'Registered', cls: 'bg-sky-100 text-sky-800' },
+  AT: { label: 'Attended', cls: 'bg-green-100 text-green-800' },
+  NS: { label: 'No-show', cls: 'bg-amber-100 text-amber-800' },
+  CN: { label: 'Cancelled', cls: 'bg-slate-200 text-slate-700' },
+};
+
+const REG_SOURCE = {
+  WB: 'Web',
+  WA: 'WhatsApp',
+  CO: 'Coordinator',
+  QR: 'QR scan',
+};
+
+function maskMobile(m) {
+  if (!m) return '—';
+  const s = String(m).replace(/\s+/g, '');
+  if (s.length < 5) return '••••';
+  return `${s.slice(0, -8)}••••${s.slice(-4)}`;
+}
+
+function StatChip({ label, value, tone }) {
+  return (
+    <div className="rounded-md border border-slate-200 bg-white px-3 py-2">
+      <div className="text-[10px] uppercase tracking-wide text-slate-500">{label}</div>
+      <div className={'text-lg font-bold ' + (tone || 'text-slate-900')}>{value ?? 0}</div>
+    </div>
+  );
+}
+
 function RosterPanel({ camp, onClose }) {
+  const qc = useQueryClient();
   const q = useQuery({
     queryKey: ['admin', 'camp-roster', camp.id],
     queryFn: () => apiRequest('GET', `/camps/${camp.id}/registrations`),
+    refetchOnWindowFocus: true,
   });
+
+  const mark = useMutation({
+    mutationFn: ({ regId, status }) =>
+      apiRequest('POST', `/camps/${camp.id}/registrations/${regId}/status`, { status }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'camp-roster', camp.id] }),
+  });
+
   const regs = q.data?.registrations || [];
+  const summary = q.data?.summary || {};
+  const isTerminal = camp.status === 'CO' || camp.status === 'CA';
 
   return (
-    <article className="rk-card space-y-2">
-      <div className="flex items-center justify-between">
+    <article className="rk-card space-y-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">{camp.name}</h3>
+          <h3 className="text-base font-semibold text-slate-900">Roster — {camp.name}</h3>
           <p className="text-xs text-slate-500">
             {fmtDate(camp.scheduled_date)} · {camp.venue}
+            {camp.target_donor_count ? ` · target ${camp.target_donor_count}` : ''}
           </p>
         </div>
         <button type="button" onClick={onClose} className="rk-button-secondary text-xs">
           Close
         </button>
       </div>
+
+      {/* Summary strip — counts by registration status */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+        <StatChip label="Total" value={summary.total} />
+        <StatChip label="Registered" value={summary.registered} tone="text-sky-800" />
+        <StatChip label="Attended" value={summary.attended} tone="text-green-700" />
+        <StatChip label="No-show" value={summary.no_show} tone="text-amber-700" />
+        <StatChip label="Cancelled" value={summary.cancelled} tone="text-slate-500" />
+      </div>
+
       {q.isLoading ? (
-        <p className="text-sm text-slate-500">…</p>
+        <p className="text-sm text-slate-500">Loading roster…</p>
       ) : regs.length === 0 ? (
         <p className="text-sm text-slate-500">No registrations yet.</p>
       ) : (
-        <ul className="divide-y divide-slate-100">
-          {regs.map((r) => (
-            <li key={r.id} className="flex items-center justify-between py-2 text-sm">
-              <span className="font-medium text-slate-900">{r.full_name}</span>
-              <span className="text-xs text-slate-500">
-                {r.blood_group_code || 'unverified'} · {fmtDate(r.registered_at)}
-              </span>
-            </li>
-          ))}
-        </ul>
+        <div className="overflow-x-auto rounded-md border border-slate-200">
+          <table className="min-w-full text-sm">
+            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
+              <tr>
+                <th className="px-3 py-2 text-left">Donor</th>
+                <th className="px-3 py-2 text-left">Mobile</th>
+                <th className="px-3 py-2 text-left">Blood group</th>
+                <th className="px-3 py-2 text-left">Source</th>
+                <th className="px-3 py-2 text-left">RSVP</th>
+                <th className="px-3 py-2 text-left">Registered</th>
+                <th className="px-3 py-2 text-right">Mark as</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 bg-white">
+              {regs.map((r) => {
+                const s = REG_STATUS[r.status] || REG_STATUS.RG;
+                const isBusy = mark.isPending && mark.variables?.regId === r.id;
+                return (
+                  <tr key={r.id}>
+                    <td className="px-3 py-2">
+                      <div className="font-medium text-slate-900">{r.full_name || '—'}</div>
+                      {r.gender || r.date_of_birth ? (
+                        <div className="text-[10px] text-slate-500">
+                          {r.gender ? { M: 'Male', F: 'Female', O: 'Other' }[r.gender] : ''}
+                          {r.gender && r.date_of_birth ? ' · ' : ''}
+                          {r.date_of_birth ? String(r.date_of_birth).slice(0, 10) : ''}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 font-mono text-xs text-slate-700">
+                      {maskMobile(r.mobile)}
+                    </td>
+                    <td className="px-3 py-2">
+                      {r.blood_group_code ? (
+                        <span className="font-mono font-semibold text-slate-900">
+                          {r.blood_group_code}
+                        </span>
+                      ) : (
+                        <span className="text-xs text-slate-400">unverified</span>
+                      )}
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-700">
+                      {REG_SOURCE[r.source] || r.source}
+                    </td>
+                    <td className="px-3 py-2">
+                      <span
+                        className={`inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${s.cls}`}
+                      >
+                        {s.label}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-xs text-slate-700">
+                      {fmtDate(r.registered_at)}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      {isTerminal ? (
+                        <span className="text-[10px] text-slate-400">camp closed</span>
+                      ) : (
+                        <div className="inline-flex gap-2 whitespace-nowrap">
+                          {r.status !== 'AT' ? (
+                            <button
+                              type="button"
+                              className="text-[11px] font-medium text-green-700 hover:underline disabled:opacity-40"
+                              disabled={isBusy}
+                              onClick={() => mark.mutate({ regId: r.id, status: 'AT' })}
+                              title="Mark this donor as attended"
+                            >
+                              Attended
+                            </button>
+                          ) : null}
+                          {r.status !== 'NS' ? (
+                            <button
+                              type="button"
+                              className="text-[11px] font-medium text-amber-700 hover:underline disabled:opacity-40"
+                              disabled={isBusy}
+                              onClick={() => mark.mutate({ regId: r.id, status: 'NS' })}
+                              title="Mark this donor as no-show"
+                            >
+                              No-show
+                            </button>
+                          ) : null}
+                          {r.status !== 'RG' ? (
+                            <button
+                              type="button"
+                              className="text-[11px] font-medium text-sky-700 hover:underline disabled:opacity-40"
+                              disabled={isBusy}
+                              onClick={() => mark.mutate({ regId: r.id, status: 'RG' })}
+                              title="Revert to registered"
+                            >
+                              Revert
+                            </button>
+                          ) : null}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
+
+      {mark.error ? (
+        <p className="text-xs text-rk-700">
+          Mark failed: {mark.error?.response?.data?.error || 'unknown'}
+        </p>
+      ) : null}
+
+      <p className="text-xs text-slate-500">
+        Marking a donor <strong>Attended</strong> updates the camp's per-registration status
+        but does not automatically create a donation record — the blood bank still records
+        the actual draw through the donation entry flow. Reconciliation between{' '}
+        <em>attended count</em> here and <em>attended_donor_count</em> on the camp row
+        (set when you Complete the camp) is a good sanity check.
+      </p>
     </article>
   );
 }

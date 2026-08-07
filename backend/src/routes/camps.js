@@ -367,26 +367,86 @@ router.get('/:id', verifyJWT, async (req, res) => {
 });
 
 // ── GET /camps/:id/registrations ─────────────────────────────────────────
+// Roster for the admin/coord/BB panel. Returns per-donor row + a summary
+// block with counts by status so the UI can render a reconciliation strip
+// without re-computing client-side. Mobile is plaintext CHAR(13) —
+// admin/coord/BB roles are trusted to see it (the same roles already have
+// access to donor mobile via /donors/lookup). Frontend masks for display.
 router.get(
   '/:id/registrations',
   verifyJWT,
   requireRole('coordinator', 'ngo_admin', 'super_admin', 'blood_bank'),
   async (req, res) => {
-    const r = await withRlsContext(req, (c) =>
-      c.query(
-        `SELECT cr.id, cr.status, cr.registered_at, cr.source,
-                d.id AS donor_id, d.full_name,
-                bg.code AS blood_group_code
-           FROM camp_registrations cr
-           JOIN donors d        ON d.id = cr.donor_id
-      LEFT JOIN blood_groups bg ON bg.id = d.blood_group_verified
-          WHERE cr.camp_id = $1
-       ORDER BY cr.registered_at DESC`,
-        [req.params.id],
+    const [regs, summary] = await Promise.all([
+      withRlsContext(req, (c) =>
+        c.query(
+          `SELECT cr.id, cr.status, cr.registered_at, cr.status_changed_at, cr.source,
+                  d.id AS donor_id, d.full_name, d.mobile, d.gender, d.date_of_birth,
+                  d.blood_group_verified,
+                  bg.code AS blood_group_code
+             FROM camp_registrations cr
+             JOIN donors d        ON d.id = cr.donor_id
+        LEFT JOIN blood_groups bg ON bg.id = d.blood_group_verified
+            WHERE cr.camp_id = $1
+         ORDER BY cr.registered_at DESC`,
+          [req.params.id],
+        ),
       ),
+      withRlsContext(req, (c) =>
+        c.query(
+          `SELECT
+              COUNT(*) FILTER (WHERE status = 'RG')::int AS registered,
+              COUNT(*) FILTER (WHERE status = 'AT')::int AS attended,
+              COUNT(*) FILTER (WHERE status = 'NS')::int AS no_show,
+              COUNT(*) FILTER (WHERE status = 'CN')::int AS cancelled,
+              COUNT(*)::int                              AS total
+             FROM camp_registrations
+            WHERE camp_id = $1`,
+          [req.params.id],
+        ),
+      ),
+    ]);
+    openRows(regs.rows, ['full_name']); // donor name is column-encrypted at rest
+    res.json({
+      registrations: regs.rows,
+      count: regs.rowCount,
+      summary: summary.rows[0],
+    });
+  },
+);
+
+// ── POST /camps/:id/registrations/:regId/status (admin/coord mark) ──────
+// Coord/admin/BB marks a registration as attended / no-show / cancelled,
+// or reverts. Mirrors the organizer-magic-link path
+// (POST /camps/access/:token/registrations/:regId/status) but scoped to
+// a JWT'd admin session — no camp_access_token required.
+const markRegStatusSchema = z.object({
+  status: z.enum(['RG', 'AT', 'NS', 'CN']),
+});
+router.post(
+  '/:id/registrations/:regId/status',
+  verifyJWT,
+  requireRole('coordinator', 'ngo_admin', 'super_admin', 'blood_bank'),
+  async (req, res) => {
+    const parsed = markRegStatusSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE camp_registrations
+              SET status = $1,
+                  status_changed_at = NOW()
+            WHERE id = $2 AND camp_id = $3
+        RETURNING id, status, status_changed_at`,
+          [parsed.data.status, req.params.regId, req.params.id],
+        ),
+      { change_reason: `camp registration status → ${parsed.data.status}` },
     );
-    openRows(r.rows, ['full_name']); // donor name is column-encrypted at rest
-    res.json({ registrations: r.rows, count: r.rowCount });
+    if (r.rowCount === 0) return res.status(404).json({ error: 'not_found' });
+    res.json({ registration: r.rows[0] });
   },
 );
 

@@ -1117,4 +1117,171 @@ router.post(
   },
 );
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Blood-group HITL discrepancy queue + resolve (PR (b) — migration 309)
+//
+// When a second BB pushes a different blood group for a donor already at
+// state=VE, the webhook transitions the donor to state=DP. This queue lets
+// an NGO admin see both attested values + the source BBs, then choose
+// which is authoritative. The chosen value locks (state=LK, immutable via
+// DB trigger).
+//
+// Rare-blood safety net: if the donor is in rare_blood_registry, resolution
+// escalates to super_admin only — a rare-blood mismatch is much higher-
+// severity than a routine A+/B+ mix-up, and we don't want a busy ngo_admin
+// clicking through it fast.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.get(
+  '/donors/blood-group-discrepancies',
+  verifyJWT,
+  requireRole('ngo_admin', 'super_admin'),
+  async (req, res) => {
+    // Reveal masked mobile + decrypted full_name for the admin queue — same
+    // pattern as other admin endpoints on this file. Both existing_source
+    // (blood_group_verified_by) and disputed_source
+    // (blood_group_discrepancy_source_id) are institutions the admin needs
+    // to see to make a call.
+    const r = await withRlsContext(req, (c) =>
+      c.query(
+        `SELECT d.id, d.mobile, d.full_name, d.date_of_birth, d.gender,
+                d.blood_group_verified                AS existing_value_id,
+                bge.code                              AS existing_value,
+                d.blood_group_verified_at             AS existing_at,
+                d.blood_group_verified_by             AS existing_source_id,
+                ie.display_name                       AS existing_source_display_name,
+                ie.shortname                          AS existing_source_shortname,
+                d.blood_group_discrepancy_new         AS disputed_value_id,
+                bgd.code                              AS disputed_value,
+                d.blood_group_discrepancy_source_id   AS disputed_source_id,
+                id.display_name                       AS disputed_source_display_name,
+                id.shortname                          AS disputed_source_shortname,
+                d.updated_at                          AS discrepancy_raised_at,
+                EXISTS (
+                  SELECT 1 FROM rare_blood_registry rbr WHERE rbr.donor_id = d.id
+                )                                     AS is_rare_blood
+           FROM donors d
+           LEFT JOIN blood_groups bge ON bge.id = d.blood_group_verified
+           LEFT JOIN blood_groups bgd ON bgd.id = d.blood_group_discrepancy_new
+           LEFT JOIN institutions ie  ON ie.id  = d.blood_group_verified_by
+           LEFT JOIN institutions id  ON id.id  = d.blood_group_discrepancy_source_id
+          WHERE d.blood_group_verification_state = 'DP'
+            AND d.is_active = TRUE
+          ORDER BY d.updated_at DESC
+          LIMIT 200`,
+      ),
+    );
+    // Decrypt names in place (openRows imported at top).
+    const rows = openRows(r.rows, ['full_name']);
+    res.json({ discrepancies: rows, count: rows.length });
+  },
+);
+
+const resolveDiscrepancySchema = z.object({
+  chosen_value_id: z.number().int().positive(),
+  notes: z.string().min(20).max(2000),
+});
+
+router.post(
+  '/donors/:id/resolve-blood-group-discrepancy',
+  verifyJWT,
+  // Coarse gate; the rare-blood auto-escalation is checked inside the handler
+  // because it depends on the specific donor row.
+  requireRole('ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const parsed = resolveDiscrepancySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const { chosen_value_id, notes } = parsed.data;
+
+    // Load current state + rare-blood flag.
+    const dR = await pool.query(
+      `SELECT d.id, d.blood_group_verified                AS existing_value_id,
+              d.blood_group_discrepancy_new               AS disputed_value_id,
+              d.blood_group_verification_state            AS state,
+              EXISTS (SELECT 1 FROM rare_blood_registry rbr WHERE rbr.donor_id = d.id) AS is_rare_blood
+         FROM donors d
+        WHERE d.id = $1`,
+      [req.params.id],
+    );
+    if (dR.rowCount === 0) return res.status(404).json({ error: 'donor_not_found' });
+    const donor = dR.rows[0];
+
+    if (donor.state !== 'DP') {
+      return res.status(409).json({
+        error: 'not_in_discrepancy_state',
+        current_state: donor.state,
+      });
+    }
+    if (
+      chosen_value_id !== donor.existing_value_id &&
+      chosen_value_id !== donor.disputed_value_id
+    ) {
+      return res.status(422).json({
+        error: 'chosen_value_must_be_one_of_disputed',
+        existing_value_id: donor.existing_value_id,
+        disputed_value_id: donor.disputed_value_id,
+      });
+    }
+
+    // Rare-blood auto-escalation. ngo_admin sees the queue but can't submit
+    // a resolution for a rare-blood donor — clinical safety.
+    if (donor.is_rare_blood && req.user.role !== 'super_admin') {
+      return res.status(403).json({
+        error: 'rare_blood_requires_super_admin',
+        hint: 'This donor is on the rare-blood registry. Resolution requires super_admin sign-off.',
+      });
+    }
+
+    // Resolve — state → LK, chosen value → verified, discrepancy cleared,
+    // reviewer + timestamp stamped. The immutability trigger (migration
+    // 309) blocks future writes to blood_group_verified while state=LK.
+    try {
+      const r = await withRlsContext(
+        req,
+        (c) =>
+          c.query(
+            `UPDATE donors
+                SET blood_group_verified                = $1,
+                    blood_group_verified_at             = NOW(),
+                    blood_group_verified_by             = COALESCE(
+                      CASE WHEN $1 = blood_group_verified          THEN blood_group_verified_by
+                           WHEN $1 = blood_group_discrepancy_new   THEN blood_group_discrepancy_source_id
+                      END,
+                      blood_group_verified_by
+                    ),
+                    blood_group_verification_state      = 'LK',
+                    blood_group_locked_at               = NOW(),
+                    blood_group_locked_by               = $2,
+                    blood_group_discrepancy_new         = NULL,
+                    blood_group_discrepancy_source_id   = NULL
+              WHERE id = $3 AND blood_group_verification_state = 'DP'
+          RETURNING id, blood_group_verified, blood_group_locked_at`,
+            [chosen_value_id, req.user.userId, req.params.id],
+          ),
+        {
+          actor_role: req.user.role,
+          change_reason: `BLOOD_GROUP_LOCKED [chosen=${chosen_value_id}, rare=${donor.is_rare_blood}]: ${notes.slice(0, 200)}`,
+        },
+      );
+      if (r.rowCount === 0) {
+        return res.status(409).json({ error: 'concurrent_state_change' });
+      }
+      return res.json({
+        donor_id: r.rows[0].id,
+        blood_group_verified: r.rows[0].blood_group_verified,
+        blood_group_locked_at: r.rows[0].blood_group_locked_at,
+        state: 'LK',
+      });
+    } catch (err) {
+      logger.error(
+        { err: err.message, donor_id: req.params.id },
+        'resolve blood-group discrepancy failed',
+      );
+      return res.status(500).json({ error: 'resolve_failed' });
+    }
+  },
+);
+
 module.exports = router;

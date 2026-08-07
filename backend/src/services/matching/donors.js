@@ -28,6 +28,7 @@ async function findActivatableDonors(client, { districtId, compatibleGroupIds, l
        FROM donors d
   LEFT JOIN villages v ON v.id = d.village_id
       WHERE d.blood_group_verified = ANY($2)
+        AND d.blood_group_verification_state IN ('VE','LK')
         AND d.deferral_status = 'A'
         AND d.is_available = TRUE
         AND d.mobile_verified = TRUE

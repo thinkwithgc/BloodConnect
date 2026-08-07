@@ -286,7 +286,8 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
         // 1. Look up existing donor by mobile.
         const existingR = await c.query(
           `SELECT id, platform_user_id, consent_data_use, consent_pending_since,
-                  blood_group_verified
+                  blood_group_verified, blood_group_verification_state,
+                  blood_group_discrepancy_new
              FROM donors WHERE mobile = $1`,
           [mobile],
         );
@@ -294,36 +295,100 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
         if (existingR.rowCount > 0) {
           const existing = existingR.rows[0];
 
-          // 1a. Blood-group discrepancy (PR (a) holding pen — PR (b) turns
-          //     this into full HITL DP-state).
-          if (
-            bloodGroupId &&
-            existing.blood_group_verified &&
-            existing.blood_group_verified !== bloodGroupId
-          ) {
-            logger.warn(
-              {
-                event: 'BLOOD_GROUP_DISCREPANCY_DEFERRED',
-                donor_id: existing.id,
-                existing: existing.blood_group_verified,
-                proposed: bloodGroupId,
-                pushed_by_partner_key: req.partner.partnerKey,
-                source_institution_id: req.partner.institutionId,
-              },
-              'blood-group discrepancy — deferred to HITL (PR b)',
-            );
-            // Fall through — refresh other fields, don't touch verified group.
-          } else if (bloodGroupId && !existing.blood_group_verified) {
-            // Existing donor never had a verified group. Trust the BB's
-            // attestation — same as first-push case.
-            await c.query(
-              `UPDATE donors
-                  SET blood_group_verified = $1,
-                      blood_group_verified_at = NOW(),
-                      blood_group_verified_by = $2
-                WHERE id = $3`,
-              [bloodGroupId, req.partner.institutionId, existing.id],
-            );
+          // 1a. Blood-group HITL state machine (see migration 309).
+          //
+          //   UV + push has value      → UV→VE (trust first attestation)
+          //   VE + same value          → no-op
+          //   VE + different value     → VE→DP (flag discrepancy for HITL)
+          //   DP + same value          → no-op (either matches existing or
+          //                              matches discrepancy_new — dedup)
+          //   DP + third distinct val  → 409, don't touch state (see plan)
+          //   LK                       → ignore blood_group (audit + refresh
+          //                              other fields)
+          if (bloodGroupId) {
+            const state = existing.blood_group_verification_state;
+            const currentValue = existing.blood_group_verified;
+            const disputed = existing.blood_group_discrepancy_new;
+
+            if (state === 'LK') {
+              // Locked. Never write blood_group_verified — even if the push
+              // value happens to match, don't touch it. Just audit.
+              logger.info(
+                {
+                  event: 'BLOOD_GROUP_PUSH_IGNORED_LOCKED',
+                  donor_id: existing.id,
+                  locked_value: currentValue,
+                  pushed_value: bloodGroupId,
+                  pushed_by_partner_key: req.partner.partnerKey,
+                  source_institution_id: req.partner.institutionId,
+                },
+                'blood-group push ignored — donor state=LK',
+              );
+            } else if (state === 'UV') {
+              // First attestation — UV → VE.
+              await c.query(
+                `UPDATE donors
+                    SET blood_group_verified = $1,
+                        blood_group_verified_at = NOW(),
+                        blood_group_verified_by = $2,
+                        blood_group_verification_state = 'VE'
+                  WHERE id = $3`,
+                [bloodGroupId, req.partner.institutionId, existing.id],
+              );
+              logger.info(
+                {
+                  event: 'BLOOD_GROUP_ATTESTED',
+                  donor_id: existing.id,
+                  value: bloodGroupId,
+                  source_institution_id: req.partner.institutionId,
+                },
+                'blood-group first-attestation UV→VE',
+              );
+            } else if (state === 'VE' && currentValue !== bloodGroupId) {
+              // Discrepancy — VE → DP.
+              await c.query(
+                `UPDATE donors
+                    SET blood_group_verification_state = 'DP',
+                        blood_group_discrepancy_new = $1,
+                        blood_group_discrepancy_source_id = $2
+                  WHERE id = $3`,
+                [bloodGroupId, req.partner.institutionId, existing.id],
+              );
+              logger.warn(
+                {
+                  event: 'BLOOD_GROUP_DISCREPANCY_RAISED',
+                  donor_id: existing.id,
+                  existing_value: currentValue,
+                  proposed_value: bloodGroupId,
+                  source_institution_id: req.partner.institutionId,
+                  pushed_by_partner_key: req.partner.partnerKey,
+                },
+                'blood-group discrepancy VE→DP — awaiting HITL',
+              );
+            } else if (state === 'DP') {
+              // Already-pending discrepancy. If the incoming value matches
+              // either the current or the disputed value, treat as dedup.
+              // A THIRD distinct value = reject — force HITL first.
+              if (bloodGroupId !== currentValue && bloodGroupId !== disputed) {
+                logger.warn(
+                  {
+                    event: 'BLOOD_GROUP_DISCREPANCY_REJECTED_ADDITIONAL',
+                    donor_id: existing.id,
+                    existing_value: currentValue,
+                    disputed_value: disputed,
+                    rejected_value: bloodGroupId,
+                    pushed_by_partner_key: req.partner.partnerKey,
+                  },
+                  'third blood-group value rejected while state=DP',
+                );
+                const err = new Error('blood_group_discrepancy_pending');
+                err.status = 409;
+                err.code = 'blood_group_discrepancy_pending';
+                throw err;
+              }
+              // Else — dedup, no-op.
+            }
+            // else state === 'VE' && currentValue === bloodGroupId → no-op
           }
 
           // 1b. Refresh the push-provenance columns (don't touch consent
@@ -378,6 +443,7 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
               date_of_birth, gender, abha_id, aadhaar_last4,
               preferred_language, village_id, address_line, pincode,
               blood_group_verified, blood_group_verified_at, blood_group_verified_by,
+              blood_group_verification_state,
               consent_data_use, consent_pending_since,
               platform_user_id, registration_source,
               pushed_by_partner_key, is_sandbox)
@@ -386,6 +452,7 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
               $4, $5, $6, $7,
               $8, $9, $10, $11,
               $12, CASE WHEN $12::smallint IS NULL THEN NULL ELSE NOW() END, $13,
+              CASE WHEN $12::smallint IS NULL THEN 'UV' ELSE 'VE' END,
               FALSE, NOW(),
               $14, 'VPS',
               $15, $16)
@@ -494,6 +561,23 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
         : {}),
     });
   } catch (err) {
+    // Semantic errors that the client can act on — 409, not 500.
+    if (err.code === 'blood_group_discrepancy_pending') {
+      try {
+        await recordIdempotent(pool, req.partner.partnerKey, data.vendor_event_id, endpoint, {
+          status: 409,
+          action: 'rejected',
+          errorCode: err.code,
+        });
+      } catch {
+        /* ignore */
+      }
+      return res.status(409).json({
+        error: 'blood_group_discrepancy_pending',
+        hint: 'Two blood banks have already attested different blood groups for this donor. Wait for an NGO admin to resolve the discrepancy in /admin before pushing again.',
+      });
+    }
+
     logger.error(
       {
         err: err.message,

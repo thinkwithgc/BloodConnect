@@ -17,7 +17,7 @@
  */
 const { pool } = require('../../../config/db');
 const { withRlsContextRaw } = require('../../../middleware/rlsContext');
-const { sendNotification } = require('../..//notifications');
+const { sendNotification } = require('../../notifications');
 const { open } = require('../../pii');
 const logger = require('../../../config/logger');
 

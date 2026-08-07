@@ -20,6 +20,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { z } = require('zod');
 
+const { pool } = require('../config/db');
 const { withRlsContext, withRlsContextRaw } = require('../middleware/rlsContext');
 const { verifyJWT, requireRole } = require('../middleware/auth');
 const { verify: verifyJwtToken } = require('../utils/jwt');
@@ -53,10 +54,17 @@ const router = express.Router();
 
 // ── GET /camps ───────────────────────────────────────────────────────────
 // Default: status IN ('PL','LV') and scheduled_date >= today.
-// Optional ?district_id=... and ?status=...
+// Optional flags:
+//   ?district_id=…  scope to one district
+//   ?status=…       exact status filter (PL/LV/PE/CO/CA/DC)
+//   ?stale=true     "PL or LV" camps whose scheduled_date is at least a
+//                   day in the past — these are the ones the admin needs
+//                   to complete-or-cancel. 1-day grace so a same-day camp
+//                   that's still being wound up isn't nagged.
 router.get('/', verifyJWT, async (req, res) => {
   const districtId = req.query.district_id ? Number(req.query.district_id) : null;
   const status = req.query.status || null;
+  const stale = req.query.stale === 'true';
   const isReviewer = ['ngo_admin', 'super_admin', 'coordinator'].includes(req.user.role);
 
   const r = await withRlsContext(req, (c) =>
@@ -73,17 +81,24 @@ router.get('/', verifyJWT, async (req, res) => {
               c.submitted_by_name, c.submitted_by_mobile,
               c.submitted_by_email, c.submitted_by_role,
               c.volunteer_training_requested, c.expected_volunteer_count,
-              c.review_notes, c.declined_reason,
-              c.verified_at, c.declined_at
+              c.review_notes, c.declined_reason, c.cancelled_reason,
+              c.verified_at, c.declined_at,
+              (c.status IN ('PL','LV')
+                 AND c.scheduled_date < CURRENT_DATE - INTERVAL '1 day') AS is_stale
          FROM donation_camps c
          JOIN districts d ON d.id = c.district_id
     LEFT JOIN institutions i ON i.id = c.partnered_blood_bank_id
         WHERE ($1::int  IS NULL OR c.district_id = $1)
           AND ($2::text IS NULL OR c.status = $2)
-          AND ($2::text IS NOT NULL OR (c.status IN ('PL','LV') AND c.scheduled_date >= CURRENT_DATE))
+          AND ($3::boolean IS TRUE
+                 OR $2::text IS NOT NULL
+                 OR (c.status IN ('PL','LV') AND c.scheduled_date >= CURRENT_DATE))
+          AND ($3::boolean IS NOT TRUE
+                 OR (c.status IN ('PL','LV')
+                     AND c.scheduled_date < CURRENT_DATE - INTERVAL '1 day'))
      ORDER BY c.scheduled_date ASC, c.start_time ASC
         LIMIT 100`,
-      [districtId, status],
+      [districtId, status, stale],
     ),
   );
 
@@ -574,6 +589,107 @@ router.post(
         expires_in_days: 'scheduled_date + 30',
       },
     });
+  },
+);
+
+// ── POST /camps/:id/complete (PL/LV → CO) ────────────────────────────────
+// Marks the camp as completed. Refuses future-dated camps (no crystal ball).
+// Optional body fields let the admin backfill attendance metrics if the
+// organizer forgot to mark them via the magic-link dashboard.
+const completeCampSchema = z.object({
+  attended_donor_count: z.number().int().min(0).max(10000).optional(),
+  units_collected: z.number().int().min(0).max(10000).optional(),
+  notes: z.string().max(2000).optional(),
+});
+router.post(
+  '/:id/complete',
+  verifyJWT,
+  requireRole('coordinator', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const parsed = completeCampSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const { attended_donor_count, units_collected, notes } = parsed.data;
+
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE donation_camps
+              SET status = 'CO',
+                  attended_donor_count = COALESCE($1, attended_donor_count),
+                  units_collected      = COALESCE($2, units_collected),
+                  review_notes         = CASE
+                    WHEN $3::text IS NULL THEN review_notes
+                    ELSE COALESCE(review_notes,'') || E'\n[completed ' || NOW()::text || '] ' || $3::text
+                  END
+            WHERE id = $4
+              AND status IN ('PL','LV')
+              AND scheduled_date <= CURRENT_DATE
+        RETURNING id, status, scheduled_date, attended_donor_count, units_collected`,
+          [attended_donor_count ?? null, units_collected ?? null, notes || null, req.params.id],
+        ),
+      { change_reason: 'camp completed' },
+    );
+    if (r.rowCount === 0) {
+      // Distinguish future-dated (409) from wrong-state / missing (404).
+      const cur = await pool.query(
+        `SELECT status, scheduled_date FROM donation_camps WHERE id = $1`,
+        [req.params.id],
+      );
+      if (cur.rowCount === 0) return res.status(404).json({ error: 'not_found' });
+      if (new Date(cur.rows[0].scheduled_date) > new Date()) {
+        return res.status(409).json({
+          error: 'camp_not_yet_scheduled',
+          hint: 'Cannot mark a future-dated camp as completed. If it has been called off, use /cancel instead.',
+        });
+      }
+      return res.status(409).json({
+        error: 'wrong_state',
+        current_status: cur.rows[0].status,
+      });
+    }
+    res.json({ camp: r.rows[0] });
+  },
+);
+
+// ── POST /camps/:id/cancel (PE/PL/LV → CA) ───────────────────────────────
+// Cancels a camp. Reason required — cancellation without a rationale is a
+// data-quality red flag. Any pre-CO/CA state can be cancelled; a completed
+// or already-cancelled camp is a no-op (409).
+const cancelCampSchema = z.object({
+  cancelled_reason: z.string().min(3).max(1000),
+});
+router.post(
+  '/:id/cancel',
+  verifyJWT,
+  requireRole('coordinator', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const parsed = cancelCampSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const { cancelled_reason } = parsed.data;
+
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE donation_camps
+              SET status = 'CA',
+                  cancelled_reason = $1
+            WHERE id = $2
+              AND status IN ('PE','PL','LV')
+        RETURNING id, status, cancelled_reason, scheduled_date`,
+          [cancelled_reason, req.params.id],
+        ),
+      { change_reason: `camp cancelled: ${cancelled_reason.slice(0, 200)}` },
+    );
+    if (r.rowCount === 0) {
+      return res.status(409).json({ error: 'not_found_or_terminal_state' });
+    }
+    res.json({ camp: r.rows[0] });
   },
 );
 

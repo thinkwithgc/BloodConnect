@@ -22,11 +22,13 @@ const ORGANISER = {
 };
 
 const FILTERS = [
-  { id: 'PE', label: 'Pending review' },
-  { id: 'PL', label: 'Planned' },
-  { id: '',   label: 'Upcoming (PL + LV)' },
-  { id: 'CO', label: 'Completed' },
-  { id: 'DC', label: 'Declined' },
+  { id: 'PE',    label: 'Pending review' },
+  { id: 'PL',    label: 'Planned' },
+  { id: '',      label: 'Upcoming (PL + LV)' },
+  { id: 'STALE', label: 'Stale (needs update)' },
+  { id: 'CO',    label: 'Completed' },
+  { id: 'CA',    label: 'Cancelled' },
+  { id: 'DC',    label: 'Declined' },
 ];
 
 function fmtDate(v) {
@@ -44,11 +46,14 @@ export function CampsTab() {
   const [selectedCamp, setSelectedCamp] = useState(null);
   const [reviewCamp, setReviewCamp] = useState(null);
   const [filter, setFilter] = useState('PE');
+  const [statusAction, setStatusAction] = useState(null); // { camp, kind: 'complete' | 'cancel' }
 
   const listQ = useQuery({
     queryKey: ['admin', 'camps', filter],
-    queryFn: () =>
-      apiRequest('GET', filter ? `/camps?status=${filter}` : '/camps'),
+    queryFn: () => {
+      if (filter === 'STALE') return apiRequest('GET', '/camps?stale=true');
+      return apiRequest('GET', filter ? `/camps?status=${filter}` : '/camps');
+    },
     staleTime: 15_000,
   });
 
@@ -88,6 +93,15 @@ export function CampsTab() {
           {rows.length} camp{rows.length === 1 ? '' : 's'} awaiting NGO verification.
           Review submitter details before approving — once verified, the camp becomes
           public and donors can RSVP.
+        </p>
+      ) : null}
+
+      {filter === 'STALE' && rows.length > 0 ? (
+        <p className="text-xs text-slate-500">
+          {rows.length} camp{rows.length === 1 ? '' : 's'} scheduled in the past but still
+          marked <strong>Planned</strong> or <strong>Live</strong>. Mark each as{' '}
+          <strong>Completed</strong> (with attendance metrics if known) or{' '}
+          <strong>Cancelled</strong> (with a reason).
         </p>
       ) : null}
 
@@ -162,13 +176,35 @@ export function CampsTab() {
                         Review →
                       </button>
                     ) : (
-                      <button
-                        type="button"
-                        className="text-xs font-medium text-rk-700 hover:underline"
-                        onClick={() => setSelectedCamp(c)}
-                      >
-                        Roster →
-                      </button>
+                      <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                        {(c.status === 'PL' || c.status === 'LV') ? (
+                          <>
+                            <button
+                              type="button"
+                              className="text-xs font-medium text-green-700 hover:underline"
+                              onClick={() => setStatusAction({ camp: c, kind: 'complete' })}
+                              title="Mark this camp as completed"
+                            >
+                              Complete
+                            </button>
+                            <button
+                              type="button"
+                              className="text-xs font-medium text-rk-700 hover:underline"
+                              onClick={() => setStatusAction({ camp: c, kind: 'cancel' })}
+                              title="Mark this camp as cancelled"
+                            >
+                              Cancel
+                            </button>
+                          </>
+                        ) : null}
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-rk-700 hover:underline"
+                          onClick={() => setSelectedCamp(c)}
+                        >
+                          Roster →
+                        </button>
+                      </div>
                     )}
                   </td>
                 </tr>
@@ -179,7 +215,9 @@ export function CampsTab() {
                 <td colSpan={8} className="px-3 py-6 text-center text-sm text-slate-500">
                   {filter === 'PE'
                     ? 'No camp applications awaiting review — great.'
-                    : 'No camps in this filter.'}
+                    : filter === 'STALE'
+                      ? 'No stale camps — every past-dated camp has been completed or cancelled.'
+                      : 'No camps in this filter.'}
                 </td>
               </tr>
             ) : null}
@@ -189,6 +227,17 @@ export function CampsTab() {
 
       {selectedCamp ? (
         <RosterPanel camp={selectedCamp} onClose={() => setSelectedCamp(null)} />
+      ) : null}
+      {statusAction ? (
+        <StatusActionModal
+          camp={statusAction.camp}
+          kind={statusAction.kind}
+          onClose={() => setStatusAction(null)}
+          onDone={() => {
+            setStatusAction(null);
+            qc.invalidateQueries({ queryKey: ['admin', 'camps'] });
+          }}
+        />
       ) : null}
       {reviewCamp ? (
         <ReviewPanel
@@ -201,6 +250,131 @@ export function CampsTab() {
         />
       ) : null}
     </section>
+  );
+}
+
+// StatusActionModal — mark a PL/LV camp as Completed (with optional
+// attendance metrics) or Cancelled (with a required reason). Called from
+// the row-level Complete / Cancel buttons in the camps table.
+function StatusActionModal({ camp, kind, onClose, onDone }) {
+  const isComplete = kind === 'complete';
+  const [attended, setAttended] = useState(String(camp.attended_donor_count || ''));
+  const [units, setUnits] = useState(String(camp.units_collected || ''));
+  const [notes, setNotes] = useState('');
+  const [reason, setReason] = useState('');
+
+  const m = useMutation({
+    mutationFn: () => {
+      if (isComplete) {
+        const body = {};
+        if (attended.trim() !== '') body.attended_donor_count = Number(attended);
+        if (units.trim() !== '') body.units_collected = Number(units);
+        if (notes.trim() !== '') body.notes = notes.trim();
+        return apiRequest('POST', `/camps/${camp.id}/complete`, body);
+      }
+      return apiRequest('POST', `/camps/${camp.id}/cancel`, {
+        cancelled_reason: reason.trim(),
+      });
+    },
+    onSuccess: onDone,
+  });
+
+  const canSubmit = isComplete ? true : reason.trim().length >= 3;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
+      <div className="mt-16 w-full max-w-lg space-y-4 rounded-xl bg-white p-6 shadow-lift">
+        <h3 className="text-lg font-semibold text-slate-900">
+          {isComplete ? 'Mark camp as completed' : 'Cancel camp'}
+        </h3>
+        <p className="text-sm text-slate-600">
+          <strong>{camp.name}</strong> · {camp.venue} · {String(camp.scheduled_date).slice(0, 10)}
+        </p>
+
+        {isComplete ? (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="rk-label">Attended donors</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="rk-input"
+                  value={attended}
+                  onChange={(e) => setAttended(e.target.value)}
+                  placeholder={String(camp.registered_donor_count || 0)}
+                />
+              </label>
+              <label className="block">
+                <span className="rk-label">Units collected</span>
+                <input
+                  type="number"
+                  min="0"
+                  className="rk-input"
+                  value={units}
+                  onChange={(e) => setUnits(e.target.value)}
+                  placeholder="0"
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className="rk-label">Notes (optional)</span>
+              <input
+                className="rk-input"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                placeholder="e.g. Marked complete after phone confirmation with organizer"
+              />
+            </label>
+            <p className="text-xs text-slate-500">
+              Leave attendance / units blank to keep the numbers the organizer entered via
+              their magic-link dashboard (if any).
+            </p>
+          </>
+        ) : (
+          <label className="block">
+            <span className="rk-label">
+              Reason for cancellation <span className="text-rk-700">*</span>
+            </span>
+            <textarea
+              className="rk-input"
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="e.g. Organizer's team unavailable due to unforeseen circumstances. Rescheduling planned for next month."
+              required
+            />
+            <span className="mt-1 block text-xs text-slate-500">
+              Written to audit trail. Also saved on the camp row (cancelled_reason).
+            </span>
+          </label>
+        )}
+
+        {m.error ? (
+          <p className="text-xs text-rk-700">
+            {m.error?.response?.data?.error === 'camp_not_yet_scheduled'
+              ? 'Cannot mark a future-dated camp as completed. Use Cancel instead.'
+              : m.error?.response?.data?.error === 'wrong_state'
+                ? 'Camp already in a terminal state.'
+                : m.error?.response?.data?.error || 'action_failed'}
+          </p>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <button type="button" className="rk-button-secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={isComplete ? 'rk-button-primary' : 'rk-button-primary bg-rk-700 hover:bg-rk-800'}
+            disabled={!canSubmit || m.isPending}
+            onClick={() => m.mutate()}
+          >
+            {m.isPending ? '…' : isComplete ? 'Mark completed' : 'Confirm cancellation'}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

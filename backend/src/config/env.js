@@ -122,6 +122,13 @@ const env = {
       // donor to accept / decline / defer on Raktify's own /consent/:token
       // screen. See PR (a) of the vendor-webhook integration plan.
       donor_consent_invite: optional('WHATSAPP_TEMPLATE_DONOR_CONSENT_INVITE', null),
+      // Camp lifecycle reminders — see backend/src/services/scheduler/jobs/
+      // camp-precheck-reminder-2d.js, camp-day-of-reminder.js,
+      // camp-donor-thankyou.js. Each fires at a specific point in the
+      // camp's lifecycle relative to scheduled_date.
+      camp_precheck_2d: optional('WHATSAPP_TEMPLATE_CAMP_PRECHECK_2D', null),
+      camp_day_of: optional('WHATSAPP_TEMPLATE_CAMP_DAY_OF', null),
+      camp_donor_thankyou: optional('WHATSAPP_TEMPLATE_CAMP_DONOR_THANKYOU', null),
     },
   },
 

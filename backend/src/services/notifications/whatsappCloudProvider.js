@@ -302,6 +302,67 @@ const TEMPLATE_HANDLERS = {
       parameters: [{ type: 'text', text: String(vars.consent_token || '') }],
     },
   ],
+
+  // camp_precheck_2d — Utility. 2 days before a donation camp with an RSVP.
+  // Includes the 48-hour prep list (avoid alcohol, sleep, hydrate). Body vars:
+  // donor_first_name, camp_name, camp_date_time. URL button = camp slug so
+  // donors can view the full camp details / cancel RSVP.
+  CAMP_PRECHECK_2D: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.donor_first_name || '') },
+        { type: 'text', text: String(vars.camp_name || '') },
+        { type: 'text', text: String(vars.camp_date_time || '') },
+      ],
+    },
+    {
+      type: 'button',
+      sub_type: 'url',
+      index: '0',
+      parameters: [{ type: 'text', text: String(vars.camp_slug || '') }],
+    },
+  ],
+
+  // camp_day_of — Utility. Morning of the camp. "The camp is starting today —
+  // come donate". Body vars: donor_first_name, camp_name, start_time, venue.
+  CAMP_DAY_OF: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.donor_first_name || '') },
+        { type: 'text', text: String(vars.camp_name || '') },
+        { type: 'text', text: String(vars.start_time || '') },
+        { type: 'text', text: String(vars.venue || '') },
+      ],
+    },
+    {
+      type: 'button',
+      sub_type: 'url',
+      index: '0',
+      parameters: [{ type: 'text', text: String(vars.camp_slug || '') }],
+    },
+  ],
+
+  // camp_donor_thankyou — Utility. Evening after the camp for donors who
+  // actually attended (status=AT). Body vars: donor_first_name, camp_name.
+  // URL button = donor dashboard, so they can see their donation history
+  // and next-eligible date.
+  CAMP_DONOR_THANKYOU: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.donor_first_name || '') },
+        { type: 'text', text: String(vars.camp_name || '') },
+      ],
+    },
+    {
+      type: 'button',
+      sub_type: 'url',
+      index: '0',
+      parameters: [{ type: 'text', text: String(vars.donor_dashboard_path || 'donor') }],
+    },
+  ],
 };
 
 function buildComponents(templateType, variables) {

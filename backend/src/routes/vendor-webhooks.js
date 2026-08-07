@@ -91,7 +91,8 @@ async function verifyVendorHmacMw(req, res, next) {
   let row;
   try {
     const r = await pool.query(
-      `SELECT partner_key, vendor_partner_id, institution_id, hmac_secret, is_active, created_by
+      `SELECT partner_key, vendor_partner_id, institution_id, hmac_secret,
+              is_active, is_sandbox, created_by
          FROM partner_keys WHERE partner_key = $1`,
       [partnerKey],
     );
@@ -144,6 +145,7 @@ async function verifyVendorHmacMw(req, res, next) {
     vendorPartnerId: row.vendor_partner_id,
     institutionId: row.institution_id,
     createdBy: row.created_by,
+    isSandbox: row.is_sandbox === true,
   };
   next();
 }
@@ -378,7 +380,7 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
               blood_group_verified, blood_group_verified_at, blood_group_verified_by,
               consent_data_use, consent_pending_since,
               platform_user_id, registration_source,
-              pushed_by_partner_key)
+              pushed_by_partner_key, is_sandbox)
            VALUES
              ($1, FALSE, $2, $3,
               $4, $5, $6, $7,
@@ -386,7 +388,7 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
               $12, CASE WHEN $12::smallint IS NULL THEN NULL ELSE NOW() END, $13,
               FALSE, NOW(),
               $14, 'VPS',
-              $15)
+              $15, $16)
            RETURNING id`,
           [
             mobile,
@@ -404,6 +406,7 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
             bloodGroupId ? req.partner.institutionId : null,
             platformUserId,
             req.partner.partnerKey,
+            req.partner.isSandbox,
           ],
         );
         const donorId = donorR.rows[0].id;
@@ -428,7 +431,12 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
     );
 
     // 5. Fire the consent-invite WhatsApp (best-effort; row is committed).
-    if (result.isNew && result.consentToken) {
+    //    Skip for sandbox pushes so vendors testing the integration don't
+    //    spam real mobile numbers with test data. The donor row still gets
+    //    the consentToken via the platform_users setup_token_hash — a
+    //    vendor's test loop can still fetch the dev_consent_url from the
+    //    response body and complete the accept/decline flow manually.
+    if (result.isNew && result.consentToken && !req.partner.isSandbox) {
       // Resolve the source institution's display name for the WA body.
       const instR = await pool.query(
         `SELECT display_name, shortname FROM institutions WHERE id = $1`,
@@ -462,10 +470,14 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
       }
     }
 
-    const devEcho =
-      env.nodeEnv === 'development' && result.isNew
-        ? { dev_consent_url: `${env.frontendUrl}/consent/${result.consentToken}` }
-        : {};
+    // Expose the consent URL in the response when either (a) we're in dev,
+    // or (b) the caller is a sandbox partner_key. Sandbox callers need the
+    // URL to walk through the accept/decline flow themselves during
+    // testing (we don't send them a real WhatsApp).
+    const echoConsentUrl =
+      result.isNew &&
+      result.consentToken &&
+      (env.nodeEnv === 'development' || req.partner.isSandbox);
 
     res.status(202).json({
       raktify_donor_id: result.donorId,
@@ -476,7 +488,10 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
         : result.action === 'updated_consented'
           ? 'active'
           : 'pending',
-      ...devEcho,
+      ...(req.partner.isSandbox ? { sandbox: true } : {}),
+      ...(echoConsentUrl
+        ? { consent_url: `${env.frontendUrl}/consent/${result.consentToken}` }
+        : {}),
     });
   } catch (err) {
     logger.error(

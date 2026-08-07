@@ -31,7 +31,8 @@ const { pool } = require('../config/db');
 const { withRlsContext } = require('../middleware/rlsContext');
 const { verifyJWT, requireRole } = require('../middleware/auth');
 const { normaliseIndianMobile } = require('../utils/phone');
-const { openRows } = require('../services/pii');
+const { openRows, seal } = require('../services/pii');
+const crypto = require('crypto');
 const scheduler = require('../services/scheduler');
 const { sendNotification } = require('../services/notifications');
 const logger = require('../config/logger');
@@ -886,6 +887,233 @@ router.post(
       return res.status(404).json({ error: 'not_found_or_already_active' });
     }
     res.json({ community_leader_id: r.rows[0].id, status: 'active' });
+  },
+);
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Vendor integrations — /admin/vendor-partners, /admin/partner-keys
+//
+// Manages vendor push webhook credentials (see /developers and
+// backend/src/routes/vendor-webhooks.js). Reads open to ngo_admin +
+// super_admin; writes are super_admin only because they mint / revoke
+// bearer credentials.
+//
+// hmac_secret is stored sealed via services/pii/seal(). The plaintext is
+// returned to the caller ONCE at issue time and never again.
+// ─────────────────────────────────────────────────────────────────────────────
+
+// GET /admin/vendor-partners — list vendors with aggregated key counts.
+router.get(
+  '/vendor-partners',
+  verifyJWT,
+  requireRole('ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const r = await withRlsContext(req, (c) =>
+      c.query(
+        `SELECT v.id, v.name, v.contact_email, v.notes, v.created_at,
+                COUNT(pk.partner_key) FILTER (WHERE pk.is_active) AS active_keys,
+                COUNT(pk.partner_key) FILTER (WHERE pk.is_active AND pk.is_sandbox) AS sandbox_keys,
+                COUNT(pk.partner_key)                                    AS total_keys
+           FROM vendor_partners v
+           LEFT JOIN partner_keys pk ON pk.vendor_partner_id = v.id
+          GROUP BY v.id
+          ORDER BY v.created_at DESC`,
+      ),
+    );
+    res.json({ vendors: r.rows });
+  },
+);
+
+// GET /admin/vendor-partners/:id — vendor details + keys grouped by
+// institution. Never exposes the sealed hmac_secret.
+router.get(
+  '/vendor-partners/:id',
+  verifyJWT,
+  requireRole('ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const vR = await withRlsContext(req, (c) =>
+      c.query(`SELECT * FROM vendor_partners WHERE id = $1`, [req.params.id]),
+    );
+    if (vR.rowCount === 0) return res.status(404).json({ error: 'not_found' });
+
+    const kR = await withRlsContext(req, (c) =>
+      c.query(
+        `SELECT pk.partner_key, pk.vendor_partner_id, pk.institution_id,
+                pk.is_active, pk.is_sandbox, pk.created_at, pk.created_by,
+                pk.rotated_from, pk.revoked_at, pk.revoked_by, pk.notes,
+                i.shortname AS institution_shortname,
+                i.display_name AS institution_display_name,
+                i.kind AS institution_kind
+           FROM partner_keys pk
+           LEFT JOIN institutions i ON i.id = pk.institution_id
+          WHERE pk.vendor_partner_id = $1
+          ORDER BY pk.is_active DESC, pk.created_at DESC`,
+        [req.params.id],
+      ),
+    );
+    res.json({ vendor: vR.rows[0], keys: kR.rows });
+  },
+);
+
+// POST /admin/vendor-partners — create a new vendor.
+const createVendorSchema = z.object({
+  name: z.string().min(2).max(120),
+  contact_email: z.string().email().optional(),
+  notes: z.string().max(1000).optional(),
+});
+router.post('/vendor-partners', verifyJWT, requireRole('super_admin'), async (req, res) => {
+  const parsed = createVendorSchema.safeParse(req.body);
+  if (!parsed.success) {
+    return res.status(422).json({ error: 'invalid_input', details: parsed.error.format() });
+  }
+  const { name, contact_email, notes } = parsed.data;
+  try {
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `INSERT INTO vendor_partners (name, contact_email, notes, created_by)
+             VALUES ($1, $2, $3, $4)
+             RETURNING id, name, contact_email, notes, created_at`,
+          [name, contact_email || null, notes || null, req.user.userId],
+        ),
+      { change_reason: 'create vendor_partner' },
+    );
+    res.status(201).json({ vendor: r.rows[0] });
+  } catch (err) {
+    if (/unique constraint/i.test(err.message)) {
+      return res.status(409).json({ error: 'vendor_name_taken' });
+    }
+    throw err;
+  }
+});
+
+// POST /admin/vendor-partners/:id/keys — issue a new partner_key.
+// Returns the plaintext HMAC secret exactly once. Callers MUST save it
+// immediately; the DB only stores the sealed form.
+const issueKeySchema = z
+  .object({
+    institution_id: z.string().uuid().optional(),
+    institution_shortname: z.string().optional(),
+    is_sandbox: z.boolean().optional().default(false),
+    notes: z.string().max(1000).optional(),
+  })
+  .refine((d) => d.institution_id || d.institution_shortname, {
+    message: 'either institution_id or institution_shortname is required',
+    path: ['institution_id'],
+  });
+router.post(
+  '/vendor-partners/:id/keys',
+  verifyJWT,
+  requireRole('super_admin'),
+  async (req, res) => {
+    const parsed = issueKeySchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(422).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const { institution_id, institution_shortname, is_sandbox, notes } = parsed.data;
+
+    // Sanity: does the vendor exist?
+    const vR = await pool.query(`SELECT id FROM vendor_partners WHERE id = $1`, [req.params.id]);
+    if (vR.rowCount === 0) return res.status(404).json({ error: 'vendor_not_found' });
+
+    // Resolve institution by ID (preferred) or shortname (convenience for
+    // the admin UI). Either identifies the target BB / HO uniquely.
+    const iR = await pool.query(
+      institution_id
+        ? `SELECT id, shortname, display_name, onboarding_status FROM institutions WHERE id = $1`
+        : `SELECT id, shortname, display_name, onboarding_status FROM institutions WHERE shortname = $1`,
+      [institution_id || institution_shortname],
+    );
+    if (iR.rowCount === 0) return res.status(404).json({ error: 'institution_not_found' });
+    const resolvedInstitutionId = iR.rows[0].id;
+    if (iR.rows[0].onboarding_status !== 'AC' && !is_sandbox) {
+      return res.status(409).json({
+        error: 'institution_not_active',
+        hint: 'Institution must be onboarded (status=AC) before issuing a prod key. Sandbox keys bypass this.',
+      });
+    }
+
+    // Mint fresh key + secret.
+    const partnerKey = `pk_${crypto.randomBytes(16).toString('base64url')}`;
+    const secretPlain = crypto.randomBytes(32).toString('base64url');
+    const sealedSecret = seal(secretPlain);
+
+    try {
+      await withRlsContext(
+        req,
+        (c) =>
+          c.query(
+            `INSERT INTO partner_keys
+               (partner_key, vendor_partner_id, institution_id, hmac_secret,
+                is_active, is_sandbox, created_by, notes)
+             VALUES ($1, $2, $3, $4, TRUE, $5, $6, $7)`,
+            [
+              partnerKey,
+              req.params.id,
+              resolvedInstitutionId,
+              sealedSecret,
+              is_sandbox,
+              req.user.userId,
+              notes || null,
+            ],
+          ),
+        { change_reason: `issue partner_key (sandbox=${is_sandbox})` },
+      );
+    } catch (err) {
+      logger.error({ err: err.message }, 'issue partner_key failed');
+      return res.status(500).json({ error: 'issue_failed' });
+    }
+
+    res.status(201).json({
+      partner_key: partnerKey,
+      hmac_secret: secretPlain,
+      is_sandbox,
+      institution: {
+        id: iR.rows[0].id,
+        shortname: iR.rows[0].shortname,
+        display_name: iR.rows[0].display_name,
+      },
+      warning:
+        'This is the ONLY time the HMAC secret is displayed. Save it in your credentials store now.',
+    });
+  },
+);
+
+// POST /admin/partner-keys/:key/revoke — mark inactive.
+// The webhook rejects further pushes with the revoked key immediately
+// (verifyVendorHmacMw checks is_active on every request).
+const revokeSchema = z.object({ reason: z.string().max(500).optional() });
+router.post(
+  '/partner-keys/:key/revoke',
+  verifyJWT,
+  requireRole('super_admin'),
+  async (req, res) => {
+    const parsed = revokeSchema.safeParse(req.body || {});
+    const reason = parsed.success ? parsed.data.reason : null;
+
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE partner_keys
+              SET is_active = FALSE,
+                  revoked_at = NOW(),
+                  revoked_by = $1,
+                  notes = CASE
+                    WHEN $2::text IS NULL THEN notes
+                    ELSE COALESCE(notes,'') || E'\n[revoked ' || NOW()::text || '] ' || $2::text
+                  END
+            WHERE partner_key = $3 AND is_active = TRUE
+        RETURNING partner_key, revoked_at`,
+          [req.user.userId, reason || null, req.params.key],
+        ),
+      { change_reason: 'revoke partner_key' },
+    );
+    if (r.rowCount === 0) {
+      return res.status(404).json({ error: 'not_found_or_already_revoked' });
+    }
+    res.json({ partner_key: r.rows[0].partner_key, revoked_at: r.rows[0].revoked_at });
   },
 );
 

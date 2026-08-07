@@ -10,6 +10,7 @@ import { DuplicatesTab } from './DuplicatesTab.jsx';
 import { DonorBulkUpload } from '../../components/donors/DonorBulkUpload.jsx';
 import { ReferralsTab } from './ReferralsTab.jsx';
 import { OnboardingTab } from './OnboardingTab.jsx';
+import { VendorIntegrationsTab } from './VendorIntegrationsTab.jsx';
 import { CampsTab } from './CampsTab.jsx';
 import { ThalassemiaTab } from './ThalassemiaTab.jsx';
 import { RareBloodTab } from './RareBloodTab.jsx';
@@ -24,6 +25,7 @@ import { StaffSecurityTab } from './StaffSecurityTab.jsx';
 
 const TABS = [
   { id: 'onboarding', label: 'Onboarding' },
+  { id: 'vendor-integrations', label: 'Vendor integrations' },
   { id: 'coordinators', label: 'Coordinators' },
   { id: 'community-leaders', label: 'Community leaders' },
   { id: 'communities', label: 'Communities' },
@@ -71,6 +73,7 @@ export function AdminDashboard() {
         </nav>
 
         {tab === 'onboarding' ? <OnboardingTab /> : null}
+        {tab === 'vendor-integrations' ? <VendorIntegrationsTab /> : null}
         {tab === 'coordinators' ? <CoordinatorsTab /> : null}
         {tab === 'community-leaders' ? <CommunityLeadersTab /> : null}
         {tab === 'communities' ? <CommunitiesTab /> : null}

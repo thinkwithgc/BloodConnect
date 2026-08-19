@@ -1,20 +1,33 @@
-import { useMemo } from 'react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Header } from '../../components/Header.jsx';
 import { Footer } from '../../components/Footer.jsx';
-import { apiRequest } from '../../lib/api.js';
+import { api, apiRequest } from '../../lib/api.js';
 
 const STATUS_LABEL = {
   PE: 'Pending license review',
-  VE: 'License verified · awaiting MoU',
+  VE: 'Licence verified · awaiting paper MoU',
   AC: 'Active',
   SU: 'Suspended',
   AR: 'Archived',
 };
 
 const KIND_LABEL = { HO: 'Hospital', BB: 'Blood bank' };
+
+const SIGNING_MODE_LABEL = { PA: 'Paper (offline)', ES: 'Aadhaar eSign' };
+
+// Accepted scan formats, mirroring SCAN_TYPES in backend/src/routes/onboarding.js.
+const SCAN_ACCEPT = 'application/pdf,image/jpeg,image/png';
+const SCAN_MAX_BYTES = 10 * 1024 * 1024;
+
+// India-only platform, so "today" means today in IST — not UTC. Matches
+// istToday() in the backend route so the date the picker offers is never
+// rejected as being in the future. IST has no DST, so the offset is exact.
+function istToday() {
+  return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+}
 
 function fmt(v) {
   if (v == null || v === '') return '—';
@@ -153,11 +166,17 @@ function InstitutionCard({ inst, kindLabel }) {
         <dd className="col-span-2 text-slate-900">{fmtDateTime(inst.license_verified_at)}</dd>
         <dt className="text-slate-500">MoU signed</dt>
         <dd className="col-span-2 text-slate-900">
-          {fmtDateTime(inst.mou_signed_at)}
+          {fmtDate(inst.mou_signed_at)}
           {inst.mou_signatory_name ? (
             <span className="ml-2 text-xs text-slate-500">by {inst.mou_signatory_name}</span>
           ) : null}
         </dd>
+        <dt className="text-slate-500">MoU signing mode</dt>
+        <dd className="col-span-2 text-slate-900">
+          {SIGNING_MODE_LABEL[inst.mou_signing_mode] || '—'}
+        </dd>
+        <dt className="text-slate-500">MoU expires</dt>
+        <dd className="col-span-2 text-slate-900">{fmtDate(inst.mou_expires_at)}</dd>
         <dt className="text-slate-500">Activated</dt>
         <dd className="col-span-2 text-slate-900">{fmtDateTime(inst.onboarded_at)}</dd>
       </dl>
@@ -173,41 +192,82 @@ export function OnboardingDetail() {
     queryKey: ['admin', 'onboarding', 'detail', id],
     queryFn: () => apiRequest('GET', `/onboarding/applications/${id}`),
     staleTime: 5_000,
-    // Refetch on window focus so a webhook that flips VE → AC while the
-    // admin is watching the page reflects without a manual reload.
     refetchOnWindowFocus: true,
     refetchInterval: 15_000,
-  });
-
-  const verify = useMutation({
-    mutationFn: () => apiRequest('POST', `/onboarding/verify/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] }),
-  });
-
-  const generateMou = useMutation({
-    mutationFn: () => apiRequest('POST', `/onboarding/generate-mou/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] }),
   });
 
   const parent = detailQ.data?.institution;
   const children = detailQ.data?.children || [];
   const child = children[0] || null;
 
-  const persistedSignUrl = parent?.current_esign_url;
-  const persistedExpiresAt = parent?.current_esign_expires_at;
-  const persistedDocId = parent?.current_esign_doc_id;
+  // Activate form. Fields start unset and fall back to the applicant's own
+  // submission, so the admin only types what differs from what was applied
+  // with — the person who signs is usually the primary contact.
+  const [form, setForm] = useState({});
+  const [scanFile, setScanFile] = useState(null);
+  const [scanError, setScanError] = useState(null);
 
-  // Human-readable expiry status for the persisted URL.
-  const persistedExpiryLabel = useMemo(() => {
-    if (!persistedExpiresAt) return null;
-    const now = Date.now();
-    const t = new Date(persistedExpiresAt).getTime();
-    if (t <= now) return 'expired';
-    const hours = Math.round((t - now) / 3_600_000);
-    if (hours < 48) return `${hours}h left`;
-    const days = Math.round(hours / 24);
-    return `${days}d left`;
-  }, [persistedExpiresAt]);
+  const maxDate = istToday();
+  const signedOn = form.signedOn ?? maxDate;
+  const signatoryName = form.signatoryName ?? parent?.primary_contact_name ?? '';
+  const signatoryDesignation =
+    form.signatoryDesignation ?? parent?.primary_contact_designation ?? '';
+
+  const setField = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const verify = useMutation({
+    mutationFn: () => apiRequest('POST', `/onboarding/verify/${id}`),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] }),
+  });
+
+  // Two requests when a scan is attached: the file goes up as a raw body
+  // (JSON/base64 would be truncated by the API's input sanitiser), and the
+  // returned key + hash are recorded by the activate call.
+  const activate = useMutation({
+    mutationFn: async () => {
+      let scan = null;
+      if (scanFile) {
+        const r = await api.request({
+          method: 'POST',
+          url: `/onboarding/${id}/mou-scan`,
+          data: scanFile,
+          headers: { 'Content-Type': scanFile.type },
+        });
+        scan = r.data;
+      }
+      return apiRequest('POST', `/onboarding/activate/${id}`, {
+        mou_signed_on: signedOn,
+        signatory_name: signatoryName.trim(),
+        ...(signatoryDesignation.trim()
+          ? { signatory_designation: signatoryDesignation.trim() }
+          : {}),
+        ...(scan ? { mou_scan_key: scan.storage_key, mou_scan_sha256: scan.sha256 } : {}),
+      });
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] }),
+  });
+
+  function onPickScan(e) {
+    const f = e.target.files?.[0] || null;
+    setScanError(null);
+    if (!f) {
+      setScanFile(null);
+      return;
+    }
+    if (!SCAN_ACCEPT.split(',').includes(f.type)) {
+      setScanError('Only PDF, JPEG or PNG files are accepted.');
+      setScanFile(null);
+      return;
+    }
+    if (f.size > SCAN_MAX_BYTES) {
+      setScanError('File is larger than 10 MB — please compress or rescan it.');
+      setScanFile(null);
+      return;
+    }
+    setScanFile(f);
+  }
+
+  const canActivate = signatoryName.trim().length >= 2 && signedOn && !activate.isPending;
 
   return (
     <div className="flex min-h-full flex-col">
@@ -270,49 +330,102 @@ export function OnboardingDetail() {
               ) : null}
 
               {parent.onboarding_status === 'VE' ? (
-                <div className="space-y-3">
-                  {persistedSignUrl && persistedExpiryLabel !== 'expired' ? (
-                    <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm">
-                      <p className="font-semibold text-amber-900">MoU eSign in flight</p>
-                      <p className="mt-1 text-amber-900">
-                        Doc ID: <span className="font-mono">{persistedDocId}</span> ·{' '}
-                        <span className="font-semibold">{persistedExpiryLabel}</span> to sign
-                      </p>
-                      <a
-                        href={persistedSignUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="mt-2 inline-block text-amber-800 underline"
-                      >
-                        Open sign URL →
-                      </a>
-                      <p className="mt-2 text-xs text-amber-800">
-                        The signatory should have received this URL on WhatsApp from Leegality.
-                        If they didn't, share this URL out-of-band. Clicking "Re-send MoU" below
-                        will return this same URL (no new document created) until it expires.
-                      </p>
+                <form
+                  className="space-y-4"
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (canActivate) activate.mutate();
+                  }}
+                >
+                  <div className="rounded-md border border-slate-200 bg-sand/60 p-3 text-sm text-slate-700">
+                    <p className="font-semibold text-slate-900">The MoU is signed on paper</p>
+                    <p className="mt-1">
+                      Record the signed hard copy you are holding, then activate. Activating
+                      provisions the hospital admin login and WhatsApps a password-setup link to{' '}
+                      <span className="font-mono">{parent.primary_contact_mobile}</span>
+                      {child
+                        ? '. The blood-bank admin login is created at the same time and surfaces on the hospital dashboard.'
+                        : '.'}
+                    </p>
+                    <p className="mt-1">
+                      One MoU covers {child ? 'both the hospital and its blood bank' : 'this institution'}, and
+                      is valid for one year from the date signed.
+                    </p>
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div>
+                      <label className="rk-label" htmlFor="mou-signed-on">
+                        Date signed on paper
+                      </label>
+                      <input
+                        id="mou-signed-on"
+                        type="date"
+                        className="rk-input"
+                        value={signedOn}
+                        max={maxDate}
+                        onChange={setField('signedOn')}
+                        required
+                      />
                     </div>
-                  ) : null}
-                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                    <div className="flex-1 text-sm text-slate-700">
-                      Sends an Aadhaar eSign request via Leegality to{' '}
-                      <span className="font-mono">{parent.primary_contact_mobile}</span>. One MoU
-                      covers {child ? 'both the hospital and its blood bank' : 'this institution'}.
+                    <div>
+                      <label className="rk-label" htmlFor="mou-signatory">
+                        Signatory name
+                      </label>
+                      <input
+                        id="mou-signatory"
+                        type="text"
+                        className="rk-input"
+                        value={signatoryName}
+                        onChange={setField('signatoryName')}
+                        placeholder="Who signed the MoU"
+                        required
+                        minLength={2}
+                      />
                     </div>
-                    <button
-                      type="button"
-                      className="rk-button-primary"
-                      onClick={() => generateMou.mutate()}
-                      disabled={generateMou.isPending}
-                    >
-                      {generateMou.isPending
-                        ? '…'
-                        : persistedSignUrl && persistedExpiryLabel !== 'expired'
-                          ? 'Re-send MoU'
-                          : 'Send MoU for eSign'}
+                    <div>
+                      <label className="rk-label" htmlFor="mou-designation">
+                        Signatory designation <span className="text-slate-400">(optional)</span>
+                      </label>
+                      <input
+                        id="mou-designation"
+                        type="text"
+                        className="rk-input"
+                        value={signatoryDesignation}
+                        onChange={setField('signatoryDesignation')}
+                        placeholder="e.g. Medical Superintendent"
+                      />
+                    </div>
+                    <div>
+                      <label className="rk-label" htmlFor="mou-scan">
+                        Scan of the signed MoU <span className="text-slate-400">(optional)</span>
+                      </label>
+                      <input
+                        id="mou-scan"
+                        type="file"
+                        className="rk-input"
+                        accept={SCAN_ACCEPT}
+                        onChange={onPickScan}
+                      />
+                      <p className="mt-1 text-xs text-slate-500">
+                        PDF, JPEG or PNG · up to 10 MB. Leave empty if only the paper original is
+                        filed.
+                      </p>
+                      {scanError ? <p className="mt-1 text-xs text-rk-700">{scanError}</p> : null}
+                      {scanFile ? (
+                        <p className="mt-1 text-xs text-slate-600">
+                          {scanFile.name} · {(scanFile.size / 1024).toFixed(0)} KB
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
+                    <button type="submit" className="rk-button-primary" disabled={!canActivate}>
+                      {activate.isPending ? 'Activating…' : 'Approve & activate'}
                     </button>
                   </div>
-                </div>
+                </form>
               ) : null}
 
               {parent.onboarding_status === 'AC' ? (
@@ -333,20 +446,22 @@ export function OnboardingDetail() {
                   Verify failed: {verify.error?.response?.data?.error || 'unknown'}
                 </p>
               ) : null}
-              {generateMou.error ? (
+              {activate.error ? (
                 <p className="text-xs text-rk-700">
-                  Send-MoU failed: {generateMou.error?.response?.data?.error || 'unknown'}
+                  Activation failed: {activate.error?.response?.data?.error || 'unknown'}
                 </p>
               ) : null}
-              {generateMou.data && !generateMou.data.cached ? (
+              {activate.data ? (
                 <p className="text-xs text-slate-500">
-                  New eSign document created ({generateMou.data.doc_id}). Reload to see it in the
-                  in-flight card above.
-                </p>
-              ) : null}
-              {generateMou.data && generateMou.data.cached ? (
-                <p className="text-xs text-slate-500">
-                  Returned the existing in-flight eSign document — no new Leegality request made.
+                  Activated as MoU v{activate.data.version}. Hospital admin username:{' '}
+                  <span className="font-mono">{activate.data.ho_admin_username}</span>
+                  {activate.data.bb_admin_username ? (
+                    <>
+                      {' · '}blood-bank admin:{' '}
+                      <span className="font-mono">{activate.data.bb_admin_username}</span>
+                    </>
+                  ) : null}
+                  .
                 </p>
               ) : null}
             </section>

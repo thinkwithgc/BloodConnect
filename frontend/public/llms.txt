@@ -4,7 +4,7 @@
 
 Raktify's operational scope: donor registration and consent, blood-bank inventory + TTI screening, hospital-raised blood requests, matching engine that pairs requests with compatible bags and donors, WhatsApp-first notifications, DPDP-compliant data handling.
 
-Technical stack (public): Node.js / Express backend on Azure App Service, React 18 + Vite frontend on Azure Static Web Apps, PostgreSQL 16 (Azure Flexible Server) with row-level security and audit-log triggers, WhatsApp Cloud API for notifications, Aadhaar eSign (Leegality) for institution MoU. Public REST webhook API is available for blood-bank software vendors to sync data.
+Technical stack (public): Node.js / Express backend on Azure App Service, React 18 + Vite frontend on Azure Static Web Apps, PostgreSQL 16 (Azure Flexible Server) with row-level security and audit-log triggers, WhatsApp Cloud API for notifications. Public REST webhook API is available for blood-bank software vendors to sync data.
 
 ## Vendor Integration API
 

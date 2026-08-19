@@ -4,12 +4,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiRequest } from '../../lib/api.js';
 
-// Mirrors institutions.onboarding_status. The eSign webhook flips VE → AC
-// automatically when MoU comes back signed; this UI exposes the manual
-// admin levers (verify license, kick off eSign).
+// Mirrors institutions.onboarding_status. Both transitions are manual admin
+// actions: verify the licences here, then record the paper-signed MoU and
+// activate from the detail page (that step needs a form, not a row button).
 const FILTERS = [
   { id: 'PE', label: 'Pending license review' },
-  { id: 'VE', label: 'License verified · awaiting MoU' },
+  { id: 'VE', label: 'Licence verified · awaiting paper MoU' },
   { id: 'AC', label: 'Active' },
   { id: 'SU', label: 'Suspended' },
 ];
@@ -54,18 +54,10 @@ export function OnboardingTab() {
     mutationFn: (id) => apiRequest('POST', `/onboarding/verify/${id}`),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] });
-      // Row flips PE → VE; move the filter with it so the admin can immediately
-      // Send-MoU rather than staring at an emptied PE list.
+      // Row flips PE → VE; move the filter with it so the admin can go straight
+      // on to activation rather than staring at an emptied PE list.
       setStatus('VE');
     },
-  });
-
-  const generateMou = useMutation({
-    mutationFn: (id) => apiRequest('POST', `/onboarding/generate-mou/${id}`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['admin', 'onboarding'] }),
-    // Deliberately stay on the VE filter after Send-MoU — the row only leaves
-    // VE when the eSign webhook flips it to AC, and the detail page (or a
-    // React Query refetch on window focus) picks that up asynchronously.
   });
 
   const rows = listQ.data?.applications || [];
@@ -99,34 +91,6 @@ export function OnboardingTab() {
         </div>
       ) : null}
 
-      {generateMou.data ? (
-        <div className="rk-card border border-amber-300 bg-amber-50 text-sm">
-          <p className="font-semibold text-amber-900">
-            {generateMou.data.cached
-              ? 'Existing eSign request returned (no new document created)'
-              : 'eSign request created'}
-          </p>
-          <p className="mt-1 text-amber-900">
-            Provider: <span className="font-mono">{generateMou.data.provider}</span> · Doc ID:{' '}
-            <span className="font-mono">{generateMou.data.doc_id}</span>
-          </p>
-          {generateMou.data.sign_url ? (
-            <a
-              href={generateMou.data.sign_url}
-              target="_blank"
-              rel="noreferrer"
-              className="mt-1 inline-block text-amber-800 underline"
-            >
-              Open sign URL →
-            </a>
-          ) : null}
-          <p className="mt-2 text-xs text-amber-800">
-            The signatory will receive this URL on WhatsApp from Leegality. The URL persists on
-            the detail page — a refresh won't lose it.
-          </p>
-        </div>
-      ) : null}
-
       <div className="rk-card overflow-x-auto p-0">
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -141,7 +105,7 @@ export function OnboardingTab() {
           </thead>
           <tbody className="divide-y divide-slate-100">
             {rows.map((r) => {
-              const isBusy = busyId === r.id && (verify.isPending || generateMou.isPending);
+              const isBusy = busyId === r.id && verify.isPending;
               return (
                 <tr key={r.id}>
                   <td className="px-3 py-2">
@@ -189,17 +153,12 @@ export function OnboardingTab() {
                       </button>
                     ) : null}
                     {status === 'VE' ? (
-                      <button
-                        type="button"
-                        className="rk-button-primary text-xs"
-                        onClick={() => {
-                          setBusyId(r.id);
-                          generateMou.mutate(r.id);
-                        }}
-                        disabled={isBusy}
+                      <Link
+                        to={`/admin/onboarding/${r.id}`}
+                        className="rk-button-primary inline-block text-xs"
                       >
-                        {isBusy ? '…' : 'Send MoU for eSign'}
-                      </button>
+                        Approve &amp; activate
+                      </Link>
                     ) : null}
                     {status === 'AC' ? (
                       <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800">
@@ -222,11 +181,12 @@ export function OnboardingTab() {
       </div>
 
       <p className="text-xs text-slate-500">
-        PE → VE: click applicant name for full submission detail, then Verify to confirm both
-        licences (hospital registration + CDSCO if in-house BB). VE → AC: Send MoU triggers an
-        Aadhaar eSign request via Leegality; refresh-safe (URL persists on the detail page).
-        The eSign webhook then auto-provisions admin logins and flips status to AC — for paired
-        applications, the blood-bank admin's credentials surface on the hospital dashboard.
+        PE → VE: click the applicant name for the full submission, then Verify to confirm both
+        licences (hospital registration + CDSCO if in-house BB). VE → AC: the MoU is signed
+        offline on paper — once you hold the signed copy, open the applicant and use Approve
+        &amp; activate to record it (date, signatory, optional scan). That provisions the admin
+        logins and WhatsApps a password-setup link; for paired applications the blood-bank
+        admin's setup link surfaces on the hospital dashboard.
       </p>
     </section>
   );

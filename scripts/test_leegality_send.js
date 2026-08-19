@@ -2,6 +2,12 @@
 /**
  * One-off integration test for the Leegality sendForSign path.
  *
+ * DORMANT as of Aug 2026. Institution MoUs are signed OFFLINE ON PAPER and
+ * recorded via POST /onboarding/activate/:id — no route calls the eSign
+ * provider today. This script and backend/src/services/esign/* are kept on
+ * disk so eSign can be re-enabled later (activateInstitution() already accepts
+ * signingMode:'ES'); nothing in the running app reaches them.
+ *
  * Does NOT require any DB state, /admin login, or running backend. Calls
  * the Leegality v3.0 API directly using credentials sourced from env.
  * Pass test data via CLI flags; observe Leegality's response inline.

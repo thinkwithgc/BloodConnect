@@ -237,8 +237,9 @@ export function InstitutionApply() {
             </dl>
             <p className="text-xs text-slate-500">
               Our NGO admin team will verify your licence within 2 working days and contact your
-              primary contact on the mobile number you provided. Once the MoU is signed via
-              Aadhaar eSign, you will receive login credentials by WhatsApp.
+              primary contact on the mobile number you provided. The MoU is signed on paper — we
+              will arrange that with you offline. Once it is signed and your application is
+              approved, we WhatsApp you a link to set your login password.
               {submitted.child_institution_id
                 ? ' The linked blood bank shares this MoU — its admin credentials will be surfaced on your hospital dashboard after activation.'
                 : ''}
@@ -268,8 +269,8 @@ export function InstitutionApply() {
             Join Raktify as a hospital or blood bank
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Self-apply form. We verify every applicant before activation — licence check,
-            MoU eSign, and admin credential provisioning. Your data is encrypted at rest.
+            Self-apply form. We verify every applicant before activation — licence check, MoU
+            signed on paper, then admin logins. Your data is encrypted at rest.
           </p>
         </div>
 
@@ -546,7 +547,7 @@ export function InstitutionApply() {
             </Field>
             <Field
               label="Mobile (10-digit)"
-              hint="We will WhatsApp the MoU eSign request to this number"
+              hint="We will WhatsApp your login setup link to this number"
               error={errors.primary_contact_mobile}
             >
               <input

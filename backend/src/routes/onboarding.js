@@ -11,21 +11,26 @@
  *                                          names and any child rows.
  *   POST /onboarding/verify/:id         — ngo_admin; PE → VE for parent AND any
  *                                          child rows in one shot.
- *   POST /onboarding/generate-mou/:id   — ngo_admin; idempotent eSign request.
- *                                          Rejects if called on a child. Persists
- *                                          doc_id/url on institutions so refresh +
- *                                          re-click return the same URL.
- *   POST /onboarding/mou-signed         — eSign webhook; parent + any children → AC,
- *                                          provisions HO admin + optional BB admin,
- *                                          sends HO WhatsApp, stashes BB token on
- *                                          parent for the hospital dashboard.
+ *   POST /onboarding/:id/mou-scan       — ngo_admin; raw upload of a scan of the
+ *                                          signed paper MoU. Returns a storage key
+ *                                          + sha256 for /activate. Optional.
+ *   POST /onboarding/activate/:id       — ngo_admin; VE → AC. Records the offline
+ *                                          paper MoU, flips parent + any children
+ *                                          to AC, provisions the HO admin (+ BB
+ *                                          admin for paired applications) and
+ *                                          WhatsApps the HO setup link.
  *
- * The webhook ALWAYS returns 200 — Leegality retries non-2XX responses, and we
- * surface errors via structured logs (event: 'esign_webhook_*') so App Insights
- * alerts can catch them instead of burning silent 401 retries.
+ * MoU SIGNING IS OFFLINE ON PAPER. The Aadhaar-eSign round-trip that used to
+ * gate activation (POST /generate-mou/:id → Leegality → POST /mou-signed
+ * webhook) was removed: Leegality was never provisioned, so onboarding was
+ * blocked end-to-end. The NGO admin now reviews the application, verifies
+ * licences, collects a physically-signed MoU, and records it via /activate.
+ *
+ * services/esign and the LEEGALITY_* env block are left on disk but referenced
+ * by nothing — see services/onboarding/activate.js, which takes a `signingMode`
+ * so eSign can be re-enabled as an additional caller rather than a rewrite.
  */
 const express = require('express');
-const crypto = require('crypto');
 const { z } = require('zod');
 
 const env = require('../config/env');
@@ -34,10 +39,9 @@ const { pool } = require('../config/db');
 const { withRlsContext, withRlsContextRaw } = require('../middleware/rlsContext');
 const { verifyJWT, requireRole } = require('../middleware/auth');
 const { normaliseIndianMobile } = require('../utils/phone');
-const eSign = require('../services/esign');
 const storage = require('../services/storage');
 const { sendNotification } = require('../services/notifications');
-const setupSvc = require('../services/users/setup');
+const { activateInstitution, sha256Hex } = require('../services/onboarding/activate');
 
 const router = express.Router();
 
@@ -381,39 +385,147 @@ router.post('/verify/:id', verifyJWT, requireRole('ngo_admin', 'super_admin'), a
   });
 });
 
-// ── POST /onboarding/generate-mou/:id (ngo_admin) ────────────────────────
-// Idempotent. If the institution already has an in-flight eSign
-// (`current_esign_doc_id` set + not-yet-expired), returns the persisted URL
-// without hitting Leegality. This makes admin refresh-and-re-click safe.
+// ── POST /onboarding/:id/mou-scan (ngo_admin) ────────────────────────────
+// Optional companion to /activate: uploads a scan or photo of the SIGNED PAPER
+// MoU and returns its storage key + hash so /activate can record the reference.
+// Stateless — touches no DB row, so a failed activation leaves no dangling
+// pointer (at worst an orphaned blob).
 //
-// Only callable on a PARENT institution (top-level or standalone). Child
-// BBs inherit their parent's MoU — signing on a child is rejected.
+// Deliberately a RAW body rather than base64-in-JSON, because two global
+// middlewares would silently corrupt the latter:
+//   · express.json() is capped at 1mb (app.js) — a phone photo of a signed MoU
+//     routinely exceeds that once base64 inflates it ~33%;
+//   · sanitizeInput TRUNCATES any string at 8000 chars without erroring
+//     (middleware/sanitize.js), so a large base64 field would arrive quietly
+//     mangled. A Buffer body passes through sanitizeValue untouched.
+// The global json/urlencoded parsers skip these content types entirely.
+const SCAN_TYPES = {
+  'application/pdf': { ext: 'pdf', magic: (b) => b.slice(0, 5).toString('latin1') === '%PDF-' },
+  'image/jpeg': {
+    ext: 'jpg',
+    magic: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  },
+  'image/png': {
+    ext: 'png',
+    magic: (b) =>
+      b.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  },
+};
+
 router.post(
-  '/generate-mou/:id',
+  '/:id/mou-scan',
+  verifyJWT,
+  requireRole('ngo_admin', 'super_admin'),
+  express.raw({ type: Object.keys(SCAN_TYPES), limit: '10mb' }),
+  async (req, res) => {
+    const contentType = (req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const spec = SCAN_TYPES[contentType];
+    if (!spec) {
+      return res
+        .status(415)
+        .json({ error: 'unsupported_media_type', accepted: Object.keys(SCAN_TYPES) });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'empty_body' });
+    }
+    // Content-Type is caller-supplied; verify the bytes actually match so a
+    // mislabelled (or hostile) upload can't be filed as the legal original.
+    if (!spec.magic(req.body)) {
+      return res.status(400).json({ error: 'content_type_mismatch', declared: contentType });
+    }
+
+    const inst = await pool.query(
+      `SELECT shortname, parent_institution_id FROM institutions WHERE id = $1`,
+      [req.params.id],
+    );
+    if (inst.rowCount === 0) return res.status(404).json({ error: 'not_found' });
+    if (inst.rows[0].parent_institution_id !== null) {
+      return res.status(409).json({ error: 'mou_signed_by_parent_only' });
+    }
+
+    const versionR = await pool.query(
+      `SELECT COALESCE(MAX(version_number), 0) + 1 AS next FROM mou_versions WHERE institution_id = $1`,
+      [req.params.id],
+    );
+    const nextVersion = versionR.rows[0].next;
+
+    const key = `mou/${inst.rows[0].shortname}/v${nextVersion}-scan.${spec.ext}`;
+    await storage.put(key, req.body, { contentType });
+    const sha256 = sha256Hex(req.body);
+
+    logger.info(
+      {
+        event: 'onboarding_mou_scan_stored',
+        institutionId: req.params.id,
+        version: nextVersion,
+        bytes: req.body.length,
+      },
+      'Paper MoU scan stored',
+    );
+
+    res.json({ storage_key: key, sha256, bytes: req.body.length, content_type: contentType });
+  },
+);
+
+// ── POST /onboarding/activate/:id (ngo_admin) ────────────────────────────
+// VE → AC. Records the OFFLINE PAPER MoU the admin is holding, then activates
+// the institution and provisions admin logins. This replaced the Leegality
+// eSign round-trip (generate-mou + the mou-signed webhook); the activation
+// transaction itself moved verbatim into services/onboarding/activate.js, so
+// re-enabling eSign later is a new caller, not a rewrite.
+//
+// Parent-only: a child in-house BB inherits its parent's MoU and is flipped to
+// AC by the same transaction.
+// India-only platform, so "today" means today in IST — not UTC. Without this an
+// admin recording a MoU after midnight IST would have their own current date
+// rejected as being in the future. IST has no DST, so the fixed offset is exact.
+function istToday() {
+  return new Date(Date.now() + 5.5 * 3600 * 1000).toISOString().slice(0, 10);
+}
+
+const activateSchema = z
+  .object({
+    // The date written on the signed paper — may predate today, since the
+    // admin records it after the document reaches them.
+    mou_signed_on: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .refine((v) => !Number.isNaN(Date.parse(v)), { message: 'invalid_date' })
+      .refine((v) => v <= istToday(), { message: 'signed_date_in_future' }),
+    signatory_name: z.string().min(2).max(120),
+    signatory_designation: z.string().min(2).max(120).optional(),
+    // Both from a prior /mou-scan response, or neither. The DB enforces the
+    // pairing too (constraint scan_key_and_hash_together, migration 310).
+    mou_scan_key: z.string().min(3).max(300).optional(),
+    mou_scan_sha256: z
+      .string()
+      .regex(/^[0-9a-f]{64}$/)
+      .optional(),
+  })
+  .strict()
+  .superRefine((v, ctx) => {
+    if (Boolean(v.mou_scan_key) !== Boolean(v.mou_scan_sha256)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['mou_scan_sha256'],
+        message: 'scan_key_and_hash_must_be_provided_together',
+      });
+    }
+  });
+
+router.post(
+  '/activate/:id',
   verifyJWT,
   requireRole('ngo_admin', 'super_admin'),
   async (req, res) => {
+    const parsed = activateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'validation_failed', details: parsed.error.flatten() });
+    }
+    const body = parsed.data;
+
     const inst = await pool.query(
-      `SELECT i.id, i.kind, i.shortname, i.legal_name, i.display_name,
-              i.address_line, i.pincode, i.latitude, i.longitude,
-              i.cdsco_licence_number, i.cdsco_licence_expires,
-              i.hospital_registration_no,
-              i.primary_contact_name, i.primary_contact_designation,
-              i.primary_contact_mobile, i.primary_contact_email,
-              i.has_inhouse_blood_bank, i.is_blood_bank_software_user,
-              i.software_vendor, i.onboarding_status,
-              i.parent_institution_id,
-              i.current_esign_doc_id, i.current_esign_url, i.current_esign_expires_at,
-              s.name  AS state_name,
-              d.name  AS district_name,
-              t.name  AS taluka_name,
-              v.name  AS village_name
-         FROM institutions i
-         LEFT JOIN states    s ON s.id = i.state_id
-         LEFT JOIN districts d ON d.id = i.district_id
-         LEFT JOIN talukas   t ON t.id = i.taluka_id
-         LEFT JOIN villages  v ON v.id = i.village_id
-        WHERE i.id = $1`,
+      `SELECT id, onboarding_status, parent_institution_id FROM institutions WHERE id = $1`,
       [req.params.id],
     );
     if (inst.rowCount === 0) return res.status(404).json({ error: 'not_found' });
@@ -422,458 +534,98 @@ router.post(
     if (i.parent_institution_id !== null) {
       return res.status(409).json({ error: 'mou_signed_by_parent_only' });
     }
-    if (!['VE', 'AC'].includes(i.onboarding_status)) {
+    // 'AC' is called out separately from the generic state error: a double
+    // click would otherwise file a second mou_versions row and re-issue a
+    // second pair of setup tokens, invalidating the links already sent.
+    // (Annual MoU RENEWAL is a separate flow, not this endpoint.)
+    if (i.onboarding_status === 'AC') {
+      return res.status(409).json({ error: 'already_active' });
+    }
+    if (i.onboarding_status !== 'VE') {
       return res.status(409).json({ error: 'must_verify_license_first' });
     }
 
-    // Idempotency: if we already sent an eSign request that hasn't expired,
-    // return the same URL. This lets the admin refresh the page + re-click
-    // Send-MoU without creating a second Leegality document.
-    if (
-      i.current_esign_doc_id &&
-      i.current_esign_url &&
-      i.current_esign_expires_at &&
-      new Date(i.current_esign_expires_at) > new Date()
-    ) {
-      return res.json({
-        institution_id: i.id,
-        doc_id: i.current_esign_doc_id,
-        sign_url: i.current_esign_url,
-        expires_at: i.current_esign_expires_at,
-        provider: eSign.providerName,
-        cached: true,
-      });
-    }
-
-    // Hydrate child BB (if any) for the MoU template — its CDSCO licence
-    // details appear on the same signed document.
-    const childR = await pool.query(
-      `SELECT cdsco_licence_number, cdsco_licence_expires, shortname
-         FROM institutions
-        WHERE parent_institution_id = $1
-          AND kind = 'BB'
-        ORDER BY created_at ASC
-        LIMIT 1`,
-      [i.id],
-    );
-    const child = childR.rows[0] || null;
-
-    // Next MoU version — surfaced so the PDF can render "MoU v3" etc.
-    const versionR = await pool.query(
-      `SELECT COALESCE(MAX(version_number), 0) + 1 AS next FROM mou_versions WHERE institution_id = $1`,
-      [i.id],
-    );
-    const nextVersion = versionR.rows[0].next;
-
-    const today = new Date().toISOString().slice(0, 10);
-    const yearOut = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
-    const templateData = {
-      // Identity
-      institution_legal_name: i.legal_name,
-      institution_display_name: i.display_name,
-      institution_type: i.kind === 'BB' ? 'Blood Bank' : 'Hospital',
-      institution_shortname: i.shortname,
-
-      // Address
-      institution_address: i.address_line,
-      state_name: i.state_name || '',
-      district_name: i.district_name || '',
-      taluka_name: i.taluka_name || '',
-      village_name: i.village_name || '',
-      pincode: i.pincode,
-      latitude: i.latitude != null ? String(i.latitude) : '',
-      longitude: i.longitude != null ? String(i.longitude) : '',
-
-      // Licensing — parent + child bundled so paired MoUs render both licences.
-      license_number: i.cdsco_licence_number || i.hospital_registration_no || '',
-      cdsco_licence_number: i.cdsco_licence_number || (child?.cdsco_licence_number ?? ''),
-      cdsco_licence_expires: (() => {
-        const src = i.cdsco_licence_expires || child?.cdsco_licence_expires;
-        return src ? new Date(src).toISOString().slice(0, 10) : '';
-      })(),
-      hospital_registration_no: i.hospital_registration_no || '',
-      has_inhouse_blood_bank: i.has_inhouse_blood_bank ? 'Yes' : 'No',
-      inhouse_bb_shortname: child?.shortname || '',
-
-      // Contact + signatory
-      primary_contact_name: i.primary_contact_name,
-      primary_contact_designation: i.primary_contact_designation || '',
-      primary_contact_mobile: i.primary_contact_mobile,
-      primary_contact_email: i.primary_contact_email || '',
-      signatory_name: i.primary_contact_name,
-      signatory_designation: i.primary_contact_designation || 'Authorised Signatory',
-
-      // Capability flags
-      is_blood_bank_software_user: i.is_blood_bank_software_user ? 'Yes' : 'No',
-      software_vendor: i.software_vendor || '',
-
-      // Dates + version
-      signing_date: today,
-      effective_from: today,
-      effective_until: yearOut,
-      effective_until_date: yearOut,
-      mou_version: String(nextVersion),
-    };
-
-    const eSignResult = await eSign.sendForSign({
+    const result = await activateInstitution({
       institutionId: i.id,
-      signatoryMobile: i.primary_contact_mobile,
-      signatoryName: i.primary_contact_name,
-      templateData,
+      recordedByUserId: req.user.userId,
+      mou: {
+        signingMode: 'PA',
+        signedOn: body.mou_signed_on,
+        signatoryName: body.signatory_name,
+        signatoryDesignation: body.signatory_designation || null,
+        scanKey: body.mou_scan_key || null,
+        scanSha256: body.mou_scan_sha256 || null,
+      },
     });
 
-    // Persist the doc so refresh + re-click return the same URL and no
-    // second Leegality document is created.
-    await withRlsContextRaw(
-      { actor_role: 'onboarding', change_reason: 'esign send — persist doc' },
-      async (c) =>
-        c.query(
-          `UPDATE institutions
-              SET current_esign_doc_id     = $1,
-                  current_esign_url        = $2,
-                  current_esign_expires_at = $3,
-                  current_esign_sent_at    = NOW()
-            WHERE id = $4`,
-          [eSignResult.docId, eSignResult.signUrl, eSignResult.expiresAt, i.id],
-        ),
+    logger.info(
+      {
+        event: 'onboarding_activated',
+        institutionId: i.id,
+        childInstitutionId: result.childId,
+        version: result.versionNumber,
+        signingMode: 'PA',
+        scanOnFile: Boolean(body.mou_scan_key),
+        activatedBy: req.user.userId,
+      },
+      'Institution activated against a paper MoU',
     );
 
+    // Send the HO admin's magic link via WhatsApp. The BB admin's link stays
+    // on the parent row for surfacing via the hospital dashboard — no auto-WA,
+    // so the HO admin controls when the BB team is onboarded.
+    //
+    // A send failure must NOT roll activation back: the institution is
+    // legitimately active, and the admin can resend. Log loudly instead.
+    try {
+      await sendNotification({
+        recipientId: result.institution.primary_contact_mobile,
+        templateType: 'SETUP_LINK',
+        variables: {
+          signatory_name: body.signatory_name || result.institution.primary_contact_name || 'Admin',
+          institution_name: result.institution.display_name || result.institution.shortname,
+          setup_token: result.hoSetupToken,
+        },
+        channel: 'WA',
+        language: 'en',
+      });
+    } catch (err) {
+      logger.error(
+        {
+          event: 'onboarding_activate_ho_notify_failed',
+          institutionId: i.id,
+          err: err.message,
+        },
+        'HO admin activation WhatsApp send failed — row still activated, admin can resend',
+      );
+    }
+
+    const devEcho =
+      env.nodeEnv === 'development'
+        ? {
+            dev_ho_admin_username: result.hoAdminUsername,
+            dev_ho_setup_url: `${env.frontendUrl}/setup/${result.hoSetupToken}`,
+            dev_ho_setup_expires_at: result.hoExpiresAt,
+            dev_bb_admin_username: result.bbAdminUsername,
+            dev_bb_setup_url: result.bbSetupToken
+              ? `${env.frontendUrl}/setup/${result.bbSetupToken}`
+              : null,
+            dev_bb_setup_expires_at: result.bbExpiresAt,
+          }
+        : {};
+
     res.json({
+      status: 'activated',
       institution_id: i.id,
-      doc_id: eSignResult.docId,
-      sign_url: eSignResult.signUrl,
-      expires_at: eSignResult.expiresAt,
-      provider: eSign.providerName,
-      cached: false,
+      child_institution_id: result.childId,
+      onboarding_status: 'AC',
+      mou_signing_mode: 'PA',
+      version: result.versionNumber,
+      ho_admin_username: result.hoAdminUsername,
+      bb_admin_username: result.bbAdminUsername,
+      ...devEcho,
     });
   },
 );
-
-// ── POST /onboarding/mou-signed (eSign webhook) ──────────────────────────
-// Handles Leegality's Success + Error webhooks. Always returns 200 (with the
-// outcome in the body) — a non-2XX would burn Leegality's fixed 3-retry
-// budget without giving us diagnostic visibility. Errors are surfaced via
-// structured logs (event: 'esign_webhook_*') so App Insights alerts fire.
-//
-// On Success/Signed: transaction flips parent + children to AC, provisions
-// the HO admin user (WhatsApp sent), and — if a child BB exists — provisions
-// the BB admin user too and stashes the plaintext setup token on the parent
-// row so the HO admin's dashboard can surface it.
-router.post('/mou-signed', async (req, res) => {
-  let webhook;
-  try {
-    webhook = eSign.verifyWebhook(req.headers, req.body);
-  } catch (err) {
-    logger.error(
-      {
-        event: 'esign_webhook_hmac_mismatch',
-        provider: eSign.providerName,
-        error: err.message,
-      },
-      'eSign webhook verification failed — payload ignored',
-    );
-    return res.json({ status: 'ignored', reason: 'hmac_mismatch' });
-  }
-
-  if (webhook.webhookType === 'Error' || webhook.action !== 'Signed') {
-    logger.warn(
-      {
-        event: 'esign_webhook_non_success',
-        docId: webhook.docId,
-        webhookType: webhook.webhookType,
-        action: webhook.action,
-        error: webhook.error,
-      },
-      'eSign webhook non-success — institution stays in VE state',
-    );
-    return res.json({ status: 'acknowledged', event: webhook.webhookType });
-  }
-
-  // Resolve institution_id: webhook.irn is our authoritative source (we set
-  // it on sendForSign). Fallback to req.body.institution_id (legacy) or the
-  // local outbox file (dev/smoke).
-  let institutionId = webhook.irn || req.body.institution_id;
-  if (!institutionId && webhook.docId) {
-    try {
-      const r = await pool.query(
-        `SELECT id FROM institutions WHERE current_esign_doc_id = $1 LIMIT 1`,
-        [webhook.docId],
-      );
-      if (r.rowCount > 0) institutionId = r.rows[0].id;
-    } catch (err) {
-      logger.error(
-        { event: 'esign_webhook_lookup_error', err: err.message },
-        'Failed to resolve institution from docId',
-      );
-    }
-  }
-  if (!institutionId) {
-    try {
-      const fs = require('fs');
-      const path = require('path');
-      const fp = path.resolve(env.local.outboxDir, 'esign', `${webhook.docId}.json`);
-      if (fs.existsSync(fp)) {
-        institutionId = JSON.parse(fs.readFileSync(fp, 'utf8')).institutionId;
-      }
-    } catch (err) {
-      logger.error(
-        { event: 'esign_webhook_outbox_lookup_error', err: err.message },
-        'Failed to resolve institution from outbox file',
-      );
-    }
-  }
-  if (!institutionId) {
-    logger.error(
-      { event: 'esign_webhook_unresolved', docId: webhook.docId },
-      'eSign webhook signed but no institution_id could be resolved',
-    );
-    return res.json({ status: 'ignored', reason: 'institution_unresolved' });
-  }
-
-  const inst = await pool.query(
-    `SELECT id, shortname, display_name, primary_contact_name,
-            primary_contact_mobile, kind, onboarding_status,
-            parent_institution_id
-       FROM institutions WHERE id = $1`,
-    [institutionId],
-  );
-  if (inst.rowCount === 0) {
-    logger.error(
-      { event: 'esign_webhook_institution_not_found', institutionId, docId: webhook.docId },
-      'eSign webhook resolved to a missing institution row',
-    );
-    return res.json({ status: 'ignored', reason: 'institution_not_found' });
-  }
-  const i = inst.rows[0];
-
-  if (i.parent_institution_id !== null) {
-    // MoU is signed by the parent HO; a child ID here means a stale/wrong
-    // irn. Refuse rather than corrupt the parent's state.
-    logger.error(
-      { event: 'esign_webhook_child_institution', institutionId, docId: webhook.docId },
-      'eSign webhook targeted a child institution — parent-only',
-    );
-    return res.json({ status: 'ignored', reason: 'child_institution' });
-  }
-
-  // Look up the child BB if this HO onboarded with an in-house BB.
-  const childR = await pool.query(
-    `SELECT id, shortname FROM institutions
-      WHERE parent_institution_id = $1 AND kind = 'BB'
-      ORDER BY created_at ASC LIMIT 1`,
-    [institutionId],
-  );
-  const child = childR.rows[0] || null;
-
-  // Compute next mou version for the parent (MoU is filed once per pair).
-  const versionR = await pool.query(
-    `SELECT COALESCE(MAX(version_number), 0) + 1 AS next FROM mou_versions WHERE institution_id = $1`,
-    [institutionId],
-  );
-  const versionNumber = versionR.rows[0].next;
-
-  // Placeholder PDF until PDF generation lands. See the historical comment
-  // in prior versions of this route — non-blocking for AC transition.
-  const placeholderKey = `mou/${i.shortname}/v${versionNumber}.pdf`;
-  await storage.put(placeholderKey, Buffer.from('LOCAL_DEV_MOU_PLACEHOLDER'));
-  const sha256 = crypto.createHash('sha256').update('LOCAL_DEV_MOU_PLACEHOLDER').digest('hex');
-
-  // Both admin usernames derived from the parent shortname. Regex constraint
-  // on platform_users.username (migration 268) is ^[a-z][a-z0-9_-]{2,31}$;
-  // <short>-bb_admin adds 9 chars, applySchema caps parent shortname at 23
-  // when has_inhouse_blood_bank=true so the child username always fits.
-  const hoAdminUsername = `${i.shortname}_admin`;
-  const bbAdminUsername = child ? `${child.shortname}_admin` : null;
-  const hoRole = 'hospital';
-  const bbRole = 'blood_bank';
-
-  const placeholderHash = await setupSvc.unusablePasswordHash();
-
-  const result = await withRlsContextRaw(
-    { actor_role: 'onboarding', change_reason: 'eSign webhook → activate' },
-    async (c) => {
-      // 1. mou_versions — one row for the parent; the child inherits.
-      await c.query(
-        `INSERT INTO mou_versions (
-            institution_id, version_number, effective_from, effective_until,
-            leegally_doc_id, leegally_template_id,
-            signed_at, signatory_name, signatory_aadhaar_last4,
-            pdf_storage_key, pdf_sha256, template_snapshot)
-         VALUES ($1,$2, CURRENT_DATE, (CURRENT_DATE + INTERVAL '1 year')::date,
-            $3,$4, $5,$6,$7, $8,$9, $10::jsonb)`,
-        [
-          institutionId,
-          versionNumber,
-          webhook.docId,
-          env.leegality.templateId || 'local-template',
-          webhook.signedAt,
-          webhook.signatoryName || 'Unknown',
-          webhook.signatoryAadhaarLast4 || null,
-          placeholderKey,
-          sha256,
-          JSON.stringify({ doc_id: webhook.docId, version: versionNumber }),
-        ],
-      );
-
-      // 2. Flip parent + any children to AC in one UPDATE. Also clear the
-      //    parent's in-flight eSign fields so a follow-up Send-MoU (renewal)
-      //    starts fresh.
-      await c.query(
-        `UPDATE institutions
-            SET onboarding_status = 'AC',
-                current_esign_doc_id     = NULL,
-                current_esign_url        = NULL,
-                current_esign_expires_at = NULL
-          WHERE id = $1 OR parent_institution_id = $1`,
-        [institutionId],
-      );
-      await c.query(
-        `UPDATE institutions
-            SET mou_signed_at = $1, mou_leegally_doc_id = $2,
-                mou_signatory_name = $3,
-                mou_expires_at = (CURRENT_DATE + INTERVAL '1 year')::date
-          WHERE id = $4`,
-        [webhook.signedAt, webhook.docId, webhook.signatoryName || null, institutionId],
-      );
-
-      // 3. HO admin — idempotent on username (handover / MoU renewal case).
-      const hoExisting = await c.query(`SELECT id FROM platform_users WHERE username = $1`, [
-        hoAdminUsername,
-      ]);
-      let hoUserId;
-      if (hoExisting.rowCount === 0) {
-        const created = await c.query(
-          `INSERT INTO platform_users
-             (role, username, mobile, password_hash, password_set_at,
-              force_password_change, institution_id)
-           VALUES ($1, $2, $3, $4, NOW(), TRUE, $5)
-           RETURNING id`,
-          [hoRole, hoAdminUsername, i.primary_contact_mobile, placeholderHash, institutionId],
-        );
-        hoUserId = created.rows[0].id;
-      } else {
-        hoUserId = hoExisting.rows[0].id;
-        await c.query(
-          `UPDATE platform_users
-              SET password_hash = $1, password_set_at = NOW(),
-                  mobile = $2,
-                  force_password_change = TRUE
-            WHERE id = $3`,
-          [placeholderHash, i.primary_contact_mobile, hoUserId],
-        );
-      }
-      const { token: hoSetupToken, expiresAt: hoExpiresAt } = await setupSvc.generateSetupToken(
-        c,
-        hoUserId,
-      );
-
-      // 4. BB admin (only if a child BB exists).
-      let bbSetupToken = null;
-      let bbExpiresAt = null;
-      let bbUserId = null;
-      if (child) {
-        const bbExisting = await c.query(`SELECT id FROM platform_users WHERE username = $1`, [
-          bbAdminUsername,
-        ]);
-        if (bbExisting.rowCount === 0) {
-          const bbPlaceholder = await setupSvc.unusablePasswordHash();
-          const created = await c.query(
-            `INSERT INTO platform_users
-               (role, username, mobile, password_hash, password_set_at,
-                force_password_change, institution_id)
-             VALUES ($1, $2, $3, $4, NOW(), TRUE, $5)
-             RETURNING id`,
-            [bbRole, bbAdminUsername, i.primary_contact_mobile, bbPlaceholder, child.id],
-          );
-          bbUserId = created.rows[0].id;
-        } else {
-          bbUserId = bbExisting.rows[0].id;
-          const bbPlaceholder = await setupSvc.unusablePasswordHash();
-          await c.query(
-            `UPDATE platform_users
-                SET password_hash = $1, password_set_at = NOW(),
-                    mobile = $2,
-                    force_password_change = TRUE
-              WHERE id = $3`,
-            [bbPlaceholder, i.primary_contact_mobile, bbUserId],
-          );
-        }
-        const bb = await setupSvc.generateSetupToken(c, bbUserId);
-        bbSetupToken = bb.token;
-        bbExpiresAt = bb.expiresAt;
-
-        // Stash the plaintext token on the parent so the HO admin's
-        // dashboard can surface it. Trigger fn_clear_bb_admin_pending_token
-        // wipes this when the BB admin consumes the token.
-        await c.query(
-          `UPDATE institutions
-              SET bb_admin_pending_setup_token = $1
-            WHERE id = $2`,
-          [bbSetupToken, institutionId],
-        );
-      }
-
-      return {
-        hoUserId,
-        hoAdminUsername,
-        hoSetupToken,
-        hoExpiresAt,
-        bbUserId,
-        bbAdminUsername,
-        bbSetupToken,
-        bbExpiresAt,
-      };
-    },
-  );
-
-  // Send the HO admin's magic link via WhatsApp. BB admin's link stays on
-  // the parent row for surfacing via the hospital dashboard — no auto-WA to
-  // avoid a second Meta send (and to give the HO admin control over when
-  // the BB team is onboarded).
-  try {
-    await sendNotification({
-      recipientId: i.primary_contact_mobile,
-      templateType: 'SETUP_LINK',
-      variables: {
-        signatory_name: webhook.signatoryName || i.primary_contact_name || 'Admin',
-        institution_name: i.display_name || i.shortname,
-        setup_token: result.hoSetupToken,
-      },
-      channel: 'WA',
-      language: 'en',
-    });
-  } catch (err) {
-    logger.error(
-      {
-        event: 'esign_webhook_ho_notify_failed',
-        institutionId,
-        err: err.message,
-      },
-      'HO admin activation WhatsApp send failed — row still activated, admin can resend',
-    );
-  }
-
-  const devEcho =
-    env.nodeEnv === 'development'
-      ? {
-          dev_ho_admin_username: result.hoAdminUsername,
-          dev_ho_setup_url: `${env.frontendUrl}/setup/${result.hoSetupToken}`,
-          dev_ho_setup_expires_at: result.hoExpiresAt,
-          dev_bb_admin_username: result.bbAdminUsername,
-          dev_bb_setup_url: result.bbSetupToken
-            ? `${env.frontendUrl}/setup/${result.bbSetupToken}`
-            : null,
-          dev_bb_setup_expires_at: result.bbExpiresAt,
-        }
-      : {};
-  res.json({
-    status: 'activated',
-    institution_id: institutionId,
-    child_institution_id: child?.id || null,
-    version: versionNumber,
-    ...devEcho,
-  });
-});
 
 module.exports = router;

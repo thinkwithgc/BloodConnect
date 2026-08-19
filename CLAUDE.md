@@ -40,7 +40,7 @@ commit/deploy cycles — get it right the first time by following these:
 |-------|--------|------------|-------|
 | 0 — Infrastructure | ✅ done | `node scripts/smoke_test.js` | commit `1a8ee3e` |
 | 1 — DB foundation  | ✅ done (18/18) | `node scripts/smoke_test_phase1_full.js` | 30 migrations *at Phase 1* (46 total now — see summary below), 34 tables, 100 triggers, 71 RLS policies — commit `1a8ee3e` |
-| 2 — Auth + onboarding | ✅ done (21/21) | `node scripts/smoke_test_phase2.js` | OTP, TOTP, MoU eSign — commit `c3b758c` |
+| 2 — Auth + onboarding | ✅ done (47/47) | `node scripts/smoke_test_phase2.js` | OTP, TOTP, **paper MoU** (eSign removed Aug 2026) |
 | 3 — Donor reg + passport | ✅ scaffold (18/18) | `node scripts/smoke_test_phase3.js` | See **Phase 3 handoff** below |
 | 4 — Inventory + TTI | ✅ core (17/17) | `node scripts/smoke_test_phase4.js` | See **Phase 4 status** below |
 | 5 — Request engine + matching | ✅ core (20/20) | `node scripts/smoke_test_phase5.js` | See **Phase 5 status** below |
@@ -49,7 +49,7 @@ commit/deploy cycles — get it right the first time by following these:
 | 8 — Admin + reporting + deploy | ✅ core (code-complete) | `npm run lint && npm run smoke:frontend` | See **Phase 8 status** below |
 | Post-8 — Live deploy + feature gap-close | ✅ live on Azure (single-env `raktify` RG) | `npm run lint && npm run smoke:frontend` | See **Post-Phase-8 status** below |
 
-> **Current totals (2026-05-26):** 46 migrations (latest `266_staff_constraint_allow_dho`),
+> **Current totals (2026-08-19):** 89 migrations (latest `310_mou_paper_signing_mode`),
 > 104 route handlers across 17 resource routers, 6 frontend role-portals + public
 > surfaces, 3 notification providers (console / MSG91 / WhatsApp Cloud). Phases 0–8
 > **and** all post-Phase-8 additions are code-complete and live on Azure
@@ -165,10 +165,38 @@ Migrations **265** (role + `platform_users.district_id`) + **266** (staff CHECK 
 - **Hospital** `/hospital` — KPIs, district availability, recent activity.
 - **Coordinator** `/coordinator` — queue KPIs, impact metrics, district donor pool.
 
-### Institution self-apply onboarding
-Router `backend/src/routes/onboarding.js` (5 endpoints), frontend `/onboarding/apply`.
-- A hospital / blood bank can apply for an account themselves; NGO admin reviews in
+### Institution self-apply onboarding — MoU signed OFFLINE ON PAPER
+Router `backend/src/routes/onboarding.js`, service
+`backend/src/services/onboarding/activate.js`, frontend `/onboarding/apply` +
+`/admin` Onboarding tab. Migration **310** (`signing_mode`).
+- A hospital / blood bank applies for an account themselves; NGO admin reviews in
   `/admin` Onboarding tab. Funnel tracked in `institution_referrals.funnel_status`.
+- State machine `PE → VE → AC`, **two admin clicks**: `POST /onboarding/verify/:id`
+  (licences) then `POST /onboarding/activate/:id` ("Approve & activate"), clicked once
+  the admin is holding the physically-signed MoU.
+- **Aadhaar eSign (Leegality) was removed from this path in Aug 2026.**
+  `POST /onboarding/generate-mou/:id` and the public `POST /onboarding/mou-signed`
+  webhook are **gone** (both now 404). The eSign provider (`services/esign/*`), the
+  `LEEGALITY_*` env block, `scripts/test_leegality_send.js` and migration 306's
+  `current_esign_*` columns are **dormant on disk, not deleted** — nothing in the
+  running app reaches them. `activateInstitution()` still takes `signingMode:'ES'`,
+  so re-enabling eSign is a new caller, not a rewrite.
+- The paper MoU is filed as a real `mou_versions` row with `signing_mode='PA'`,
+  admin-entered signed date + signatory name/designation, and an **optional** scanned
+  original uploaded via `POST /onboarding/:id/mou-scan` (route-level `express.raw`,
+  magic-byte-verified PDF/JPEG/PNG ≤ 10 MB, stored through `services/storage`, key
+  `mou/<shortname>/v<N>-scan.<ext>`, sha256 recorded in `pdf_sha256`).
+  `effective_from` = the **signing** date (not today); validity = +1 year.
+- Activation is the ONLY path that provisions institution admin logins: idempotent-on-
+  `username` `platform_users` upserts + magic-link setup tokens. A hospital with
+  `has_inhouse_blood_bank=true` gets its paired child BB flipped to `AC` by the same
+  UPDATE and a second `-bb_admin` user, whose token is surfaced from
+  `institutions.bb_admin_pending_setup_token` on the HO dashboard. **The BB admin is
+  created with `mobile = NULL`** — `idx_platform_users_mobile_staff_cluster`
+  (migrations 269 + 282) makes mobile unique across staff roles, and the HO admin
+  already holds the applicant's number; the BB link is never WhatsApp'd.
+- Acceptance gate: `node scripts/smoke_test_phase2.js` (47 assertions, covers the
+  paired HO+BB path end to end).
 
 ### Patient + rare-blood registries
 Router `backend/src/routes/registries.js` (5 endpoints), `/admin` Thalassemia + Rare
@@ -553,9 +581,17 @@ Internal-only repo migrations: `010_grant_helper_roles`, `011_grant_schema_to_he
 | `264_camp_token_ip_text` | Fix: camp token IP stored as text (was `22P02` on inet) |
 | `265_dho_role` | DHO role + `platform_users.district_id` |
 | `266_staff_constraint_allow_dho` | Allow `dho` in the institutional-staff CHECK |
+| `310_mou_paper_signing_mode` | `mou_versions.signing_mode` (`ES`/`PA`) + `institutions.mou_signing_mode`; drops NOT NULL on `leegally_doc_id`/`pdf_storage_key`/`pdf_sha256` and re-imposes the old invariant as `esign_requires_doc_id` CHECK. Enables the paper-MoU path |
 
-**Total: 46 migration files, latest `266`.** Run `npm run migrate:status` for the
-applied/pending/drift view.
+> **⚠ This table is STALE.** It lists 220–266 plus 310, but the repo actually holds
+> **89 migration files, latest `310_mou_paper_signing_mode`** — migrations 267–309
+> (vendor webhook 307/308, blood-group HITL 309, citizen-raise 303, community-leader
+> served-districts 304, donor-alert horizon 305, institution eSign state + paired BB
+> 306, and others) shipped without being documented here. Do not trust the counts
+> above; `npm run migrate:status` is the source of truth. Backfilling the missing rows
+> is a separate cleanup task, deliberately not done inline.
+
+**Run `npm run migrate:status`** for the applied/pending/drift view.
 
 ## Encryption policy (resolved 2026-05-01)
 

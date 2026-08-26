@@ -577,8 +577,15 @@ router.post(
     //
     // A send failure must NOT roll activation back: the institution is
     // legitimately active, and the admin can resend. Log loudly instead.
+    //
+    // The send's OUTCOME is captured, not just its exceptions. The chokepoint
+    // returns `success:false` without throwing when a WHATSAPP_TEMPLATE_* env
+    // var is unset — so a swallowed catch reports a successful activation while
+    // the hospital receives nothing. That is exactly how an institution ends up
+    // live with an admin who cannot sign in.
+    let waSent = false;
     try {
-      await sendNotification({
+      const r = await sendNotification({
         recipientId: result.institution.primary_contact_mobile,
         templateType: 'SETUP_LINK',
         variables: {
@@ -589,6 +596,14 @@ router.post(
         channel: 'WA',
         language: 'en',
       });
+      if (r?.success) {
+        waSent = true;
+      } else {
+        logger.warn(
+          { event: 'onboarding_activate_ho_notify_unsent', institutionId: i.id, result: r },
+          'HO admin activation WhatsApp did not send — setup URL returned to admin instead',
+        );
+      }
     } catch (err) {
       logger.error(
         {
@@ -600,19 +615,20 @@ router.post(
       );
     }
 
-    const devEcho =
-      env.nodeEnv === 'development'
-        ? {
-            dev_ho_admin_username: result.hoAdminUsername,
-            dev_ho_setup_url: `${env.frontendUrl}/setup/${result.hoSetupToken}`,
-            dev_ho_setup_expires_at: result.hoExpiresAt,
-            dev_bb_admin_username: result.bbAdminUsername,
-            dev_bb_setup_url: result.bbSetupToken
-              ? `${env.frontendUrl}/setup/${result.bbSetupToken}`
-              : null,
-            dev_bb_setup_expires_at: result.bbExpiresAt,
-          }
-        : {};
+    // The setup URLs are returned UNCONDITIONALLY, not dev-gated.
+    //
+    // Only SHA-256(token) is stored (services/users/setup.js), so the plaintext
+    // exists nowhere once this response is written. Withholding it in production
+    // meant a failed WhatsApp send left the link unrecoverable and the
+    // institution permanently locked out of its own account.
+    //
+    // This grants ngo_admin no new privilege: that role can already mint a fresh
+    // link for any staff account via POST /auth/institutional/reset-password.
+    // It only makes the capability usable when WhatsApp is the broken link.
+    const hoSetupUrl = `${env.frontendUrl}/setup/${result.hoSetupToken}`;
+    const bbSetupUrl = result.bbSetupToken
+      ? `${env.frontendUrl}/setup/${result.bbSetupToken}`
+      : null;
 
     res.json({
       status: 'activated',
@@ -622,8 +638,18 @@ router.post(
       mou_signing_mode: 'PA',
       version: result.versionNumber,
       ho_admin_username: result.hoAdminUsername,
+      ho_admin_setup_url: hoSetupUrl,
+      ho_setup_expires_at: result.hoExpiresAt,
       bb_admin_username: result.bbAdminUsername,
-      ...devEcho,
+      bb_admin_setup_url: bbSetupUrl,
+      bb_setup_expires_at: result.bbExpiresAt,
+      whatsapp_sent: waSent,
+      next_step: waSent
+        ? `Password-setup link sent to ${result.institution.primary_contact_mobile}. They set a password, then sign in at /staff/login as "${result.hoAdminUsername}".` +
+          (bbSetupUrl
+            ? ' The blood-bank admin link is not WhatsApp’d — it surfaces on the hospital dashboard.'
+            : '')
+        : `Institution is ACTIVE but the WhatsApp did NOT send. Share the hospital setup link below out-of-band so "${result.hoAdminUsername}" can set a password. The link is shown once — re-issue it from the Institution users tab if it is lost.`,
     });
   },
 );

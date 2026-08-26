@@ -9,6 +9,7 @@ import { HospitalDashboard } from './HospitalDashboard.jsx';
 import { HospitalRaiseRequest } from './HospitalRaiseRequest.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { useT } from '../../i18n/useT.js';
+import { TeamPanel } from '../../components/institution/TeamPanel.jsx';
 
 export function HospitalPortal() {
   const { t } = useT();
@@ -26,6 +27,7 @@ export function HospitalPortal() {
     { id: 'mine', label: t('my_requests') },
     { id: 'confirm', label: 'Confirm', badge: awaitingCount },
     { id: 'raise', label: t('raise_new') },
+    { id: 'team', label: 'Team' },
   ];
 
   // Hospital portal uses a slightly wider canvas than the original two-tab
@@ -61,6 +63,7 @@ export function HospitalPortal() {
         {tab === 'mine' ? <HospitalActiveRequests /> : null}
         {tab === 'confirm' ? <HospitalAwaitingConfirmation /> : null}
         {tab === 'raise' ? <HospitalRaiseRequest /> : null}
+        {tab === 'team' ? <TeamPanel /> : null}
       </main>
       <Footer variant="compact" />
     </div>

@@ -9,6 +9,7 @@ import { errorMessage } from '../../lib/errorMessage.js';
 import { donationSchema, openingStockSchema, zodFlatten } from '../../lib/schemas.js';
 import { useT } from '../../i18n/useT.js';
 import { DonorBulkUpload, ActivateImportButton } from '../../components/donors/DonorBulkUpload.jsx';
+import { TeamPanel } from '../../components/institution/TeamPanel.jsx';
 
 // Spec §7 Blood Bank Portal: inventory dashboard, record donation, TTI entry,
 // supervisor verification (4-eyes). Opening-stock and incoming-request alerts
@@ -25,6 +26,7 @@ function tabsFor(t) {
     { id: 'screening', label: t('tti_screening') },
     { id: 'opening', label: t('opening_stock') },
     { id: 'import', label: 'Import donors' },
+    { id: 'team', label: 'Team' },
   ];
 }
 
@@ -64,6 +66,7 @@ export function BloodBankPortal() {
         {tab === 'screening' ? <ScreeningEntry /> : null}
         {tab === 'opening' ? <OpeningStock /> : null}
         {tab === 'import' ? <DonorBulkUpload /> : null}
+        {tab === 'team' ? <TeamPanel /> : null}
       </main>
       <Footer variant="compact" />
     </div>

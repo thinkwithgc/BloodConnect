@@ -179,10 +179,15 @@ async function activateInstitution({ institutionId, mou, recordedByUserId }) {
       let hoUserId;
       if (hoExisting.rowCount === 0) {
         const created = await c.query(
+          // is_institution_admin (migration 311) is what lets this person
+          // invite the rest of their team and re-issue a colleague's setup
+          // link. Activation is the only path that mints an institution's
+          // first admin, so if it is not set here nobody at that institution
+          // can ever manage their own logins.
           `INSERT INTO platform_users
              (role, username, mobile, password_hash, password_set_at,
-              force_password_change, institution_id)
-           VALUES ($1, $2, $3, $4, NOW(), TRUE, $5)
+              force_password_change, institution_id, is_institution_admin)
+           VALUES ($1, $2, $3, $4, NOW(), TRUE, $5, TRUE)
            RETURNING id`,
           [hoRole, hoAdminUsername, i.primary_contact_mobile, placeholderHash, institutionId],
         );
@@ -190,10 +195,14 @@ async function activateInstitution({ institutionId, mou, recordedByUserId }) {
       } else {
         hoUserId = hoExisting.rows[0].id;
         await c.query(
+          // Re-asserted, not just set on create: activation is the
+          // authoritative provisioning event, so a handover must hand back a
+          // usable admin even if the account had been demoted.
           `UPDATE platform_users
               SET password_hash = $1, password_set_at = NOW(),
                   mobile = $2,
-                  force_password_change = TRUE
+                  force_password_change = TRUE,
+                  is_institution_admin = TRUE
             WHERE id = $3`,
           [placeholderHash, i.primary_contact_mobile, hoUserId],
         );
@@ -226,8 +235,8 @@ async function activateInstitution({ institutionId, mou, recordedByUserId }) {
           const created = await c.query(
             `INSERT INTO platform_users
                (role, username, password_hash, password_set_at,
-                force_password_change, institution_id)
-             VALUES ($1, $2, $3, NOW(), TRUE, $4)
+                force_password_change, institution_id, is_institution_admin)
+             VALUES ($1, $2, $3, NOW(), TRUE, $4, TRUE)
              RETURNING id`,
             [bbRole, bbAdminUsername, bbPlaceholder, child.id],
           );
@@ -239,7 +248,8 @@ async function activateInstitution({ institutionId, mou, recordedByUserId }) {
           await c.query(
             `UPDATE platform_users
                 SET password_hash = $1, password_set_at = NOW(),
-                    force_password_change = TRUE
+                    force_password_change = TRUE,
+                    is_institution_admin = TRUE
               WHERE id = $2`,
             [bbPlaceholder, bbUserId],
           );

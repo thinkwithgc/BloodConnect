@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { Header } from '../../components/Header.jsx';
 import { Footer } from '../../components/Footer.jsx';
@@ -19,6 +19,7 @@ import { LookbackTab } from './LookbackTab.jsx';
 import { AuditTab } from './AuditTab.jsx';
 import { JobsTab } from './JobsTab.jsx';
 import { StaffSecurityTab } from './StaffSecurityTab.jsx';
+import { InstitutionUsersTab } from './InstitutionUsersTab.jsx';
 
 // Phase 8 NGO admin dashboard. Each tab maps to a distinct admin endpoint
 // added in routes/admin.js (or routes/lookback.js for the lookback queue
@@ -26,6 +27,7 @@ import { StaffSecurityTab } from './StaffSecurityTab.jsx';
 
 const TABS = [
   { id: 'onboarding', label: 'Onboarding' },
+  { id: 'institution-users', label: 'Institution users' },
   { id: 'vendor-integrations', label: 'Vendor integrations' },
   { id: 'blood-group-discrepancies', label: 'Blood-group discrepancies' },
   { id: 'coordinators', label: 'Coordinators' },
@@ -44,7 +46,16 @@ const TABS = [
 ];
 
 export function AdminDashboard() {
-  const [tab, setTab] = useState('onboarding');
+  // Openable at a specific tab so other screens can hand off — OnboardingDetail
+  // links to ?tab=institution-users&institution_id=… once an institution is
+  // active, which is how an admin gets from "activated" to "re-issue their
+  // sign-in link". Unknown or absent values fall back to the default tab, so
+  // existing /admin links are unchanged.
+  const [params] = useSearchParams();
+  const requested = params.get('tab');
+  const [tab, setTab] = useState(
+    TABS.some((t) => t.id === requested) ? requested : 'onboarding',
+  );
 
   return (
     <div className="flex min-h-full flex-col">
@@ -75,6 +86,7 @@ export function AdminDashboard() {
         </nav>
 
         {tab === 'onboarding' ? <OnboardingTab /> : null}
+        {tab === 'institution-users' ? <InstitutionUsersTab /> : null}
         {tab === 'vendor-integrations' ? <VendorIntegrationsTab /> : null}
         {tab === 'blood-group-discrepancies' ? <BloodGroupDiscrepanciesTab /> : null}
         {tab === 'coordinators' ? <CoordinatorsTab /> : null}

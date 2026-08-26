@@ -37,6 +37,7 @@ const scheduler = require('../services/scheduler');
 const { sendNotification } = require('../services/notifications');
 const logger = require('../config/logger');
 const setupSvc = require('../services/users/setup');
+const { ROSTER_COLUMNS, CREDENTIAL_STATES, toRosterRow } = require('../services/users/directory');
 const { eraseDonor } = require('../services/donors/erasure');
 
 const router = express.Router();
@@ -324,6 +325,111 @@ router.post(
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'not_found' });
     res.json(r.rows[0]);
+  },
+);
+
+// ── Institution staff-user directory (cross-institution) ─────────────────
+// The one screen that answers "is anyone stuck?".
+//
+// Every other surface is institution-scoped, which is exactly the blind spot
+// that let an activated hospital sit with an undelivered setup link and nobody
+// able to see it. The credential_state column here (services/users/directory.js)
+// is what makes a stuck account visible: setup_expired / setup_pending on an
+// account that never signed in is the signature of a SETUP_LINK that silently
+// failed to send.
+//
+// `dho` rows are included: they are institution-scoped staff logins provisioned
+// the same way, and a DHO who never received their link is the same problem.
+// Their `institution_id` is usually NULL, so the join is a LEFT JOIN.
+const institutionUsersQuerySchema = z
+  .object({
+    institution_id: z.string().uuid().optional(),
+    role: z.enum(['hospital', 'blood_bank', 'dho']).optional(),
+    state: z.enum(CREDENTIAL_STATES).optional(),
+    q: z.string().max(120).optional(),
+    limit: z.coerce.number().int().min(1).max(500).optional(),
+  })
+  .strict();
+
+router.get(
+  '/institution-users',
+  verifyJWT,
+  requireRole('ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const parsed = institutionUsersQuerySchema.safeParse(req.query);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_query', details: parsed.error.format() });
+    }
+    const { institution_id, role, state, q, limit } = parsed.data;
+
+    // institution_id / role / q filter in SQL; `state` filters in JS because
+    // credential_state is computed (it depends on "now" relative to
+    // locked_until and setup_token_expires_at) and must stay defined in exactly
+    // one place — duplicating that precedence as a SQL CASE is how the two
+    // surfaces would drift apart.
+    const where = [`pu.role IN ('hospital','blood_bank','dho')`];
+    const params = [];
+    if (institution_id) {
+      params.push(institution_id);
+      where.push(`pu.institution_id = $${params.length}`);
+    }
+    if (role) {
+      params.push(role);
+      where.push(`pu.role = $${params.length}`);
+    }
+    if (q) {
+      params.push(`%${q.toLowerCase()}%`);
+      where.push(
+        `(LOWER(pu.username) LIKE $${params.length}
+          OR LOWER(COALESCE(i.display_name, '')) LIKE $${params.length}
+          OR LOWER(COALESCE(i.shortname, '')) LIKE $${params.length})`,
+      );
+    }
+
+    const r = await withRlsContext(req, (c) =>
+      c.query(
+        // ROSTER_COLUMNS is a module constant; `where` is built from
+        // Zod-validated enums and numbered placeholders only — every user value
+        // is a parameter.
+        // eslint-disable-next-line no-restricted-syntax
+        `SELECT ${ROSTER_COLUMNS},
+                i.shortname        AS institution_shortname,
+                i.display_name     AS institution_display_name,
+                i.kind             AS institution_kind,
+                i.onboarding_status AS institution_onboarding_status,
+                db.username        AS deactivated_by_username
+           FROM platform_users pu
+      LEFT JOIN institutions i ON i.id = pu.institution_id
+      LEFT JOIN platform_users db ON db.id = pu.deactivated_by
+          WHERE ${where.join(' AND ')}
+          ORDER BY i.display_name NULLS FIRST,
+                   pu.is_institution_admin DESC,
+                   pu.username ASC`,
+        params,
+      ),
+    );
+
+    const now = new Date();
+    let users = r.rows.map((row) => toRosterRow(row, now));
+    if (state) users = users.filter((u) => u.credential_state === state);
+
+    // Counts are computed over the UNFILTERED set so the tab can show
+    // "3 stuck" while the operator is looking at a single state.
+    const stateCounts = {};
+    for (const s of CREDENTIAL_STATES) stateCounts[s] = 0;
+    for (const row of r.rows) stateCounts[toRosterRow(row, now).credential_state] += 1;
+
+    const total = users.length;
+    if (limit) users = users.slice(0, limit);
+
+    res.json({
+      users,
+      count: users.length,
+      total,
+      state_counts: stateCounts,
+      // Accounts that cannot sign in and never have — the actionable set.
+      needs_attention: stateCounts.setup_expired + stateCounts.locked,
+    });
   },
 );
 

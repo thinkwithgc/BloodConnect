@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Header } from '../../components/Header.jsx';
 import { Footer } from '../../components/Footer.jsx';
 import { api, apiRequest } from '../../lib/api.js';
+import { SetupLinkCard } from '../../components/institution/SetupLinkCard.jsx';
 
 const STATUS_LABEL = {
   PE: 'Pending license review',
@@ -429,15 +430,43 @@ export function OnboardingDetail() {
               ) : null}
 
               {parent.onboarding_status === 'AC' ? (
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                  <div className="flex-1 text-sm text-slate-700">
-                    Activated {fmtDateTime(parent.onboarded_at)}. Admin credentials have been
-                    provisioned — hospital admin over WhatsApp
-                    {child ? ', blood-bank admin surfaced on the hospital dashboard' : ''}.
+                <div className="space-y-3">
+                  <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                    <div className="flex-1 text-sm text-slate-700">
+                      Activated {fmtDateTime(parent.onboarded_at)}. Admin logins were provisioned
+                      for the hospital
+                      {child ? ' and its in-house blood bank' : ''}.
+                    </div>
+                    <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-800">
+                      Active
+                    </span>
                   </div>
-                  <span className="rounded-full bg-green-100 px-3 py-1 text-sm font-medium text-green-800">
-                    Active
-                  </span>
+                  {/* Activating is not the same as anybody being able to sign in.
+                      The setup link is single-use and only its SHA-256 is stored,
+                      so if the WhatsApp failed to send, the link is gone and the
+                      account sits unusable with nothing on this page to say so.
+                      The users tab is where that is visible and fixable. */}
+                  <div className="rounded-md border border-slate-200 bg-sand/60 p-3 text-sm text-slate-700">
+                    <p>
+                      Being active does not mean anyone has signed in yet. If the password-setup
+                      WhatsApp did not arrive, re-issue the link from the staff logins tab — the
+                      original is single-use and is not recoverable.
+                    </p>
+                    {/* One link per institution: the roster filters to a
+                        single institution_id, and a hospital with an in-house
+                        blood bank is two institution rows with two admins. */}
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {[parent, child].filter(Boolean).map((inst) => (
+                        <Link
+                          key={inst.id}
+                          to={`/admin?tab=institution-users&institution_id=${inst.id}`}
+                          className="inline-block rounded-md border border-slate-300 bg-white px-3 py-1 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                        >
+                          Staff logins · @{inst.shortname} →
+                        </Link>
+                      ))}
+                    </div>
+                  </div>
                 </div>
               ) : null}
 
@@ -451,18 +480,58 @@ export function OnboardingDetail() {
                   Activation failed: {activate.error?.response?.data?.error || 'unknown'}
                 </p>
               ) : null}
+              {/* The one and only sighting of these URLs. generateSetupToken
+                  stores SHA-256(token) alone, so what is rendered here exists
+                  nowhere else — not in the DB, not in a log. Navigating away
+                  without sending them means re-issuing from the staff logins
+                  tab, which mints a new token and invalidates these. */}
               {activate.data ? (
-                <p className="text-xs text-slate-500">
-                  Activated as MoU v{activate.data.version}. Hospital admin username:{' '}
-                  <span className="font-mono">{activate.data.ho_admin_username}</span>
-                  {activate.data.bb_admin_username ? (
-                    <>
-                      {' · '}blood-bank admin:{' '}
-                      <span className="font-mono">{activate.data.bb_admin_username}</span>
-                    </>
+                <div className="space-y-3 rounded-md border border-slate-200 bg-white p-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      Sign-in details — send these now
+                    </h3>
+                    <p className="mt-1 text-xs text-slate-600">
+                      Filed as MoU v{activate.data.version}. Each link lets that person choose their
+                      own password; nobody, including you, ever sets it for them.
+                    </p>
+                  </div>
+
+                  <SetupLinkCard
+                    label="Hospital admin"
+                    username={activate.data.ho_admin_username}
+                    url={activate.data.ho_admin_setup_url}
+                    expiresAt={activate.data.ho_setup_expires_at}
+                    whatsappSent={activate.data.whatsapp_sent}
+                    nextStep={activate.data.next_step}
+                  />
+
+                  {activate.data.bb_admin_setup_url ? (
+                    <SetupLinkCard
+                      label="Blood-bank admin (in-house)"
+                      username={activate.data.bb_admin_username}
+                      url={activate.data.bb_admin_setup_url}
+                      expiresAt={activate.data.bb_setup_expires_at}
+                      // Deliberately never WhatsApp'd: the BB admin is created
+                      // with mobile = NULL because one mobile may hold only one
+                      // staff login (idx_platform_users_mobile_staff_cluster),
+                      // and the hospital admin already holds that number.
+                      deliveryNotAttempted
+                    />
                   ) : null}
-                  .
-                </p>
+
+                  <div className="flex flex-wrap gap-3">
+                    {[parent, child].filter(Boolean).map((inst) => (
+                      <Link
+                        key={inst.id}
+                        to={`/admin?tab=institution-users&institution_id=${inst.id}`}
+                        className="text-xs text-rk-700 hover:underline"
+                      >
+                        Manage @{inst.shortname} logins →
+                      </Link>
+                    ))}
+                  </div>
+                </div>
               ) : null}
             </section>
           </>

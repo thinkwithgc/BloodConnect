@@ -17,6 +17,10 @@
  *   9.  Donor OTP flow: send → verify → JWT
  *  10.  Donor JWT cannot reach an ngo_admin-only endpoint
  *  11.  Bogus OTP → invalid; 5 in a row → account locked
+ *  12.  Institution staff-user management: roster, invite, non-admin +
+ *        cross-institution refusals, last-admin protection, deactivate →
+ *        403 account_deactivated, reactivate + re-issue a working setup
+ *        link, and the cross-institution admin directory
  *
  * The MoU is signed OFFLINE ON PAPER — there is no eSign round-trip. Steps 4-5
  * replaced the old `generate-mou` + `mou-signed` webhook pair; see
@@ -38,6 +42,11 @@ const totp = require('../backend/src/utils/totp');
 const encryption = require('../backend/src/services/encryption');
 const createApp = require('../backend/src/app');
 const db = require('../backend/src/config/db');
+
+/** Read a repo file as text, for assertions about the code itself. */
+function readSource(rel) {
+  return require('fs').readFileSync(path.resolve(__dirname, '..', rel), 'utf8');
+}
 
 const RUN_TAG = Date.now().toString().slice(-6);
 const TEST = {
@@ -282,11 +291,32 @@ async function main() {
     );
     assert(r.body.onboarding_status === 'AC', 'response reports AC');
     assert(r.body.mou_signing_mode === 'PA', 'response reports paper signing mode');
-    assert(!!r.body.dev_ho_setup_url, 'HO admin setup URL echoed in development');
-    assert(!!r.body.dev_bb_setup_url, 'paired BB admin setup URL echoed in development');
+    // The regression guard for the bug this batch fixes: the setup URLs used to
+    // be echoed only when NODE_ENV=development, and only SHA-256(token) is
+    // stored — so in production a failed WhatsApp send left the link
+    // unrecoverable. Asserted at the source level rather than by flipping
+    // NODE_ENV for the run, because env.js snapshots process.env at require
+    // time and 'development' is load-bearing elsewhere in this very test (it is
+    // what makes /auth/otp/send echo the donor OTP, and what keeps the cron
+    // scheduler from registering a parallel tick).
+    assert(
+      !readSource('backend/src/routes/onboarding.js').includes('nodeEnv'),
+      'the onboarding router gates nothing on NODE_ENV',
+    );
+    assert(!!r.body.ho_admin_setup_url, 'HO admin setup URL returned regardless of NODE_ENV');
+    assert(!!r.body.bb_admin_setup_url, 'paired BB admin setup URL returned regardless of NODE_ENV');
+    assert(!!r.body.ho_setup_expires_at, 'HO setup expiry returned so the admin can see the deadline');
+    assert(
+      typeof r.body.whatsapp_sent === 'boolean',
+      'activate reports whether the WhatsApp actually sent',
+    );
+    assert(
+      typeof r.body.next_step === 'string' && r.body.next_step.length > 0,
+      'activate returns operator guidance for the delivery outcome',
+    );
     TEST.hoAdminUsername = r.body.ho_admin_username;
-    TEST.hoSetupToken = String(r.body.dev_ho_setup_url).split('/setup/')[1];
-    const bbSetupToken = String(r.body.dev_bb_setup_url).split('/setup/')[1];
+    TEST.hoSetupToken = String(r.body.ho_admin_setup_url).split('/setup/')[1];
+    const bbSetupToken = String(r.body.bb_admin_setup_url).split('/setup/')[1];
 
     console.log('── 7. DB archive assertions ─────────────────────────────────');
     const mou = await dbRow(
@@ -396,6 +426,7 @@ async function main() {
       },
     });
     assert(r.status === 200 && r.body.token, 'login with TOTP succeeds');
+    TEST.hoAdminToken = r.body.token; // full-privilege token (TOTP satisfied)
 
     console.log('── 11. Consuming the BB token clears the parent pointer ─────');
     r = await fetchJson('POST', `/auth/setup/${bbSetupToken}`, {
@@ -454,6 +485,204 @@ async function main() {
     assert(r.status === 404, `POST /onboarding/generate-mou/:id → 404 (got ${r.status})`);
     r = await fetchJson('POST', '/onboarding/mou-signed', { body: { doc_id: 'x' } });
     assert(r.status === 404, `POST /onboarding/mou-signed → 404 (got ${r.status})`);
+
+    console.log('── 16. Institution staff-user management ────────────────────');
+    // The whole point of this section: an institution must be able to see and
+    // repair its own logins, and an undelivered setup link must be recoverable.
+
+    // 16a. Roster — NGO admin can finally SEE who exists.
+    r = await fetchJson('GET', `/institutions/${TEST.institutionId}/users`, { headers: auth });
+    assert(r.status === 200 && Array.isArray(r.body.users), `roster → 200 (got ${r.status})`);
+    const hoRow = (r.body.users || []).find((u) => u.username === TEST.hoAdminUsername);
+    assert(!!hoRow, `roster lists ${TEST.hoAdminUsername}`);
+    assert(
+      hoRow && hoRow.is_institution_admin === true,
+      'HO admin backfilled as institution admin',
+    );
+    assert(
+      hoRow && hoRow.credential_state === 'active',
+      `HO admin state is active after signing in (got ${hoRow && hoRow.credential_state})`,
+    );
+    // The roster is a directory, not a credential store.
+    assert(
+      hoRow &&
+        !('password_hash' in hoRow) &&
+        !('setup_token_hash' in hoRow) &&
+        !('mobile' in hoRow),
+      'roster never exposes password_hash, setup_token_hash or a full mobile',
+    );
+    assert(
+      hoRow && typeof hoRow.mobile_masked === 'string' && hoRow.mobile_masked.includes('•'),
+      'roster masks the mobile',
+    );
+    const hoUserId = hoRow && hoRow.id;
+
+    // 16b. The institution admin invites a colleague.
+    const techMobile = `+919${RUN_TAG}004`;
+    const hoAuth = { Authorization: `Bearer ${TEST.hoAdminToken}` };
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/users`, {
+      headers: hoAuth,
+      body: { mobile: techMobile, username_suffix: 'tech' },
+    });
+    assert(
+      r.status === 201 && r.body.status === 'invited',
+      `invite → 201 (got ${r.status} ${JSON.stringify(r.body)})`,
+    );
+    assert(!!r.body.setup_url, 'invite returns the setup URL (the only copy of the token)');
+    assert(
+      r.body.role === 'hospital',
+      `invited staff inherit the institution role (got ${r.body.role})`,
+    );
+    assert(
+      r.body.is_institution_admin === false,
+      'invited colleague is not an institution admin by default',
+    );
+    const techUsername = r.body.username;
+    const techUserId = r.body.user_id;
+    const techSetupToken = String(r.body.setup_url).split('/setup/')[1];
+
+    // 16c. The invite produces a genuinely usable login.
+    r = await fetchJson('POST', `/auth/setup/${techSetupToken}`, {
+      body: { password: 'TechPass!2026', confirm_password: 'TechPass!2026' },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'set',
+      `invited colleague sets password (got ${r.status})`,
+    );
+    r = await fetchJson('POST', '/auth/institutional/login', {
+      body: { username: techUsername, password: 'TechPass!2026' },
+    });
+    assert(r.status === 200 && r.body.token, `invited colleague can log in (got ${r.status})`);
+    const techPendingToken = r.body.token;
+
+    // Enrol TOTP so the technician holds a full-privilege token — a TOTP-pending
+    // token can only reach setup-totp/confirm-totp, so without this the 403 in
+    // 16d would prove nothing about the invite guard.
+    r = await fetchJson('POST', '/auth/institutional/setup-totp', {
+      headers: { Authorization: `Bearer ${techPendingToken}` },
+    });
+    const techSecret = ((r.body.otpauth_url || '').match(/secret=([^&]+)/) || [])[1];
+    assert(!!techSecret, 'technician TOTP secret issued');
+    r = await fetchJson('POST', '/auth/institutional/confirm-totp', {
+      headers: { Authorization: `Bearer ${techPendingToken}` },
+      body: { totp_code: await totp.currentCode(techSecret) },
+    });
+    assert(r.status === 200, 'technician TOTP enabled');
+    r = await fetchJson('POST', '/auth/institutional/login', {
+      body: {
+        username: techUsername,
+        password: 'TechPass!2026',
+        totp_code: await totp.currentCode(techSecret),
+      },
+    });
+    assert(r.status === 200 && r.body.token, 'technician full login succeeds');
+    const techAuth = { Authorization: `Bearer ${r.body.token}` };
+
+    // 16d. A non-admin colleague cannot provision logins.
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/users`, {
+      headers: techAuth,
+      body: { mobile: `+919${RUN_TAG}005`, username_suffix: 'sneak' },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'not_institution_admin',
+      `non-admin invite → 403 not_institution_admin (got ${r.status} ${r.body.error})`,
+    );
+    // ...nor reach into a different institution, even as its own admin.
+    r = await fetchJson('POST', `/institutions/${TEST.childInstitutionId}/users`, {
+      headers: hoAuth,
+      body: { mobile: `+919${RUN_TAG}006`, username_suffix: 'crossinst' },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'forbidden',
+      `HO admin inviting into the paired BB → 403 forbidden (got ${r.status} ${r.body.error})`,
+    );
+
+    // 16e. An institution can never be left with no admin.
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.institutionId}/users/${hoUserId}/deactivate`,
+      { headers: auth, body: { reason: 'smoke: attempt to strand the institution' } },
+    );
+    assert(
+      r.status === 409 && r.body.error === 'cannot_deactivate_last_institution_admin',
+      `deactivating the last admin → 409 (got ${r.status} ${r.body.error})`,
+    );
+
+    // 16f. Deactivation actually blocks sign-in — otherwise it is cosmetic.
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.institutionId}/users/${techUserId}/deactivate`,
+      { headers: auth, body: { reason: 'smoke: left the hospital' } },
+    );
+    assert(
+      r.status === 200 && r.body.status === 'deactivated',
+      `deactivate → 200 (got ${r.status})`,
+    );
+    r = await fetchJson('POST', '/auth/institutional/login', {
+      body: {
+        username: techUsername,
+        password: 'TechPass!2026',
+        totp_code: await totp.currentCode(techSecret),
+      },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'account_deactivated',
+      `deactivated login → 403 account_deactivated (got ${r.status} ${r.body.error})`,
+    );
+
+    // 16g. Recovery: reactivate, then re-issue a link that actually works —
+    // this is the two-click fix for the hospital that never got its credentials.
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.institutionId}/users/${techUserId}/reactivate`,
+      { headers: auth },
+    );
+    assert(
+      r.status === 200 && r.body.status === 'reactivated',
+      `reactivate → 200 (got ${r.status})`,
+    );
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.institutionId}/users/${techUserId}/reissue-setup`,
+      { headers: auth },
+    );
+    assert(!!r.body.setup_url, `re-issue returns a setup URL (got ${r.status})`);
+    const reissuedToken = String(r.body.setup_url).split('/setup/')[1];
+    assert(reissuedToken !== techSetupToken, 're-issued token is a new token');
+    r = await fetchJson('GET', `/auth/setup/${reissuedToken}`);
+    assert(
+      r.status === 200 && r.body.username === techUsername,
+      `re-issued token resolves to ${techUsername} (got ${r.status} ${r.body.username})`,
+    );
+    // Re-issuing must invalidate whatever went missing.
+    r = await fetchJson('GET', `/auth/setup/${techSetupToken}`);
+    assert(r.status >= 400, `the superseded token no longer resolves (got ${r.status})`);
+
+    // 16h. Cross-institution directory — the screen that surfaces stuck accounts.
+    r = await fetchJson('GET', `/admin/institution-users?institution_id=${TEST.institutionId}`, {
+      headers: auth,
+    });
+    assert(
+      r.status === 200 && Array.isArray(r.body.users),
+      `admin directory → 200 (got ${r.status})`,
+    );
+    assert(
+      (r.body.users || []).some(
+        (u) => u.username === techUsername && u.credential_state === 'setup_pending',
+      ),
+      'admin directory reports the re-issued account as setup_pending',
+    );
+    assert(
+      r.body.state_counts && typeof r.body.state_counts.setup_expired === 'number',
+      'admin directory returns state counts for the attention banner',
+    );
+    r = await fetchJson('GET', '/admin/institution-users?state=setup_pending&limit=200', {
+      headers: auth,
+    });
+    assert(
+      r.status === 200 && (r.body.users || []).every((u) => u.credential_state === 'setup_pending'),
+      'admin directory state filter returns only that state',
+    );
   } catch (err) {
     console.error('FATAL during smoke:', err.message);
     console.error(err.stack);

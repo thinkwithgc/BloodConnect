@@ -257,6 +257,7 @@ router.post('/institutional/login', institutionalLoginLimiter, async (req, res) 
     `SELECT pu.id, pu.role, pu.institution_id, pu.district_id, pu.password_hash,
             pu.totp_secret, pu.totp_enabled, pu.failed_login_attempts,
             pu.is_locked, pu.locked_until, pu.force_password_change,
+            pu.deactivated_at,
             i.onboarding_status
        FROM platform_users pu
   LEFT JOIN institutions i ON i.id = pu.institution_id
@@ -265,6 +266,15 @@ router.post('/institutional/login', institutionalLoginLimiter, async (req, res) 
   );
   if (r.rowCount === 0) return res.status(401).json({ error: 'invalid_credentials' });
   const u = r.rows[0];
+
+  // A retired account is refused before the password is even compared.
+  // platform_users rows are never deleted (clinical FKs from donation_history,
+  // donor_screening.entered_by/verified_by, bag_events and audit_log must stay
+  // resolvable — migration 311), so this check is the whole of what
+  // deactivation means. Without it the column would be decorative.
+  if (u.deactivated_at) {
+    return res.status(403).json({ error: 'account_deactivated' });
+  }
 
   // Auto-unlock once the lock window has elapsed.
   if (u.is_locked && shouldUnlock(u)) {
@@ -524,26 +534,54 @@ router.post(
       },
     );
 
-    await sendNotification({
-      recipientId: mobile,
-      templateType: 'SETUP_LINK',
-      variables: {
-        signatory_name: u.primary_contact_name || u.username,
-        institution_name: u.display_name || u.shortname || 'Raktify',
-        setup_token: setupToken,
-      },
-      channel: 'WA',
-      language: 'en',
-    });
+    // Best-effort send, and it MUST be best-effort: the password has already
+    // been wiped and the token issued by the transaction above. A throw here
+    // used to 500 the request after that write, leaving the account with no
+    // password and its only setup link discarded with the response — strictly
+    // worse than before the reset. Both the exception and a non-success return
+    // now fall through to a response carrying the URL.
+    let waSent = false;
+    try {
+      const sent = await sendNotification({
+        recipientId: mobile,
+        templateType: 'SETUP_LINK',
+        variables: {
+          signatory_name: u.primary_contact_name || u.username,
+          institution_name: u.display_name || u.shortname || 'Raktify',
+          setup_token: setupToken,
+        },
+        channel: 'WA',
+        language: 'en',
+      });
+      if (sent?.success) {
+        waSent = true;
+      } else {
+        logger.warn(
+          { event: 'staff_reset_link_unsent', username: u.username, result: sent },
+          'password-reset WhatsApp did not send — setup URL returned to admin instead',
+        );
+      }
+    } catch (err) {
+      logger.error(
+        { event: 'staff_reset_link_failed', username: u.username, err: err.message },
+        'password-reset WhatsApp threw — setup URL returned to admin instead',
+      );
+    }
 
-    const devEcho =
-      env.nodeEnv === 'development'
-        ? {
-            dev_setup_url: `${env.frontendUrl}/setup/${setupToken}`,
-            dev_setup_expires_at: expiresAt,
-          }
-        : {};
-    res.json({ status: 'reset_link_sent', username: u.username, ...devEcho });
+    // Returned unconditionally — see the equivalent note in
+    // routes/onboarding.js POST /activate/:id. Only SHA-256(token) is stored, so
+    // this response is the only copy of the link; dev-gating it made a failed
+    // send unrecoverable.
+    res.json({
+      status: waSent ? 'reset_link_sent' : 'reset_link_issued_not_sent',
+      username: u.username,
+      setup_url: `${env.frontendUrl}/setup/${setupToken}`,
+      setup_expires_at: expiresAt,
+      whatsapp_sent: waSent,
+      next_step: waSent
+        ? `Setup link sent to ${mobile}. The old password no longer works.`
+        : `Link issued but the WhatsApp did NOT send — the old password no longer works, so share the setup URL out-of-band. It is shown once; re-issue if lost.`,
+    });
   },
 );
 

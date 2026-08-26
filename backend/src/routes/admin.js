@@ -15,7 +15,8 @@
  *   GET  /admin/referrals                     institution_referrals funnel summary
  *
  *   GET  /admin/audit                         filterable audit_log_safe view
- *                                             (table, actor, since, until, limit)
+ *                                             (table, record, actor, event type,
+ *                                              since, until, limit)
  *   GET  /admin/audit/integrity               sample N rows + verify hash chain
  *
  *   POST /admin/community-leaders             invite a new community_leader
@@ -31,6 +32,7 @@ const { pool } = require('../config/db');
 const { withRlsContext } = require('../middleware/rlsContext');
 const { verifyJWT, requireRole } = require('../middleware/auth');
 const { normaliseIndianMobile } = require('../utils/phone');
+const { redactAuditRow } = require('../utils/auditRedaction');
 const { openRows, seal } = require('../services/pii');
 const crypto = require('crypto');
 const scheduler = require('../services/scheduler');
@@ -552,12 +554,21 @@ router.get('/referrals', verifyJWT, requireRole('ngo_admin', 'super_admin'), asy
 });
 
 // ── Audit log viewer (Phase 8) ───────────────────────────────────────────
-// Reads from the `audit_log_safe` view (granted to audit_reader role). We
-// run this query with the elevated audit-reader connection because the
-// app_user role doesn't have SELECT on audit_log itself.
+// Reads the `audit_log_safe` view, which masks row_hash / previous_row_hash
+// and is the only audit object granted to a normal application role.
+//
+// Filterable by record_id as well as table, so "the history of this one
+// institution / donor / user" is a query rather than a scan the caller does
+// client-side. Values on credential fields are withheld by redactAuditRow()
+// — see utils/auditRedaction.js for why the trigger writes them at all.
 router.get('/audit', verifyJWT, requireRole('ngo_admin', 'super_admin'), async (req, res) => {
   const schema = z.object({
     table_name: z.string().optional(),
+    // audit_log.record_id is TEXT, not UUID (025_audit_log.sql), because the log
+    // spans tables with different key types. Every table this endpoint is used
+    // against has a UUID key, so validate as one and cast on the way in — a
+    // malformed value then gets a 400 rather than a 22P02 out of Postgres.
+    record_id: z.string().uuid().optional(),
     actor_user_id: z.string().uuid().optional(),
     event_type: z.enum(['INSERT', 'UPDATE', 'DELETE']).optional(),
     since: z.string().datetime().optional(),
@@ -568,9 +579,6 @@ router.get('/audit', verifyJWT, requireRole('ngo_admin', 'super_admin'), async (
   if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
   const f = parsed.data;
 
-  // The audit_log_safe view is owned by audit_reader. Our default app_user
-  // pool can't SELECT it directly; we issue this read against the same
-  // pool but stamped with the audit reader's session role.
   const r = await pool.query(
     `SELECT id, event_time, event_type, table_name, record_id, field_name,
               old_value, new_value,
@@ -578,14 +586,16 @@ router.get('/audit', verifyJWT, requireRole('ngo_admin', 'super_admin'), async (
               request_reference, change_reason
          FROM audit_log_safe
         WHERE ($1::text IS NULL OR table_name = $1)
-          AND ($2::uuid IS NULL OR actor_user_id = $2)
-          AND ($3::text IS NULL OR event_type = $3)
-          AND ($4::timestamptz IS NULL OR event_time >= $4)
-          AND ($5::timestamptz IS NULL OR event_time <= $5)
+          AND ($2::text IS NULL OR record_id = $2)
+          AND ($3::uuid IS NULL OR actor_user_id = $3)
+          AND ($4::text IS NULL OR event_type = $4)
+          AND ($5::timestamptz IS NULL OR event_time >= $5)
+          AND ($6::timestamptz IS NULL OR event_time <= $6)
      ORDER BY event_time DESC
-        LIMIT $6`,
+        LIMIT $7`,
     [
       f.table_name || null,
+      f.record_id || null,
       f.actor_user_id || null,
       f.event_type || null,
       f.since || null,
@@ -593,7 +603,8 @@ router.get('/audit', verifyJWT, requireRole('ngo_admin', 'super_admin'), async (
       f.limit,
     ],
   );
-  res.json({ rows: r.rows, count: r.rowCount });
+  const rows = r.rows.map(redactAuditRow);
+  res.json({ rows, count: rows.length });
 });
 
 // Hash-chain integrity check: pull the most recent N audit rows in event-time

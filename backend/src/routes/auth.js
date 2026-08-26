@@ -38,9 +38,29 @@ const otpSendLimiter = rateLimit({
   message: { error: 'rate_limit_otp_send' },
 });
 
-const institutionalLoginLimiter = rateLimit({
+// Two limiters, because they defend against two different things and a single
+// IP-keyed budget cannot do both. A hospital reaches us through one NAT'd public
+// address, so ten sign-ins per quarter-hour is ten PEOPLE at a shift change, not
+// ten guesses - the same trap the camp-QR limiter fell into. The per-account
+// budget is therefore keyed on the username, matching the granularity of the
+// 5-attempt lockout below, which is what actually stops a brute force against
+// one account. The IP ceiling stays only to cap a credential-stuffing sweep
+// across many usernames, and is set wide enough that a whole ward signing in
+// never reaches it.
+const loginAccountLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   limit: 10,
+  keyGenerator: (req) =>
+    String(req.body?.username || '')
+      .trim()
+      .toLowerCase() || req.ip,
+  standardHeaders: 'draft-8',
+  message: { error: 'rate_limit_login' },
+});
+
+const loginIpLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
   keyGenerator: (req) => req.ip,
   standardHeaders: 'draft-8',
   message: { error: 'rate_limit_login' },
@@ -241,7 +261,7 @@ router.post('/otp/verify', async (req, res) => {
 // chosen for ngo_admin/super_admin/dho) so the login identifier survives
 // officer turnover — when a hospital's admin changes, the new officer
 // activates the SAME username via a fresh setup link.
-router.post('/institutional/login', institutionalLoginLimiter, async (req, res) => {
+router.post('/institutional/login', loginIpLimiter, loginAccountLimiter, async (req, res) => {
   const schema = z.object({
     username: z.string().regex(/^[a-z][a-z0-9_-]{2,31}$/),
     password: z.string().min(8),

@@ -20,6 +20,7 @@ import { AuditTab } from './AuditTab.jsx';
 import { JobsTab } from './JobsTab.jsx';
 import { StaffSecurityTab } from './StaffSecurityTab.jsx';
 import { InstitutionUsersTab } from './InstitutionUsersTab.jsx';
+import { InstitutionsTab } from './InstitutionsTab.jsx';
 
 // Phase 8 NGO admin dashboard. Each tab maps to a distinct admin endpoint
 // added in routes/admin.js (or routes/lookback.js for the lookback queue
@@ -27,6 +28,7 @@ import { InstitutionUsersTab } from './InstitutionUsersTab.jsx';
 
 const TABS = [
   { id: 'onboarding', label: 'Onboarding' },
+  { id: 'institutions', label: 'Institutions' },
   { id: 'institution-users', label: 'Institution users' },
   { id: 'vendor-integrations', label: 'Vendor integrations' },
   { id: 'blood-group-discrepancies', label: 'Blood-group discrepancies' },
@@ -86,6 +88,7 @@ export function AdminDashboard() {
         </nav>
 
         {tab === 'onboarding' ? <OnboardingTab /> : null}
+        {tab === 'institutions' ? <InstitutionsTab /> : null}
         {tab === 'institution-users' ? <InstitutionUsersTab /> : null}
         {tab === 'vendor-integrations' ? <VendorIntegrationsTab /> : null}
         {tab === 'blood-group-discrepancies' ? <BloodGroupDiscrepanciesTab /> : null}

@@ -7,6 +7,9 @@
  *
  * requireInstitution — for hospital/blood_bank, verifies that the
  * institution_id in the URL params or body matches req.user.institutionId.
+ *
+ * requireReason({ min }) — demands an operator-written justification on the
+ * request body before a consequential write is allowed through.
  */
 const { verify } = require('../utils/jwt');
 const { pool } = require('../config/db');
@@ -80,4 +83,58 @@ function requireInstitution(req, res, next) {
   next();
 }
 
-module.exports = { verifyJWT, requireRole, requireInstitution };
+/**
+ * Demands a written justification before a consequential write proceeds.
+ *
+ * The audit chain already carries the "why": fn_audit_generic() reads
+ * current_setting('raktify.change_reason', TRUE) into every audit row, and
+ * middleware/rlsContext.js sets that GUC from the third argument to
+ * withRlsContext(). What was missing is anyone being *asked*. Nearly every
+ * existing call site passes a hardcoded system description ("admin update
+ * institution"), which records what the code did rather than why a person
+ * decided to do it — useless six months later when a licence number is wrong
+ * and nobody remembers who changed it or on whose word.
+ *
+ * So this is the gate rather than a per-handler `if`: one place that decides
+ * what counts as a reason, applied identically to suspending a blood bank,
+ * archiving a hospital, and retiring a colleague's login.
+ *
+ * On success sets req.changeReason (trimmed). Handlers pass it on as
+ *   { change_reason: `<action>: ${req.changeReason}` }
+ * so the audit row names both the operation and the justification.
+ *
+ * min defaults to 10, not 5: "typo" and "asked" are keystrokes, not reasons.
+ * The cap at 500 matches the widest reason column on the tables these routes
+ * write (institutions.suspension_reason, platform_users.deactivation_reason).
+ */
+function validateReason(raw, { min = 10 } = {}) {
+  if (typeof raw !== 'string' || raw.trim().length === 0) {
+    return { ok: false, error: 'reason_required', min_length: min };
+  }
+  const reason = raw.trim();
+  if (reason.length < min) return { ok: false, error: 'reason_too_short', min_length: min };
+  if (reason.length > 500) return { ok: false, error: 'reason_too_long', max_length: 500 };
+  return { ok: true, reason };
+}
+
+function requireReason({ min = 10, field = 'reason' } = {}) {
+  return (req, res, next) => {
+    const v = validateReason(req.body?.[field], { min });
+    if (!v.ok) {
+      const { ok, reason, ...body } = v; // eslint-disable-line no-unused-vars
+      return res.status(400).json(body);
+    }
+    req.changeReason = v.reason;
+    next();
+  };
+}
+
+module.exports = {
+  verifyJWT,
+  requireRole,
+  requireInstitution,
+  requireReason,
+  // Exported for the one gate that is conditional on WHICH fields a body
+  // touches (PUT /institutions/:id), where a middleware cannot decide yet.
+  validateReason,
+};

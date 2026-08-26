@@ -227,6 +227,16 @@ export function StaffRosterTable({
                               Reset 2FA
                             </ActionButton>
                           ) : null}
+                          {/* Admin rights were settable only at invite time, which
+                              meant a departing admin could not hand over. Both
+                              directions are reason-gated server-side, and the last
+                              admin cannot be demoted. */}
+                          <ActionButton
+                            onClick={() => onAction('admin-flag', u)}
+                            disabled={busy || !actionable}
+                          >
+                            {u.is_institution_admin ? 'Remove admin' : 'Make admin'}
+                          </ActionButton>
                           <ActionButton
                             tone="danger"
                             onClick={() => onAction('deactivate', u)}

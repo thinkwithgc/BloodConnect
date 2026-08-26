@@ -9,6 +9,10 @@ import {
   STATE_META,
   ATTENTION_STATES,
 } from '../../components/institution/StaffRoster.jsx';
+import {
+  ReasonDialog,
+  institutionErrorText,
+} from '../../components/institution/ReasonDialog.jsx';
 
 /**
  * Cross-institution staff-login directory — the one screen that answers
@@ -46,6 +50,8 @@ export function InstitutionUsersTab() {
   const [issued, setIssued] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [actionNote, setActionNote] = useState(null);
+  // The reason-gated action waiting on its justification: { kind, user }.
+  const [pending, setPending] = useState(null);
 
   const qc = useQueryClient();
 
@@ -126,18 +132,10 @@ export function InstitutionUsersTab() {
       return;
     }
 
-    if (kind === 'deactivate') {
-      const reason = window.prompt(
-        `Deactivate ${user.username} at ${user.institution_display_name || 'this institution'}?\n\nReason (kept on the record):`,
-      );
-      if (reason === null) return;
-      const trimmed = reason.trim();
-      if (trimmed && trimmed.length < 3) {
-        setActionError('reason_too_short');
-        return;
-      }
-      setBusyId(user.id);
-      act.mutate({ kind: 'deactivate', user, body: trimmed ? { reason: trimmed } : {} });
+    // Reason-gated. The server requires >= 10 characters and writes the text to
+    // an append-only audit row, which a prompt can neither enforce nor explain.
+    if (kind === 'deactivate' || kind === 'admin-flag') {
+      setPending({ kind, user });
       return;
     }
 
@@ -267,7 +265,9 @@ export function InstitutionUsersTab() {
       ) : null}
 
       {actionNote ? <p className="text-sm text-green-700">✓ {actionNote}</p> : null}
-      {actionError ? <p className="text-sm text-rk-700">✗ {actionError}</p> : null}
+      {actionError ? (
+        <p className="text-sm text-rk-700">✗ {institutionErrorText(actionError)}</p>
+      ) : null}
 
       {listQ.isLoading ? <div className="rk-card">Loading…</div> : null}
       {listQ.error ? (
@@ -291,6 +291,44 @@ export function InstitutionUsersTab() {
             onAction={onAction}
           />
         </>
+      ) : null}
+
+      {pending ? (
+        <ReasonDialog
+          title={
+            pending.kind === 'deactivate'
+              ? `Deactivate ${pending.user.username}`
+              : pending.user.is_institution_admin
+                ? `Remove admin rights from ${pending.user.username}`
+                : `Make ${pending.user.username} an admin`
+          }
+          description={
+            pending.kind === 'deactivate'
+              ? `They will no longer be able to sign in at ${pending.user.institution_display_name || 'this institution'}. Nothing they recorded is removed — their name stays on every donation and screening they entered, which is why this retires the login rather than deleting it.`
+              : pending.user.is_institution_admin
+                ? 'They keep their login but can no longer invite colleagues, re-issue sign-in links or retire accounts at their institution.'
+                : 'They will be able to invite colleagues, re-issue sign-in links and retire accounts at their institution.'
+          }
+          actionLabel={pending.kind === 'deactivate' ? 'Deactivate login' : 'Save'}
+          tone={pending.kind === 'deactivate' ? 'danger' : 'primary'}
+          busy={act.isPending}
+          error={actionError}
+          onCancel={() => {
+            setPending(null);
+            setActionError(null);
+          }}
+          onSubmit={(reason) => {
+            setBusyId(pending.user.id);
+            const body =
+              pending.kind === 'admin-flag'
+                ? { reason, is_institution_admin: !pending.user.is_institution_admin }
+                : { reason };
+            act.mutate(
+              { kind: pending.kind, user: pending.user, body },
+              { onSuccess: () => setPending(null) },
+            );
+          }}
+        />
       ) : null}
     </div>
   );

@@ -21,6 +21,14 @@
  *        cross-institution refusals, last-admin protection, deactivate →
  *        403 account_deactivated, reactivate + re-issue a working setup
  *        link, and the cross-institution admin directory
+ *  13.  In-house blood bank: the hospital's admin provisions its logins,
+ *        and the blood bank's own admin gets no reach back up
+ *  14.  Institution details editing: a critical field (licence expiry)
+ *        needs a written reason, a routine one does not, and the reason
+ *        lands verbatim on the audit row for that field
+ *  15.  Reversible lifecycle: suspend blocks sign-in, un-suspend restores
+ *        it, archive is super_admin-only and refuses an institution with
+ *        live work, and un-archive brings the family back as suspended
  *
  * The MoU is signed OFFLINE ON PAPER — there is no eSign round-trip. Steps 4-5
  * replaced the old `generate-mou` + `mou-signed` webhook pair; see
@@ -73,6 +81,25 @@ const TEST = {
   scanKey: null,
   scanSha256: null,
   signedOn: null,
+
+  // Archive / un-archive sit one role above the rest of the admin surface: an
+  // ngo_admin may suspend an institution, retiring one outright is super_admin.
+  superAdminUsername: `supadm${RUN_TAG}`,
+  superAdminMobile: `+919${RUN_TAG}007`,
+  superAdminPwd: 'SuperPass!2026',
+  superAdminTotpSecret: null,
+  superAdminToken: null,
+
+  // A third institution, unrelated to the hospital under test: its admin must be
+  // refused on both the hospital and the hospital's in-house blood bank.
+  outsiderShortname: `p2out${RUN_TAG}`.slice(0, 23),
+  outsiderContactMobile: `+919${RUN_TAG}008`,
+  outsiderInstitutionId: null,
+  outsiderAdminUsername: `p2out${RUN_TAG}_admin`,
+  outsiderAdminMobile: `+919${RUN_TAG}009`,
+  outsiderAdminPwd: 'OutsiderPass2026',
+  outsiderAdminTotpSecret: null,
+  outsiderToken: null,
 };
 
 let pass = 0,
@@ -167,6 +194,100 @@ async function seedNgoAdmin() {
   }
 }
 
+/**
+ * A super_admin. Archive / un-archive are deliberately narrower than the rest of
+ * the admin surface, so proving that boundary needs an account one rank above the
+ * ngo_admin seeded above. Same shape, TOTP pre-enrolled.
+ */
+async function seedSuperAdmin() {
+  const secret = totp.newSecret();
+  TEST.superAdminTotpSecret = secret;
+  const c = await db.pool.connect();
+  try {
+    await c.query(
+      `INSERT INTO platform_users
+         (role, username, mobile, password_hash, password_set_at,
+          totp_secret, totp_enabled)
+       VALUES ('super_admin', $1, $2, $3, NOW(), $4, TRUE)`,
+      [
+        TEST.superAdminUsername,
+        TEST.superAdminMobile,
+        await bcrypt.hash(TEST.superAdminPwd, 10),
+        encryption.encrypt(secret),
+      ],
+    );
+  } finally {
+    c.release();
+  }
+}
+
+/**
+ * An unrelated active hospital with its own institution admin.
+ *
+ * Seeded directly rather than driven through apply → verify → activate: that path
+ * is what steps 1-5 are for, and walking it twice would double the runtime to
+ * prove nothing new. What matters here is only the shape - an AC institution
+ * whose admin holds a full-privilege token - so the parent → child widening in
+ * resolveInstitutionAdmin can be shown NOT to leak sideways.
+ *
+ * is_active / onboarded_at are written explicitly because fn_institutions_touch()
+ * mirrors them on the UPDATE path only; an INSERT straight to 'AC' would
+ * otherwise leave an inactive row and make the 403 below ambiguous.
+ */
+async function seedOutsiderInstitution() {
+  const secret = totp.newSecret();
+  TEST.outsiderAdminTotpSecret = secret;
+  const c = await db.pool.connect();
+  try {
+    const inst = await c.query(
+      `INSERT INTO institutions
+         (kind, shortname, legal_name, display_name, state_id, district_id,
+          address_line, pincode, primary_contact_name, primary_contact_mobile,
+          onboarding_status, is_active, onboarded_at)
+       VALUES ('HO', $1, $2, $3, $4, $5, $6, '444601',
+               'P2 Outsider Contact', $7, 'AC', TRUE, NOW())
+       RETURNING id`,
+      [
+        TEST.outsiderShortname,
+        'Phase 2 Smoke Outsider Hospital',
+        'P2 Outsider Hospital',
+        TEST.state_id,
+        TEST.district_id,
+        '9 Unrelated Road, Amravati',
+        TEST.outsiderContactMobile,
+      ],
+    );
+    TEST.outsiderInstitutionId = inst.rows[0].id;
+    await c.query(
+      `INSERT INTO platform_users
+         (role, username, mobile, password_hash, password_set_at,
+          totp_secret, totp_enabled, institution_id, is_institution_admin)
+       VALUES ('hospital', $1, $2, $3, NOW(), $4, TRUE, $5, TRUE)`,
+      [
+        TEST.outsiderAdminUsername,
+        TEST.outsiderAdminMobile,
+        await bcrypt.hash(TEST.outsiderAdminPwd, 10),
+        encryption.encrypt(secret),
+        TEST.outsiderInstitutionId,
+      ],
+    );
+  } finally {
+    c.release();
+  }
+}
+
+/**
+ * Username + password + current TOTP in one call, for accounts whose
+ * authenticator a seed enrolled. Returns the bearer token, or null so the
+ * caller's assert reports the failure rather than this throwing.
+ */
+async function staffToken(username, password, secret) {
+  const r = await fetchJson('POST', '/auth/institutional/login', {
+    body: { username, password, totp_code: await totp.currentCode(secret) },
+  });
+  return r.status === 200 ? r.body.token || null : null;
+}
+
 async function dbRow(sql, params) {
   const c = await db.pool.connect();
   try {
@@ -180,6 +301,8 @@ async function dbRow(sql, params) {
 async function main() {
   await resolveGeo();
   await seedNgoAdmin();
+  await seedSuperAdmin();
+  await seedOutsiderInstitution();
 
   await new Promise((resolve) => {
     server = app.listen(PORT, '127.0.0.1', () => resolve());
@@ -317,6 +440,7 @@ async function main() {
     TEST.hoAdminUsername = r.body.ho_admin_username;
     TEST.hoSetupToken = String(r.body.ho_admin_setup_url).split('/setup/')[1];
     const bbSetupToken = String(r.body.bb_admin_setup_url).split('/setup/')[1];
+    const bbAdminUsername = r.body.bb_admin_username;
 
     console.log('── 7. DB archive assertions ─────────────────────────────────');
     const mou = await dbRow(
@@ -587,15 +711,31 @@ async function main() {
       r.status === 403 && r.body.error === 'not_institution_admin',
       `non-admin invite → 403 not_institution_admin (got ${r.status} ${r.body.error})`,
     );
-    // ...nor reach into a different institution, even as its own admin.
-    r = await fetchJson('POST', `/institutions/${TEST.childInstitutionId}/users`, {
-      headers: hoAuth,
-      body: { mobile: `+919${RUN_TAG}006`, username_suffix: 'crossinst' },
-    });
-    assert(
-      r.status === 403 && r.body.error === 'forbidden',
-      `HO admin inviting into the paired BB → 403 forbidden (got ${r.status} ${r.body.error})`,
+    // ...nor reach into an unrelated institution, even holding a full-privilege
+    // admin token of its own. resolveInstitutionAdmin tests the parent link before
+    // it tests is_institution_admin, so an outsider comes back 'forbidden' rather
+    // than 'not_institution_admin': the refusal is about which institution, not
+    // about what rank.
+    TEST.outsiderToken = await staffToken(
+      TEST.outsiderAdminUsername,
+      TEST.outsiderAdminPwd,
+      TEST.outsiderAdminTotpSecret,
     );
+    assert(!!TEST.outsiderToken, 'unrelated institution admin can sign in');
+    const outsiderAuth = { Authorization: `Bearer ${TEST.outsiderToken}` };
+    for (const [label, target] of [
+      ['the hospital', TEST.institutionId],
+      ['its in-house blood bank', TEST.childInstitutionId],
+    ]) {
+      r = await fetchJson('POST', `/institutions/${target}/users`, {
+        headers: outsiderAuth,
+        body: { mobile: `+919${RUN_TAG}006`, username_suffix: 'crossinst' },
+      });
+      assert(
+        r.status === 403 && r.body.error === 'forbidden',
+        `unrelated admin inviting into ${label} → 403 forbidden (got ${r.status} ${r.body.error})`,
+      );
+    }
 
     // 16e. An institution can never be left with no admin.
     r = await fetchJson(
@@ -682,6 +822,402 @@ async function main() {
     assert(
       r.status === 200 && (r.body.users || []).every((u) => u.credential_state === 'setup_pending'),
       'admin directory state filter returns only that state',
+    );
+
+    console.log('── 17. In-house blood bank: authority runs downward ────────');
+    // The founder's rule for a paired hospital + in-house blood bank: the
+    // hospital administers both, and the blood bank never reaches back up. Both
+    // halves are asserted, because widening resolveInstitutionAdmin in one
+    // direction reads as correct until somebody checks the other.
+
+    // 17a. The hospital's admin provisions a login inside its in-house BB, and
+    // the role is minted from the CHILD's kind rather than the inviter's.
+    r = await fetchJson('POST', `/institutions/${TEST.childInstitutionId}/users`, {
+      headers: hoAuth,
+      body: { mobile: `+919${RUN_TAG}010`, username_suffix: 'lab' },
+    });
+    assert(
+      r.status === 201 && r.body.institution_id === TEST.childInstitutionId,
+      `HO admin inviting into its in-house BB → 201 (got ${r.status} ${r.body.error || ''})`,
+    );
+    assert(
+      r.body.role === 'blood_bank',
+      `the invited login is minted blood_bank from the child's kind (got ${r.body.role})`,
+    );
+
+    // 17b. The BB admin's own credentials, so the refusal below is a real token
+    // being turned away rather than an absent one. Same password → TOTP → re-login
+    // dance as step 10.
+    r = await fetchJson('POST', '/auth/institutional/login', {
+      body: { username: bbAdminUsername, password: 'BloodBankPass2026' },
+    });
+    assert(
+      r.status === 200 && r.body.token && r.body.totp_setup_required === true,
+      `BB admin first sign-in → 200 + enrolment pending (got ${r.status} ${r.body.error || ''})`,
+    );
+    const bbPendingToken = r.body.token;
+    r = await fetchJson('POST', '/auth/institutional/setup-totp', {
+      headers: { Authorization: `Bearer ${bbPendingToken}` },
+    });
+    const bbSecret = ((r.body.otpauth_url || '').match(/secret=([^&]+)/) || [])[1];
+    assert(!!bbSecret, 'BB admin is issued an otpauth secret');
+    r = await fetchJson('POST', '/auth/institutional/confirm-totp', {
+      headers: { Authorization: `Bearer ${bbPendingToken}` },
+      body: { totp_code: await totp.currentCode(bbSecret) },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'totp_enabled',
+      `BB admin enrols its authenticator (got ${r.status} ${r.body.error || ''})`,
+    );
+    const bbToken = await staffToken(bbAdminUsername, 'BloodBankPass2026', bbSecret);
+    assert(!!bbToken, 'BB admin signs in with username + password + code');
+
+    // 17c. ...and gets nowhere near the parent hospital's roster.
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/users`, {
+      headers: { Authorization: `Bearer ${bbToken}` },
+      body: { mobile: `+919${RUN_TAG}011`, username_suffix: 'upward' },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'forbidden',
+      `BB admin inviting into its parent hospital → 403 forbidden (got ${r.status} ${r.body.error})`,
+    );
+
+    console.log('── 18. Institution details: reason-gated edits ─────────────');
+    // Editing an institution is why this surface exists at all - a renewed CDSCO
+    // licence had nowhere to be recorded, so the register quietly went stale. The
+    // tier split is what keeps it usable: a wrong phone number is a correction, a
+    // licence expiry is a legal fact somebody has to answer for later, so only the
+    // second demands a sentence.
+
+    const newExpiry = new Date(Date.now() + 730 * 86400000).toISOString().slice(0, 10);
+    const licenceReason =
+      'CDSCO licence renewed; certificate received by email from the hospital administrator';
+
+    // 18a. A critical field with no justification is refused, and the refusal
+    // names which fields demanded one so the form can say why.
+    r = await fetchJson('PUT', `/institutions/${TEST.institutionId}`, {
+      headers: auth,
+      body: { cdsco_licence_expires: newExpiry },
+    });
+    assert(
+      r.status === 400 && r.body.error === 'reason_required',
+      `licence expiry with no reason → 400 reason_required (got ${r.status} ${r.body.error})`,
+    );
+    assert(
+      Array.isArray(r.body.critical_fields) &&
+        r.body.critical_fields.includes('cdsco_licence_expires'),
+      'the refusal names the critical field that demanded a reason',
+    );
+
+    // 18b. "typo" is not a justification.
+    r = await fetchJson('PUT', `/institutions/${TEST.institutionId}`, {
+      headers: auth,
+      body: { cdsco_licence_expires: newExpiry, reason: 'typo' },
+    });
+    assert(
+      r.status === 400 && r.body.error === 'reason_too_short',
+      `a four-character reason → 400 reason_too_short (got ${r.status} ${r.body.error})`,
+    );
+
+    // 18c. With a real one it goes through.
+    r = await fetchJson('PUT', `/institutions/${TEST.institutionId}`, {
+      headers: auth,
+      body: { cdsco_licence_expires: newExpiry, reason: licenceReason },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'updated',
+      `licence renewal with a reason → 200 (got ${r.status} ${r.body.error || ''})`,
+    );
+    assert(
+      (r.body.fields_updated || []).includes('cdsco_licence_expires') &&
+        r.body.reason_recorded === true,
+      'the response confirms the field written and that a reason was recorded',
+    );
+
+    // 18d. The operator's words land on the audit row for that field.
+    // fn_audit_generic writes one row per changed column, so the sentence sits
+    // against the licence expiry specifically rather than against "the row".
+    const licenceAudit = await dbRow(
+      `SELECT change_reason, new_value, actor_role
+         FROM audit_log
+        WHERE table_name = 'institutions'
+          AND record_id = $1
+          AND field_name = 'cdsco_licence_expires'
+        ORDER BY event_time DESC, id DESC
+        LIMIT 1`,
+      [TEST.institutionId],
+    );
+    assert(!!licenceAudit, 'the licence change produced an audit row for that field');
+    assert(
+      licenceAudit && licenceAudit.change_reason === `update institution: ${licenceReason}`,
+      'the audit row carries the operator reason verbatim',
+    );
+    assert(
+      licenceAudit && licenceAudit.new_value === newExpiry,
+      `the audit row records the new expiry as a plain date (got ${
+        licenceAudit && licenceAudit.new_value
+      })`,
+    );
+    assert(
+      licenceAudit && licenceAudit.actor_role === 'ngo_admin',
+      `the audit row attributes it to the operator's role (got ${
+        licenceAudit && licenceAudit.actor_role
+      })`,
+    );
+
+    // 18e. A routine correction needs no ceremony - demanding a paragraph for a
+    // mistyped phone number is how a reason field turns into "asdf".
+    r = await fetchJson('PUT', `/institutions/${TEST.institutionId}`, {
+      headers: auth,
+      body: { primary_contact_mobile: `+919${RUN_TAG}111` },
+    });
+    assert(
+      r.status === 200 && r.body.reason_recorded === false,
+      `a phone-number correction saves with no reason (got ${r.status} ${r.body.error || ''})`,
+    );
+
+    // 18f. A back-dated expiry is the licence_not_expired CHECK, translated into
+    // something the operator can act on instead of a constraint name.
+    r = await fetchJson('PUT', `/institutions/${TEST.institutionId}`, {
+      headers: auth,
+      body: {
+        cdsco_licence_expires: '2019-01-01',
+        reason: 'back-dating the expiry to before this record existed',
+      },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'licence_expiry_before_institution_created',
+      `a lapsed expiry → 409, not a raw 23514 (got ${r.status} ${r.body.error})`,
+    );
+
+    // 18g. Nothing to do is said plainly rather than run as an empty UPDATE.
+    r = await fetchJson('PUT', `/institutions/${TEST.institutionId}`, {
+      headers: auth,
+      body: {},
+    });
+    assert(
+      r.status === 400 && r.body.error === 'no_fields_to_update',
+      `an empty body → 400 no_fields_to_update (got ${r.status} ${r.body.error})`,
+    );
+
+    // 18h. A blood bank may not be stripped of the licence it operates under.
+    r = await fetchJson('PUT', `/institutions/${TEST.childInstitutionId}`, {
+      headers: auth,
+      body: {
+        cdsco_licence_number: null,
+        reason: 'attempting to clear the in-house blood bank licence number',
+      },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'blood_bank_requires_licence',
+      `clearing a BB licence number → 409 blood_bank_requires_licence (got ${r.status} ${r.body.error})`,
+    );
+
+    // 18i. The per-institution history is what an inspection actually reads.
+    r = await fetchJson('GET', `/institutions/${TEST.institutionId}/audit`, { headers: auth });
+    assert(
+      r.status === 200 && Array.isArray(r.body.events),
+      `institution history → 200 (got ${r.status} ${r.body.error || ''})`,
+    );
+    const licenceEvent = (r.body.events || []).find(
+      (e) => e.field_name === 'cdsco_licence_expires',
+    );
+    assert(
+      licenceEvent && licenceEvent.change_reason === `update institution: ${licenceReason}`,
+      'the history surfaces the licence change with its reason',
+    );
+    assert(
+      licenceEvent && licenceEvent.actor_username === TEST.ngoAdminUsername,
+      `the history names who did it (got ${licenceEvent && licenceEvent.actor_username})`,
+    );
+
+    console.log('── 19. Reversible lifecycle: suspend / archive ─────────────');
+    // Suspend used to be a one-way door and 'AR' was unreachable. What this
+    // section pins down is that every step back out exists, that retiring an
+    // institution sits one rank above pausing one, and that an institution with
+    // somebody waiting on blood cannot be retired out from under them.
+
+    // 19a. Suspend closes the door on sign-in...
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/suspend`, {
+      headers: auth,
+      body: { reason: 'suspected licence lapse pending district inspection' },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'suspended',
+      `suspend → 200 (got ${r.status} ${r.body.error || ''})`,
+    );
+    // Deliberately NOT the child: a hospital pausing does not close its blood
+    // bank, which may still be supplying every other hospital in the district.
+    let childStatus = await dbRow(`SELECT onboarding_status FROM institutions WHERE id = $1`, [
+      TEST.childInstitutionId,
+    ]);
+    assert(
+      childStatus && childStatus.onboarding_status === 'AC',
+      `suspending the hospital leaves its blood bank active (got ${
+        childStatus && childStatus.onboarding_status
+      })`,
+    );
+    r = await fetchJson('POST', '/auth/institutional/login', {
+      body: { username: TEST.hoAdminUsername, password: TEST.hoAdminPwd },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'institution_not_active',
+      `a suspended institution's admin cannot sign in (got ${r.status} ${r.body.error})`,
+    );
+
+    // 19b. ...and lifting it opens the door again. The account itself was never
+    // touched, so the next thing refused is the authenticator, not the
+    // institution - which is how we know suspend gated the org, not the login.
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/unsuspend`, {
+      headers: auth,
+      body: { reason: 'district inspection cleared; licence confirmed current' },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'active',
+      `unsuspend → 200 active (got ${r.status} ${r.body.error || ''})`,
+    );
+    r = await fetchJson('POST', '/auth/institutional/login', {
+      body: { username: TEST.hoAdminUsername, password: TEST.hoAdminPwd },
+    });
+    assert(
+      r.status === 401 && r.body.error === 'totp_required',
+      `after un-suspending, sign-in is back to asking for the code (got ${r.status} ${r.body.error})`,
+    );
+
+    // 19c. Archive is one rank up: an ngo_admin may pause an institution,
+    // retiring one is a super_admin act.
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/archive`, {
+      headers: auth,
+      body: { reason: 'closing this hospital permanently at the trust board request' },
+    });
+    assert(
+      r.status === 403,
+      `ngo_admin archiving an institution → 403 (got ${r.status} ${r.body.error})`,
+    );
+
+    TEST.superAdminToken = await staffToken(
+      TEST.superAdminUsername,
+      TEST.superAdminPwd,
+      TEST.superAdminTotpSecret,
+    );
+    assert(!!TEST.superAdminToken, 'super_admin can sign in');
+    const superAuth = { Authorization: `Bearer ${TEST.superAdminToken}` };
+
+    // 19d. Live work blocks it. This is the assertion that matters clinically:
+    // an open request means somebody is waiting on blood, and the archive has to
+    // refuse rather than orphan them behind an inactive institution.
+    const ref = await dbRow(
+      `SELECT (SELECT id FROM blood_groups ORDER BY id LIMIT 1) AS bg,
+              (SELECT id FROM blood_components ORDER BY id LIMIT 1) AS comp`,
+      [],
+    );
+    const openReq = await dbRow(
+      `INSERT INTO blood_requests
+         (source_tier, requesting_institution_id, requesting_user_id,
+          patient_initials, patient_age, patient_gender, patient_blood_group_id,
+          component_id, units_required, urgency_tier, needed_by,
+          requesting_hospital_district_id)
+       VALUES ('OH', $1, $2, 'P.S.', 42, 'M', $3, $4, 1, 'UR',
+               NOW() + INTERVAL '12 hours', $5)
+       RETURNING id`,
+      [TEST.institutionId, hoUserId, ref.bg, ref.comp, TEST.district_id],
+    );
+    assert(!!openReq, 'seeded an open blood request against the hospital');
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/archive`, {
+      headers: superAuth,
+      body: { reason: 'closing this hospital permanently at the trust board request' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'institution_has_live_work' && r.body.open_requests >= 1,
+      `archiving over an open request → 409 institution_has_live_work (got ${r.status} ${r.body.error})`,
+    );
+
+    // Close the request and it proceeds, taking the in-house blood bank with it:
+    // the pair was activated together and retires together.
+    await dbRow(`UPDATE blood_requests SET status = 'CA' WHERE id = $1 RETURNING id`, [openReq.id]);
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/archive`, {
+      headers: superAuth,
+      body: {
+        reason: 'trust board resolution 2026-08: hospital closed, patients transferred to district',
+      },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'archived',
+      `archive with the queue clear → 200 (got ${r.status} ${r.body.error || ''})`,
+    );
+    assert(
+      Array.isArray(r.body.cascaded_to_children) && r.body.cascaded_to_children.length >= 1,
+      'the response names the in-house blood bank the archive took with it',
+    );
+    childStatus = await dbRow(`SELECT onboarding_status FROM institutions WHERE id = $1`, [
+      TEST.childInstitutionId,
+    ]);
+    assert(
+      childStatus && childStatus.onboarding_status === 'AR',
+      `the in-house blood bank archived with its hospital (got ${
+        childStatus && childStatus.onboarding_status
+      })`,
+    );
+
+    // 19e. Doing it twice is said out loud rather than silently swallowed.
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/archive`, {
+      headers: superAuth,
+      body: { reason: 'attempting to archive an institution that is already archived' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'already_archived',
+      `re-archiving → 409 already_archived (got ${r.status} ${r.body.error})`,
+    );
+
+    // 19f. Coming back is deliberate. Un-archive returns the family to SUSPENDED
+    // rather than straight to live, so somebody has to re-check the licence
+    // before the hospital can raise a request again.
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/unarchive`, {
+      headers: superAuth,
+      body: { reason: 'archived in error; the board resolution applied to a different unit' },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'suspended' && Array.isArray(r.body.restored),
+      `un-archive → 200 suspended (got ${r.status} ${r.body.error || ''})`,
+    );
+    childStatus = await dbRow(`SELECT onboarding_status FROM institutions WHERE id = $1`, [
+      TEST.childInstitutionId,
+    ]);
+    assert(
+      childStatus && childStatus.onboarding_status === 'SU',
+      `un-archive brings the blood bank back suspended, not live (got ${
+        childStatus && childStatus.onboarding_status
+      })`,
+    );
+
+    // 19g. The last step back to live is the ordinary un-suspend - un-archiving
+    // is the privileged act, re-opening a suspended institution is not. It stays
+    // per-institution, so the blood bank is still suspended afterwards and has to
+    // be lifted on its own.
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/unsuspend`, {
+      headers: auth,
+      body: { reason: 'licence re-verified after the erroneous archive was reversed' },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'active',
+      `un-suspend after un-archive → 200 active (got ${r.status} ${r.body.error || ''})`,
+    );
+    childStatus = await dbRow(`SELECT onboarding_status FROM institutions WHERE id = $1`, [
+      TEST.childInstitutionId,
+    ]);
+    assert(
+      childStatus && childStatus.onboarding_status === 'SU',
+      `lifting the hospital does not silently re-open its blood bank (got ${
+        childStatus && childStatus.onboarding_status
+      })`,
+    );
+    r = await fetchJson('POST', `/institutions/${TEST.institutionId}/unsuspend`, {
+      headers: auth,
+      body: { reason: 'lifting a suspension that is no longer there' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'not_found_or_not_suspended',
+      `un-suspending an active institution → 409 (got ${r.status} ${r.body.error})`,
     );
   } catch (err) {
     console.error('FATAL during smoke:', err.message);

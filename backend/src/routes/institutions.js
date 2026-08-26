@@ -1,10 +1,21 @@
 /**
  * Institution management.
  *
- *   GET  /institutions             ngo_admin/super_admin → list
- *   GET  /institutions/:id         ngo_admin or self     → details
- *   PUT  /institutions/:id         ngo_admin             → update whitelist
- *   POST /institutions/:id/suspend ngo_admin             → suspend
+ *   GET  /institutions               ngo_admin/super_admin → list
+ *   GET  /institutions/:id           ngo_admin or self     → details
+ *   GET  /institutions/:id/audit     ngo_admin or self     → this record's history
+ *   PUT  /institutions/:id           ngo_admin             → update whitelist
+ *   POST /institutions/:id/suspend   ngo_admin             → suspend    (reason)
+ *   POST /institutions/:id/unsuspend ngo_admin             → un-suspend (reason)
+ *   POST /institutions/:id/archive   super_admin           → archive    (reason)
+ *   POST /institutions/:id/unarchive super_admin           → un-archive (reason)
+ *
+ *   Nothing here deletes. "Remove this hospital" is onboarding_status='AR' with a
+ *   written reason, reversible by a super-admin; "remove this user" is
+ *   deactivated_at with a written reason. audit_log, donation_history and
+ *   donor_screening.verified_by all hold FKs into these rows, and an audit trail
+ *   that cannot resolve who performed a screening is a worse outcome than a
+ *   record nobody uses any more.
  *
  *   Staff-user management (one family, two callers — the NGO admin and the
  *   institution itself, which is why it lives here next to the existing
@@ -16,6 +27,11 @@
  *   POST /institutions/:id/users/:userId/deactivate     institution admin
  *   POST /institutions/:id/users/:userId/reactivate     institution admin
  *   POST /institutions/:id/users/:userId/unlock         institution admin
+ *   POST /institutions/:id/users/:userId/admin-flag     institution admin
+ *
+ *   An institution admin's reach includes its in-house blood bank (the child row
+ *   linked by parent_institution_id) but never the reverse — see
+ *   resolveInstitutionAdmin.
  */
 const express = require('express');
 const { z } = require('zod');
@@ -24,23 +40,41 @@ const env = require('../config/env');
 const logger = require('../config/logger');
 const { pool } = require('../config/db');
 const { withRlsContext } = require('../middleware/rlsContext');
-const { verifyJWT, requireRole } = require('../middleware/auth');
+const { verifyJWT, requireRole, requireReason, validateReason } = require('../middleware/auth');
 const { normaliseIndianMobile } = require('../utils/phone');
 const { sendNotification } = require('../services/notifications');
 const setupSvc = require('../services/users/setup');
 const { ROSTER_COLUMNS, toRosterRow } = require('../services/users/directory');
+// Credential fields land in audit_log's old_value / new_value because the audit
+// trigger has no column blacklist. Shared with GET /admin/audit so there is one
+// definition of what must never be rendered back.
+const { redactAuditRow } = require('../utils/auditRedaction');
 
 const router = express.Router();
 
+// The list carries the two dates an administrator is scanning for — licence
+// expiry and MoU expiry — plus the district name, so the Institutions tab can
+// flag what is lapsing without one lookup per row. parent_institution_id lets a
+// paired hospital + in-house blood bank read as one organisation rather than two
+// unrelated rows.
 router.get('/', verifyJWT, requireRole('ngo_admin', 'super_admin'), async (req, res) => {
   const status = req.query.status;
   const r = await withRlsContext(req, (c) =>
     c.query(
-      `SELECT id, kind, shortname, legal_name, district_id, onboarding_status,
-                onboarded_at, mou_expires_at, is_active
-           FROM institutions
-          WHERE ($1::text IS NULL OR onboarding_status = $1)
-          ORDER BY onboarded_at DESC NULLS LAST, onboarding_started_at DESC
+      `SELECT i.id, i.kind, i.shortname, i.legal_name, i.display_name,
+                i.district_id, d.name AS district_name,
+                i.onboarding_status, i.onboarded_at, i.is_active, i.suspended_at,
+                -- Both are DATE. Handed over as text so a calendar date cannot be
+                -- shifted a day by the driver's local-midnight Date or by the
+                -- reader's timezone: a licence expiry is a legal fact, not an
+                -- instant. Also the exact shape <input type="date"> wants back.
+                to_char(i.cdsco_licence_expires, 'YYYY-MM-DD') AS cdsco_licence_expires,
+                to_char(i.mou_expires_at, 'YYYY-MM-DD') AS mou_expires_at,
+                i.has_inhouse_blood_bank, i.parent_institution_id
+           FROM institutions i
+      LEFT JOIN districts d ON d.id = i.district_id
+          WHERE ($1::text IS NULL OR i.onboarding_status = $1)
+          ORDER BY i.onboarded_at DESC NULLS LAST, i.onboarding_started_at DESC
           LIMIT 500`,
       [status || null],
     ),
@@ -55,28 +89,69 @@ router.get('/:id', verifyJWT, async (req, res) => {
 
   const r = await withRlsContext(req, (c) =>
     c.query(
-      `SELECT id, kind, shortname, legal_name, display_name,
-              state_id, district_id, taluka_id, village_id,
-              address_line, pincode, latitude, longitude,
-              cdsco_licence_number, cdsco_licence_expires, hospital_registration_no,
-              license_verified_at, primary_contact_name, primary_contact_designation,
-              primary_contact_mobile, primary_contact_email,
-              onboarding_status, onboarding_started_at, onboarded_at,
-              suspended_at, suspension_reason,
-              mou_signed_at, mou_expires_at, mou_signatory_name,
-              has_inhouse_blood_bank, is_blood_bank_software_user, software_vendor,
-              is_active, created_at, updated_at
-         FROM institutions WHERE id = $1`,
+      `SELECT i.id, i.kind, i.shortname, i.legal_name, i.display_name,
+              i.parent_institution_id,
+              i.state_id, i.district_id, i.taluka_id, i.village_id,
+              i.address_line, i.pincode, i.latitude, i.longitude,
+              i.cdsco_licence_number, i.hospital_registration_no,
+              -- DATE columns as text — see the list handler above.
+              to_char(i.cdsco_licence_expires, 'YYYY-MM-DD') AS cdsco_licence_expires,
+              to_char(i.mou_expires_at, 'YYYY-MM-DD') AS mou_expires_at,
+              i.license_verified_at, i.primary_contact_name, i.primary_contact_designation,
+              i.primary_contact_mobile, i.primary_contact_email,
+              i.onboarding_status, i.onboarding_started_at, i.onboarded_at,
+              i.suspended_at, i.suspension_reason,
+              i.mou_signed_at, i.mou_signatory_name,
+              i.has_inhouse_blood_bank, i.is_blood_bank_software_user, i.software_vendor,
+              i.is_active, i.created_at, i.updated_at,
+              -- Names alongside the FKs: an edit form that can only display
+              -- "district 493" is not an edit form, and the geography picker has
+              -- to pre-select what is already stored.
+              st.name AS state_name, d.name AS district_name,
+              tk.name AS taluka_name, v.name AS village_name
+         FROM institutions i
+    LEFT JOIN states    st ON st.id = i.state_id
+    LEFT JOIN districts d  ON d.id  = i.district_id
+    LEFT JOIN talukas   tk ON tk.id = i.taluka_id
+    LEFT JOIN villages  v  ON v.id  = i.village_id
+        WHERE i.id = $1`,
       [req.params.id],
     ),
   );
   if (r.rowCount === 0) return res.status(404).json({ error: 'not_found' });
-  res.json(r.rows[0]);
+
+  const inst = r.rows[0];
+
+  // The paired institution, reported in both directions. A hospital needs to know
+  // its in-house blood bank exists so the detail page can offer that roster; a
+  // blood bank needs to know it has a parent so the page can explain why its own
+  // admin cannot edit the hospital.
+  const fam = await withRlsContext(req, (c) =>
+    c.query(
+      `SELECT id, kind, shortname, display_name, onboarding_status, is_active,
+              parent_institution_id
+         FROM institutions
+        WHERE parent_institution_id = $1
+           OR ($2::uuid IS NOT NULL AND id = $2::uuid)`,
+      [inst.id, inst.parent_institution_id || null],
+    ),
+  );
+
+  res.json({
+    ...inst,
+    children: fam.rows.filter((x) => x.parent_institution_id === inst.id),
+    parent: fam.rows.find((x) => x.id === inst.parent_institution_id) || null,
+  });
 });
 
 const updateSchema = z
   .object({
+    legal_name: z.string().min(2).optional(),
     display_name: z.string().min(2).optional(),
+    state_id: z.number().int().positive().optional(),
+    district_id: z.number().int().positive().optional(),
+    taluka_id: z.number().int().positive().nullable().optional(),
+    village_id: z.number().int().positive().nullable().optional(),
     address_line: z.string().min(5).optional(),
     pincode: z
       .string()
@@ -84,6 +159,15 @@ const updateSchema = z
       .optional(),
     latitude: z.number().optional(),
     longitude: z.number().optional(),
+    cdsco_licence_number: z.string().min(3).nullable().optional(),
+    // DATE column, so a plain calendar date rather than a timestamp — a browser
+    // timezone must never be able to shift a licence expiry by a day.
+    cdsco_licence_expires: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .nullable()
+      .optional(),
+    hospital_registration_no: z.string().min(2).nullable().optional(),
     primary_contact_name: z.string().min(2).optional(),
     primary_contact_designation: z.string().optional(),
     primary_contact_mobile: z.string().optional(),
@@ -91,41 +175,217 @@ const updateSchema = z
     has_inhouse_blood_bank: z.boolean().optional(),
     is_blood_bank_software_user: z.boolean().optional(),
     software_vendor: z.string().optional(),
+    // Not a column. Consumed by the critical-field gate below and stripped
+    // before the SET list is built.
+    reason: z.string().max(500).optional(),
   })
   .strict();
+
+/**
+ * Fields whose change has consequences beyond this one record, and which
+ * therefore may not be edited without a written justification.
+ *
+ * Both licence fields, because a licence number and its expiry are the legal
+ * basis on which a blood bank operates — "who changed this, when, and on whose
+ * word" is the first question an inspection asks. legal_name and
+ * hospital_registration_no because they are the identity on the MoU and under
+ * the Clinical Establishments Act. The geography FKs because district_id is what
+ * places an institution inside a coordinator's queue and a DHO's dashboard, so
+ * changing it silently re-routes live requests. has_inhouse_blood_bank because
+ * it decides whether this hospital's admin governs a second institution's
+ * logins.
+ *
+ * Everything else — display name, address, phone, contact person, lat/lng — is a
+ * correction. Demanding an essay for a corrected phone number would only teach
+ * operators to type "update" into the box, which is worse than not asking.
+ */
+const CRITICAL_FIELDS = new Set([
+  'legal_name',
+  'cdsco_licence_number',
+  'cdsco_licence_expires',
+  'hospital_registration_no',
+  'state_id',
+  'district_id',
+  'taluka_id',
+  'village_id',
+  'has_inhouse_blood_bank',
+]);
+
+const GEOGRAPHY_FIELDS = ['state_id', 'district_id', 'taluka_id', 'village_id'];
+
+/**
+ * Verify that a state -> district -> taluka -> village chain actually nests.
+ *
+ * The FKs guarantee each id exists but not that they belong together, so a
+ * district from one state paired with a taluka from another would be accepted by
+ * the database and would then place the institution somewhere that does not
+ * exist. The check runs over the MERGED row (patch over current), because an
+ * edit that changes only district_id still has to nest inside the state already
+ * stored.
+ *
+ * @returns {Promise<string|null>} an error code, or null when the chain nests.
+ */
+async function geographyProblem(client, merged) {
+  const { state_id: st, district_id: di, taluka_id: ta, village_id: vi } = merged;
+  const r = await client.query(
+    `SELECT (SELECT 1           FROM states    WHERE id = $1::int) AS state_exists,
+            (SELECT state_id    FROM districts WHERE id = $2::int) AS district_state,
+            (SELECT district_id FROM talukas   WHERE id = $3::int) AS taluka_district,
+            (SELECT taluka_id   FROM villages  WHERE id = $4::int) AS village_taluka`,
+    [st, di, ta ?? null, vi ?? null],
+  );
+  const g = r.rows[0];
+  if (!g.state_exists) return 'unknown_state';
+  if (g.district_state === null) return 'unknown_district';
+  if (g.district_state !== st) return 'district_not_in_state';
+  if (ta != null) {
+    if (g.taluka_district === null) return 'unknown_taluka';
+    if (g.taluka_district !== di) return 'taluka_not_in_district';
+  }
+  if (vi != null) {
+    if (g.village_taluka === null) return 'unknown_village';
+    if (ta != null && g.village_taluka !== ta) return 'village_not_in_taluka';
+  }
+  return null;
+}
 
 router.put('/:id', verifyJWT, requireRole('ngo_admin', 'super_admin'), async (req, res) => {
   const parsed = updateSchema.safeParse(req.body);
   if (!parsed.success) {
     return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
   }
-  const fields = Object.entries(parsed.data);
+  const { reason: rawReason, ...patch } = parsed.data;
+  const fields = Object.entries(patch);
   if (fields.length === 0) return res.status(400).json({ error: 'no_fields_to_update' });
+
+  // Read the current row first: it supplies the 404, the `kind` needed for the
+  // blood-bank licence invariant, the geography to merge the patch onto, and the
+  // created_at that makes a licence-expiry rejection actionable.
+  const current = await pool.query(
+    `SELECT id, kind, created_at, onboarding_status,
+            state_id, district_id, taluka_id, village_id,
+            cdsco_licence_number, cdsco_licence_expires
+       FROM institutions WHERE id = $1`,
+    [req.params.id],
+  );
+  if (current.rowCount === 0) return res.status(404).json({ error: 'not_found' });
+  const row = current.rows[0];
+
+  // This gate cannot be a middleware: whether a reason is required depends on
+  // which fields this particular body touches, which is only known after parsing.
+  const critical = fields.map(([k]) => k).filter((k) => CRITICAL_FIELDS.has(k));
+  let changeReason = null;
+  if (critical.length > 0) {
+    const v = validateReason(rawReason, { min: 10 });
+    if (!v.ok) {
+      const { ok, reason, ...body } = v; // eslint-disable-line no-unused-vars
+      return res.status(400).json({ ...body, critical_fields: critical });
+    }
+    changeReason = v.reason;
+  }
+
+  if (fields.some(([k]) => GEOGRAPHY_FIELDS.includes(k))) {
+    const problem = await geographyProblem(pool, { ...row, ...patch });
+    if (problem) return res.status(400).json({ error: problem });
+  }
+
+  // Refuse to strip a blood bank's licence here rather than surfacing the
+  // bb_requires_cdsco CHECK as a raw 23514 — a caller cannot act on a
+  // constraint name.
+  if (row.kind === 'BB') {
+    const merged = { ...row, ...patch };
+    if (!merged.cdsco_licence_number || !merged.cdsco_licence_expires) {
+      return res.status(409).json({ error: 'blood_bank_requires_licence' });
+    }
+  }
 
   const setSql = fields.map(([k], i) => `${k} = $${i + 2}`).join(', ');
   const values = [req.params.id, ...fields.map(([, v]) => v)];
 
-  const r = await withRlsContext(
-    req,
-    // setSql is built from the Zod-validated `fields` object — every `<col>`
-    // is one of the schema's whitelisted keys. All values are parameterised.
-    // eslint-disable-next-line no-restricted-syntax
-    (c) => c.query(`UPDATE institutions SET ${setSql} WHERE id = $1 RETURNING id`, values),
-    { change_reason: 'admin update institution' },
-  );
+  let r;
+  try {
+    r = await withRlsContext(
+      req,
+      // setSql is built from the Zod-validated `patch` object — every `<col>`
+      // is one of the schema's whitelisted keys. All values are parameterised.
+      // eslint-disable-next-line no-restricted-syntax
+      (c) => c.query(`UPDATE institutions SET ${setSql} WHERE id = $1 RETURNING id`, values),
+      {
+        // fn_audit_generic writes one audit row per changed field and stamps
+        // every one with this text, so the operator's words land against each
+        // field they actually changed. A routine edit records the field list
+        // instead, which keeps the row attributable without pretending someone
+        // wrote a justification.
+        change_reason: changeReason
+          ? `update institution: ${changeReason}`
+          : `update institution (routine): ${fields.map(([k]) => k).join(', ')}`,
+      },
+    );
+  } catch (err) {
+    if (err.code === '23514') {
+      const c = err.constraint || err.message || '';
+      if (/licence_not_expired/.test(c)) {
+        // CHECK (cdsco_licence_expires IS NULL OR cdsco_licence_expires >
+        // created_at::date). Recording a renewal is fine; back-dating an expiry
+        // to before the record itself existed is what this catches.
+        return res.status(409).json({
+          error: 'licence_expiry_before_institution_created',
+          institution_created_at: row.created_at,
+        });
+      }
+      if (/bb_requires_cdsco/.test(c)) {
+        return res.status(409).json({ error: 'blood_bank_requires_licence' });
+      }
+      return res
+        .status(400)
+        .json({ error: 'check_violation', constraint: err.constraint || 'unknown' });
+    }
+    throw err;
+  }
   if (r.rowCount === 0) return res.status(404).json({ error: 'not_found' });
-  res.json({ status: 'updated', institution_id: r.rows[0].id });
+  res.json({
+    status: 'updated',
+    institution_id: r.rows[0].id,
+    fields_updated: fields.map(([k]) => k),
+    reason_recorded: Boolean(changeReason),
+  });
 });
+
+// ── Lifecycle ─────────────────────────────────────────────────
+//
+// SU (suspended) and AR (archived) both stop sign-in — fn_institutions_touch()
+// mirrors either onto is_active = FALSE — and both are reversible. The
+// difference is intent: SU is "stop, we are dealing with something"; AR is "this
+// is not a participating institution any more". Neither deletes anything.
+//
+// No archived_at / archived_by columns: audit_log already records the actor, the
+// timestamp and the reason field-by-field for institutions, so a second copy
+// would only be a second thing to keep true.
+
+/**
+ * An institution together with any child it governs (its in-house blood bank).
+ *
+ * Lifecycle changes act on the family, not the row: a hospital cannot be
+ * archived while the blood bank inside it stays open for business.
+ */
+async function institutionFamily(client, id) {
+  const r = await client.query(
+    `SELECT id, kind, shortname, onboarding_status, parent_institution_id
+       FROM institutions
+      WHERE id = $1 OR parent_institution_id = $1
+      ORDER BY (parent_institution_id IS NOT NULL), kind`,
+    [id],
+  );
+  const self = r.rows.find((x) => x.id === id) || null;
+  return { self, children: r.rows.filter((x) => x.id !== id), ids: r.rows.map((x) => x.id) };
+}
 
 router.post(
   '/:id/suspend',
   verifyJWT,
   requireRole('ngo_admin', 'super_admin'),
+  requireReason({ min: 10 }),
   async (req, res) => {
-    const schema = z.object({ reason: z.string().min(5) });
-    const parsed = schema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
-
     const r = await withRlsContext(
       req,
       (c) =>
@@ -136,14 +396,226 @@ router.post(
                   suspension_reason = $2
             WHERE id = $1 AND onboarding_status NOT IN ('SU','AR')
         RETURNING id`,
-          [req.params.id, parsed.data.reason],
+          [req.params.id, req.changeReason],
         ),
-      { change_reason: `admin suspend: ${parsed.data.reason}` },
+      { change_reason: `suspend institution: ${req.changeReason}` },
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'not_found_or_already_suspended' });
     res.json({ status: 'suspended', institution_id: r.rows[0].id });
   },
 );
+
+// Suspension deliberately does NOT cascade to a child blood bank, and neither
+// does lifting it. A hospital and the blood bank inside it hold separate
+// licences and can be stopped for separate reasons; blanket-reactivating a BB
+// that was suspended for a lapsed CDSCO licence because the hospital's unrelated
+// problem was resolved is exactly the mistake this asymmetry prevents. Archive
+// is the one action that moves the whole family, because "no longer a
+// participating institution" cannot be true of a hospital and false of the blood
+// bank inside it.
+router.post(
+  '/:id/unsuspend',
+  verifyJWT,
+  requireRole('ngo_admin', 'super_admin'),
+  requireReason({ min: 10 }),
+  async (req, res) => {
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE institutions
+              SET onboarding_status = 'AC',
+                  suspended_at = NULL,
+                  suspension_reason = NULL
+            WHERE id = $1 AND onboarding_status = 'SU'
+        RETURNING id, shortname`,
+          [req.params.id],
+        ),
+      // fn_institutions_touch() mirrors AC back onto is_active = TRUE, so there
+      // is no manual flag write here.
+      { change_reason: `un-suspend institution: ${req.changeReason}` },
+    );
+    if (r.rowCount === 0) return res.status(409).json({ error: 'not_found_or_not_suspended' });
+    res.json({ status: 'active', institution_id: r.rows[0].id });
+  },
+);
+
+/**
+ * Work that would be orphaned by archiving this family.
+ *
+ * Archiving a hospital mid-transfusion must not be possible, so the check is on
+ * live obligations rather than on history: requests that have not reached a
+ * terminal status (CL / CA / EX), and bags this blood bank has committed to
+ * someone — RE reserved, IS issued, RV received. Bags still AV are stock, not an
+ * obligation, and are allowed to expire in place.
+ */
+async function archiveBlockers(client, ids) {
+  const r = await client.query(
+    `SELECT (SELECT COUNT(*)::int
+               FROM blood_requests
+              WHERE (requesting_institution_id = ANY($1::uuid[])
+                     OR matched_blood_bank_id = ANY($1::uuid[]))
+                AND status NOT IN ('CL','CA','EX'))            AS open_requests,
+            (SELECT COUNT(*)::int
+               FROM blood_inventory
+              WHERE blood_bank_id = ANY($1::uuid[])
+                AND status IN ('RE','IS','RV'))                AS committed_bags`,
+    [ids],
+  );
+  return r.rows[0];
+}
+
+// Archive is super_admin only. Suspension is an operational call an NGO admin
+// makes; taking an institution off the platform is not.
+router.post(
+  '/:id/archive',
+  verifyJWT,
+  requireRole('super_admin'),
+  requireReason({ min: 20 }),
+  async (req, res) => {
+    const fam = await institutionFamily(pool, req.params.id);
+    if (!fam.self) return res.status(404).json({ error: 'not_found' });
+    if (fam.self.onboarding_status === 'AR') {
+      return res.status(409).json({ error: 'already_archived' });
+    }
+
+    const blockers = await archiveBlockers(pool, fam.ids);
+    if (blockers.open_requests > 0 || blockers.committed_bags > 0) {
+      return res.status(409).json({
+        error: 'institution_has_live_work',
+        open_requests: blockers.open_requests,
+        committed_bags: blockers.committed_bags,
+        next_step:
+          'Close, cancel or re-route the open requests and return or write off the committed bags first. Suspend the institution meanwhile if it must stop taking new work.',
+      });
+    }
+
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE institutions
+              SET onboarding_status = 'AR',
+                  suspended_at = COALESCE(suspended_at, clock_timestamp()),
+                  suspension_reason = $2
+            WHERE id = ANY($1::uuid[]) AND onboarding_status <> 'AR'
+        RETURNING id, kind, shortname`,
+          [fam.ids, req.changeReason],
+        ),
+      { change_reason: `archive institution: ${req.changeReason}` },
+    );
+
+    res.json({
+      status: 'archived',
+      institution_id: fam.self.id,
+      archived: r.rows,
+      cascaded_to_children: r.rows.filter((x) => x.id !== fam.self.id).map((x) => x.shortname),
+      note: 'Nothing was deleted. Staff logins are refused at sign-in while the institution is not active; un-archive restores it to suspended.',
+    });
+  },
+);
+
+// AR -> SU rather than straight to AC: coming back requires a deliberate
+// un-suspend, which is where licence validity gets looked at again. Restoring an
+// institution to "active" in one click would skip that.
+router.post(
+  '/:id/unarchive',
+  verifyJWT,
+  requireRole('super_admin'),
+  requireReason({ min: 10 }),
+  async (req, res) => {
+    const fam = await institutionFamily(pool, req.params.id);
+    if (!fam.self) return res.status(404).json({ error: 'not_found' });
+    if (fam.self.onboarding_status !== 'AR') {
+      return res.status(409).json({ error: 'not_archived' });
+    }
+
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE institutions
+              SET onboarding_status = 'SU',
+                  suspended_at = clock_timestamp(),
+                  suspension_reason = $2
+            WHERE id = ANY($1::uuid[]) AND onboarding_status = 'AR'
+        RETURNING id, kind, shortname`,
+          [fam.ids, `un-archived, pending re-activation: ${req.changeReason}`],
+        ),
+      { change_reason: `un-archive institution: ${req.changeReason}` },
+    );
+
+    res.json({
+      status: 'suspended',
+      institution_id: fam.self.id,
+      restored: r.rows,
+      next_step:
+        'Re-check the licence and MoU validity, then POST /institutions/:id/unsuspend to make it active again.',
+    });
+  },
+);
+
+// ── GET /institutions/:id/audit ────────────────────────────────
+router.get('/:id/audit', verifyJWT, async (req, res) => {
+  const isAdmin = ['ngo_admin', 'super_admin'].includes(req.user.role);
+  const isSelf = req.user.institutionId === req.params.id;
+  if (!isAdmin && !isSelf) return res.status(403).json({ error: 'forbidden' });
+
+  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 500);
+
+  // record_id is TEXT, not UUID (025_audit_log.sql) because the log spans tables
+  // with different key types — hence the ::text casts rather than a UUID compare.
+  //
+  // updated_at is excluded. fn_audit_generic() writes one row per changed field,
+  // and every UPDATE changes updated_at, so it duplicates event_time on every
+  // single event — on dev it is already the most common field_name in the table.
+  // Left in, it would consume the row limit and push the changes an operator is
+  // actually looking for off the end of the page, which is the opposite of what a
+  // history view is for. Nothing is hidden: the timestamp it carries is the
+  // event_time of the row it accompanies.
+  const r = await pool.query(
+    `WITH fam AS (
+        SELECT id FROM institutions WHERE id = $1 OR parent_institution_id = $1
+      )
+      SELECT a.id, a.event_time, a.event_type, a.table_name, a.record_id,
+             a.field_name, a.old_value, a.new_value,
+             a.actor_user_id, a.actor_role, a.change_reason,
+             au.username AS actor_username,
+             CASE a.table_name
+               WHEN 'platform_users'
+                 THEN (SELECT username  FROM platform_users WHERE id::text = a.record_id)
+               WHEN 'institutions'
+                 THEN (SELECT shortname FROM institutions   WHERE id::text = a.record_id)
+               ELSE NULL
+             END AS subject_label
+        FROM audit_log_safe a
+   LEFT JOIN platform_users au ON au.id = a.actor_user_id
+       WHERE a.field_name IS DISTINCT FROM 'updated_at'
+         AND ((a.table_name = 'institutions'
+              AND a.record_id IN (SELECT id::text FROM fam))
+          OR (a.table_name = 'platform_users'
+              AND a.record_id IN (SELECT pu.id::text FROM platform_users pu
+                                   WHERE pu.institution_id IN (SELECT id FROM fam)))
+          OR (a.table_name = 'mou_versions'
+              AND a.record_id IN (SELECT mv.id::text FROM mou_versions mv
+                                   WHERE mv.institution_id IN (SELECT id FROM fam))))
+    ORDER BY a.event_time DESC, a.id DESC
+       LIMIT $2`,
+    [req.params.id, limit],
+  );
+
+  const events = r.rows.map(redactAuditRow);
+
+  res.json({
+    institution_id: req.params.id,
+    events,
+    count: events.length,
+    limit,
+    // So the UI can say "showing the most recent 200" rather than implying this
+    // is the whole history.
+    truncated: events.length === limit,
+  });
+});
 
 // ── Staff-user management ─────────────────────────────────────────────────
 //
@@ -168,12 +640,21 @@ const ROLE_FOR_KIND = { HO: 'hospital', BB: 'blood_bank' };
 /**
  * Resolve the acting user's authority over :id.
  *
- * @returns {Promise<{ok: true, institution: object}|{ok: false, status: number, error: string}>}
+ * Authority reaches DOWN one level and never up. A hospital with an in-house
+ * blood bank is two institution rows joined by institutions.parent_institution_id
+ * but one organisation with one management, so its admin governs the blood
+ * bank's logins too — otherwise the pair can only be administered by asking the
+ * NGO, which is not what "in-house" means. The blood bank's own admin, by
+ * contrast, gets no reach into the hospital: a BB admin is frequently a
+ * technician-in-charge rather than the hospital's management, and inheriting
+ * upward would hand them the hospital's request-raising staff.
+ *
+ * @returns {Promise<{ok: true, institution: object, viaParent?: boolean}|{ok: false, status: number, error: string}>}
  */
 async function resolveInstitutionAdmin(req) {
   const instR = await pool.query(
     `SELECT id, kind, shortname, display_name, legal_name,
-            primary_contact_name, onboarding_status
+            primary_contact_name, onboarding_status, parent_institution_id
        FROM institutions WHERE id = $1`,
     [req.params.id],
   );
@@ -182,7 +663,15 @@ async function resolveInstitutionAdmin(req) {
 
   if (['ngo_admin', 'super_admin'].includes(req.user.role)) return { ok: true, institution };
 
-  if (req.user.institutionId !== req.params.id) {
+  const isSelf = req.user.institutionId === req.params.id;
+  // The ONLY widening: the caller's institution is this row's parent. Compared
+  // against the stored parent_institution_id, never against anything the caller
+  // sent, so an unrelated institution cannot claim a parent relationship.
+  const isParent =
+    Boolean(institution.parent_institution_id) &&
+    institution.parent_institution_id === req.user.institutionId;
+
+  if (!isSelf && !isParent) {
     return { ok: false, status: 403, error: 'forbidden' };
   }
   // Read the flag from the row, not the JWT: a demotion must take effect on the
@@ -193,7 +682,7 @@ async function resolveInstitutionAdmin(req) {
   if (meR.rowCount === 0 || !meR.rows[0].is_institution_admin) {
     return { ok: false, status: 403, error: 'not_institution_admin' };
   }
-  return { ok: true, institution };
+  return { ok: true, institution, viaParent: isParent };
 }
 
 function requireInstitutionUserAdmin(req, res, next) {
@@ -228,11 +717,7 @@ async function loadStaffUser(client, userId, institutionId) {
 // The roster. Same `isAdmin || isSelf` shape as GET /:id above — every member of
 // an institution may see who their colleagues are and whether an account is
 // stuck; only an institution admin may act on it.
-async function rosterHandler(req, res, institutionId) {
-  const isAdmin = ['ngo_admin', 'super_admin'].includes(req.user.role);
-  const isSelf = req.user.institutionId === institutionId;
-  if (!isAdmin && !isSelf) return res.status(403).json({ error: 'forbidden' });
-
+async function loadRoster(req, institutionId) {
   const r = await withRlsContext(req, (c) =>
     c.query(
       // ROSTER_COLUMNS is a module constant (services/users/directory.js), not
@@ -248,17 +733,54 @@ async function rosterHandler(req, res, institutionId) {
       [institutionId],
     ),
   );
-
   const now = new Date();
-  const users = r.rows.map((row) => toRosterRow(row, now));
+  return r.rows.map((row) => toRosterRow(row, now));
+}
+
+async function rosterHandler(req, res, institutionId) {
+  const isAdmin = ['ngo_admin', 'super_admin'].includes(req.user.role);
+  const isSelf = req.user.institutionId === institutionId;
+  if (!isAdmin && !isSelf) return res.status(403).json({ error: 'forbidden' });
+
+  const users = await loadRoster(req, institutionId);
+  const canManage =
+    isAdmin || Boolean(users.find((u) => u.id === req.user.userId)?.is_institution_admin);
+
+  // A hospital with an in-house blood bank is one organisation, so its Team tab
+  // shows both rosters rather than making its admin hunt for a second portal it
+  // has no URL for. Authority flows down only: each child carries the PARENT's
+  // can_manage, and resolveInstitutionAdmin enforces the same direction on every
+  // write. A blood bank asking for its own roster gets no children — it has none.
+  const childR = await pool.query(
+    `SELECT id, kind, shortname, display_name, onboarding_status
+       FROM institutions
+      WHERE parent_institution_id = $1
+      ORDER BY kind, shortname`,
+    [institutionId],
+  );
+  const children = [];
+  for (const child of childR.rows) {
+    const childUsers = await loadRoster(req, child.id);
+    children.push({
+      institution_id: child.id,
+      kind: child.kind,
+      shortname: child.shortname,
+      display_name: child.display_name,
+      onboarding_status: child.onboarding_status,
+      users: childUsers,
+      count: childUsers.length,
+      can_manage: canManage,
+    });
+  }
+
   return res.json({
     institution_id: institutionId,
     users,
     count: users.length,
     // Lets the Team panel render read-only for a technician without a second
     // round-trip, and without the client inferring authority from its own JWT.
-    can_manage:
-      isAdmin || Boolean(users.find((u) => u.id === req.user.userId)?.is_institution_admin),
+    can_manage: canManage,
+    children,
   });
 }
 
@@ -543,11 +1065,11 @@ router.post(
   '/:id/users/:userId/deactivate',
   verifyJWT,
   requireInstitutionUserAdmin,
+  // Retiring a colleague's login is the staff-side equivalent of archiving an
+  // institution, and the reason is the only record of why the person lost
+  // access. It used to be optional, which meant it was usually absent.
+  requireReason({ min: 10 }),
   async (req, res) => {
-    const schema = z.object({ reason: z.string().min(3).max(500).optional() }).strict();
-    const parsed = schema.safeParse(req.body || {});
-    if (!parsed.success) return res.status(400).json({ error: 'invalid_input' });
-
     const inst = req.institution;
     const target = await loadStaffUser(pool, req.params.userId, inst.id);
     if (!target) return res.status(404).json({ error: 'user_not_found' });
@@ -586,9 +1108,9 @@ router.post(
                   deactivation_reason = $2
             WHERE id = $3 AND institution_id = $4 AND deactivated_at IS NULL
         RETURNING id, username, deactivated_at`,
-          [req.user.userId, parsed.data.reason || null, target.id, inst.id],
+          [req.user.userId, req.changeReason, target.id, inst.id],
         ),
-      { change_reason: `deactivate staff user: ${parsed.data.reason || 'no reason given'}` },
+      { change_reason: `deactivate staff user: ${req.changeReason}` },
     );
     if (r.rowCount === 0) return res.status(409).json({ error: 'already_deactivated' });
     res.json({ status: 'deactivated', ...r.rows[0] });
@@ -656,6 +1178,79 @@ router.post(
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'user_not_found' });
     res.json({ status: 'unlocked', ...r.rows[0] });
+  },
+);
+
+// ── POST /institutions/:id/users/:userId/admin-flag ─────────────
+// Promote or demote an institution admin. Until now the flag could only be set
+// at invite time, so the only way to hand over administration was to invite a
+// second account and retire the first — which is how institutions end up with
+// orphaned logins nobody can explain.
+//
+// is_institution_admin is what requireInstitutionUserAdmin gates on, and (for a
+// hospital with an in-house blood bank) it decides authority over a second
+// institution's logins, so a written reason is required in both directions.
+router.post(
+  '/:id/users/:userId/admin-flag',
+  verifyJWT,
+  requireInstitutionUserAdmin,
+  requireReason({ min: 10 }),
+  async (req, res) => {
+    const schema = z.object({ is_institution_admin: z.boolean() }).strip();
+    const parsed = schema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const grant = parsed.data.is_institution_admin;
+
+    const inst = req.institution;
+    const target = await loadStaffUser(pool, req.params.userId, inst.id);
+    if (!target) return res.status(404).json({ error: 'user_not_found' });
+
+    // Promoting a retired login would create an admin who cannot sign in, and
+    // demoting one changes nothing anybody can observe.
+    if (target.deactivated_at) return res.status(409).json({ error: 'user_deactivated' });
+    if (target.is_institution_admin === grant) {
+      return res.status(409).json({ error: grant ? 'already_admin' : 'already_not_admin' });
+    }
+
+    // Same reasoning as deactivate: an institution with no admin left cannot
+    // invite, unlock or re-issue for itself and becomes an NGO support ticket.
+    if (!grant) {
+      const others = await pool.query(
+        `SELECT COUNT(*)::int AS n
+           FROM platform_users
+          WHERE institution_id = $1
+            AND is_institution_admin = TRUE
+            AND deactivated_at IS NULL
+            AND id <> $2`,
+        [inst.id, target.id],
+      );
+      if (others.rows[0].n === 0) {
+        return res.status(409).json({ error: 'cannot_demote_last_institution_admin' });
+      }
+    }
+
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE platform_users
+              SET is_institution_admin = $1
+            WHERE id = $2 AND institution_id = $3
+              AND role IN ('hospital','blood_bank')
+              AND deactivated_at IS NULL
+        RETURNING id, username, is_institution_admin`,
+          [grant, target.id, inst.id],
+        ),
+      {
+        change_reason: `${grant ? 'promote to' : 'demote from'} institution admin: ${
+          req.changeReason
+        }`,
+      },
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'user_not_found' });
+    res.json({ status: grant ? 'promoted' : 'demoted', ...r.rows[0] });
   },
 );
 

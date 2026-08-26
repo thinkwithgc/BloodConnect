@@ -13,6 +13,7 @@ import { HospitalPortal } from './pages/hospital/HospitalPortal.jsx';
 import { BloodBankPortal } from './pages/bloodbank/BloodBankPortal.jsx';
 import { AdminDashboard } from './pages/admin/AdminDashboard.jsx';
 import { OnboardingDetail } from './pages/admin/OnboardingDetail.jsx';
+import { InstitutionDetail } from './pages/admin/InstitutionDetail.jsx';
 import { ReportsViewer } from './pages/admin/ReportsViewer.jsx';
 import { InstitutionApply } from './pages/onboarding/InstitutionApply.jsx';
 import { SetupPassword } from './pages/onboarding/SetupPassword.jsx';
@@ -157,6 +158,14 @@ export default function App() {
         element={
           <RequireAuth roles={['ngo_admin', 'super_admin']}>
             <OnboardingDetail />
+          </RequireAuth>
+        }
+      />
+      <Route
+        path="/admin/institutions/:id"
+        element={
+          <RequireAuth roles={['ngo_admin', 'super_admin']}>
+            <InstitutionDetail />
           </RequireAuth>
         }
       />

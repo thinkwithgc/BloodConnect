@@ -1214,6 +1214,36 @@ function RecordDonation() {
   const [donorPreview, setDonorPreview] = useState(null);
   const [lookupError, setLookupError] = useState('');
   const [validationErrors, setValidationErrors] = useState(null);
+  // Batch context: the camp these donations belong to, and how many have been
+  // entered in this sitting. Held outside `form` on purpose - a camp batch
+  // survives the per-donor reset between records.
+  //   null = untouched, so fall through to the auto-selection below;
+  //   ''   = the blood bank explicitly said "not at a camp".
+  const [campChoice, setCampChoice] = useState(null);
+  const [batchCount, setBatchCount] = useState(0);
+
+  // The read side of services/donations/camp.js: same statuses, same +/-2 day
+  // tolerance, same ownership rule, so the picker can never offer a camp that
+  // POST /donations would refuse with 409 camp_not_collectable.
+  const collectable = useQuery({
+    queryKey: ['camps', 'collectable', form.collection_date],
+    queryFn: () => apiRequest('GET', `/camps/collectable?date=${form.collection_date}`),
+    enabled: /^\d{4}-\d{2}-\d{2}$/.test(form.collection_date),
+    staleTime: 60_000,
+  });
+  const campList = collectable.data?.camps || [];
+  // Auto-select ONLY on an unambiguous exact-date match: one camp, dated the day
+  // being recorded. Two camps that day - or a camp merely inside the tolerance
+  // window - is a judgement call the blood bank has to make, because silently
+  // attributing an in-house walk-in to a camp writes an attendance row that
+  // migration 314 deliberately never unwinds.
+  const sameDayCamps = campList.filter((c) => c.scheduled_date === form.collection_date);
+  const autoCampId = sameDayCamps.length === 1 ? sameDayCamps[0].id : '';
+  // Resolving through campList also drops a stale choice after the date changes,
+  // so a camp id can never be posted for a date it is no longer valid for.
+  const selectedCamp =
+    campList.find((c) => c.id === (campChoice === null ? autoCampId : campChoice)) || null;
+  const campId = selectedCamp ? selectedCamp.id : '';
 
   const lookup = useMutation({
     mutationFn: (mobile) =>
@@ -1233,7 +1263,11 @@ function RecordDonation() {
     mutationFn: (payload) => apiRequest('POST', '/donations', payload),
     onSuccess: (data) => {
       setResult(data);
+      if (data.camp) setBatchCount((n) => n + 1);
       qc.invalidateQueries({ queryKey: ['inventory'] });
+      // donations_recorded on the picker is how the blood bank sees how far
+      // through a camp batch they are, so refresh it after every save.
+      qc.invalidateQueries({ queryKey: ['camps', 'collectable'] });
     },
   });
 
@@ -1247,6 +1281,18 @@ function RecordDonation() {
     setForm((prev) => ({ ...prev, donor_id: '' }));
   }
 
+  // Batch entry. At a camp the blood bank enters 30 donations in one sitting; a
+  // reset that also cleared the camp and the date would make them re-pick both 30
+  // times, and the camp would end up skipped - which is exactly how the attendance
+  // derivation gets lost. Everything donor-specific clears; the batch context (the
+  // camp, via campChoice, plus the collection date) survives.
+  function nextDonor() {
+    setResult(null);
+    setValidationErrors(null);
+    setForm({ ...blankDonation, collection_date: form.collection_date });
+    clearDonor();
+  }
+
   function submit(e) {
     e.preventDefault();
     setResult(null);
@@ -1255,6 +1301,7 @@ function RecordDonation() {
       donor_id: form.donor_id.trim(),
       collection_date: form.collection_date,
       ...(form.collection_time ? { collection_time: form.collection_time } : {}),
+      ...(campId ? { donation_camp_id: campId } : {}),
       component_id: Number(form.component_id),
       volume_ml: Number(form.volume_ml),
       hb_gdl: Number(form.hb_gdl),
@@ -1291,23 +1338,64 @@ function RecordDonation() {
             Move to the TTI screening tab to enter the test panel — the bag stays in QA until
             screening is verified.
           </p>
+          {result.camp ? (
+            <p className="mt-2 text-xs text-rk-900">
+              Attributed to <strong>{result.camp.name}</strong> ({result.camp.scheduled_date}) -
+              this donor is now marked <strong>Attended</strong> on that camp&apos;s roster. No
+              roster tap needed.
+            </p>
+          ) : null}
           <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              className="rk-button-secondary"
-              onClick={() => {
-                setResult(null);
-                setForm(blankDonation);
-                clearDonor();
-              }}
-            >
-              Record another
+            <button type="button" className="rk-button-secondary" onClick={nextDonor}>
+              {result.camp ? 'Next donor (same camp)' : 'Record another'}
             </button>
           </div>
         </div>
       ) : null}
 
       <form className="rk-card grid gap-4 sm:grid-cols-2" onSubmit={submit}>
+        {/* Camp attribution, shown only when a collectable camp exists near this
+            collection date - a bank with no camp that week sees the form unchanged.
+            This is the field that fills the roster: attendance, turnout,
+            units_collected and the next-morning thank-you all derive from the
+            donation row, so it sits above the donor lookup as batch context
+            rather than beside the clinical fields. */}
+        {campList.length > 0 ? (
+          <div className="sm:col-span-2 rounded-md border border-rk-100 bg-rk-50/60 p-3">
+            <label className="rk-label" htmlFor="camp">
+              Camp
+            </label>
+            <select
+              id="camp"
+              className="rk-input mt-1"
+              value={campId}
+              onChange={(e) => setCampChoice(e.target.value)}
+            >
+              <option value="">In-house donation - not at a camp</option>
+              {campList.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name} - {c.scheduled_date} - {c.venue || c.district_name}
+                </option>
+              ))}
+            </select>
+            {selectedCamp ? (
+              <p className="mt-2 text-xs text-rk-900">
+                Each donation saved with this camp selected marks that donor{' '}
+                <strong>Attended</strong> on its roster automatically -{' '}
+                <strong>{selectedCamp.donations_recorded}</strong> recorded against it so far
+                {batchCount > 0 ? `, ${batchCount} in this sitting` : ''}. The camp stays
+                selected between records.
+              </p>
+            ) : (
+              <p className="mt-2 text-xs text-slate-600">
+                {campList.length === 1 ? 'A camp is' : `${campList.length} camps are`}{' '}
+                scheduled near this collection date. Pick one when you are collecting at it so
+                the roster fills itself; leave this as in-house for a donation at the bank.
+              </p>
+            )}
+          </div>
+        ) : null}
+
         <div className="sm:col-span-2 space-y-2">
           <label className="rk-label" htmlFor="donor-mobile">
             Donor mobile lookup

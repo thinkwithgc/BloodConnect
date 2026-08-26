@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+// PILOT SCOPE (Aug 2026): the only <Link> on this page was the raise-a-request
+// CTA below, commented out with it. Uncomment both together.
+// import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { Header } from '../../components/Header.jsx';
@@ -11,6 +13,7 @@ import { SELF_BLOOD_GROUPS } from '../../lib/bloodGroups.js';
 import { useT } from '../../i18n/useT.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { isOfflineError, useOutbox } from '../../lib/useOutbox.js';
+import { MyCampsSection } from '../camps/MyCampsSection.jsx';
 
 function formatDate(s, lang) {
   if (!s) return '—';
@@ -90,6 +93,14 @@ export function DonorDashboard() {
       <Header subtitle={donor?.full_name || ''} />
       <main className="mx-auto w-full max-w-3xl space-y-4 px-4 py-6">
         <RoleSwitcher from="donor" />
+        {/* PILOT SCOPE (Aug 2026) — the PDMC pilot runs the donor + camp modules
+            first and proves them before any blood request is raised on the
+            platform, so this CTA is hidden and the /donor/raise route in
+            App.jsx is commented out with it. Nothing behind it was removed:
+            DonorRaiseRequest.jsx and POST /requests/citizen still exist and are
+            still covered by smoke_test_phase5.js. Re-enable = uncomment here
+            plus the two blocks in App.jsx. */}
+        {/*
         <Link
           to="/donor/raise"
           className="flex items-center justify-between rounded-lg border border-rk-200 bg-rk-50 p-3 text-sm hover:bg-rk-100"
@@ -98,6 +109,7 @@ export function DonorDashboard() {
             Need blood for a patient? Raise a request →
           </span>
         </Link>
+        */}
         {outboxPending > 0 ? (
           <div className="flex items-center justify-between rounded-md bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
             <span>
@@ -169,6 +181,11 @@ export function DonorDashboard() {
             </section>
 
             <EditProfileCard donor={donor} />
+
+            {/* Camps I host outrank camps I might attend, so this sits
+                above them - and renders nothing at all for the donor who
+                hosts none, which is almost all of them. */}
+            <MyCampsSection />
 
             <UpcomingCampsSection donorDistrictId={donor?.location?.district_id} />
 
@@ -412,6 +429,29 @@ function EditProfileCard({ donor }) {
   );
 }
 
+// What the server says when an RSVP is refused, in words a donor can act on.
+// These codes are not theoretical: since the camp module started gating
+// registration, a camp that has been completed, cancelled, declined or simply
+// held already refuses new sign-ups, and a donor who has already donated can no
+// longer overwrite that record by tapping Register again.
+const RSVP_ERRORS = {
+  camp_not_open_for_registration: 'This camp is no longer taking registrations.',
+  camp_date_passed: 'This camp has already been held.',
+  already_recorded: 'Your attendance at this camp is already recorded.',
+  cannot_cancel_after_attendance:
+    'You have already donated at this camp, so the RSVP cannot be cancelled.',
+  camp_not_found: 'This camp no longer exists.',
+  donor_profile_not_found: 'We could not find your donor profile. Please sign in again.',
+};
+
+function rsvpErrorText(e) {
+  const body = e?.response?.data || {};
+  // camp_not_open_for_registration carries a detail.reason that distinguishes
+  // "already held" from "cancelled" - the more specific one is the useful one.
+  const code = RSVP_ERRORS[body.detail?.reason] ? body.detail.reason : body.error;
+  return RSVP_ERRORS[code] || 'Could not save your RSVP. Please try again.';
+}
+
 function UpcomingCampsSection({ donorDistrictId }) {
   const qc = useQueryClient();
   const q = useQuery({
@@ -424,22 +464,67 @@ function UpcomingCampsSection({ donorDistrictId }) {
     staleTime: 60_000,
   });
 
-  const rsvp = useMutation({
-    mutationFn: (campId) => apiRequest('POST', `/camps/${campId}/register`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['donor', 'camps'] }),
-  });
-  const cancel = useMutation({
-    mutationFn: (campId) => apiRequest('DELETE', `/camps/${campId}/register`),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['donor', 'camps'] }),
-  });
-
   // `is_current_donor_registered` is populated by the backend on GET /camps
   // for the donor role, so return visits show the correct state. `dirty`
   // holds session-local optimistic overrides (so the click responds
   // immediately without waiting for the invalidateQueries roundtrip).
   const [dirty, setDirty] = useState({});
+  // Which camp is mid-flight, and which one failed. Both keyed by camp id: one
+  // shared isPending used to grey out the button on EVERY camp in the list while
+  // a single request was in the air.
+  const [busyId, setBusyId] = useState(null);
+  const [errs, setErrs] = useState({});
+  const [showAll, setShowAll] = useState(false);
 
-  const camps = (q.data?.camps || []).slice(0, 5);
+  // An optimistic tick that is never rolled back is worse than no optimism at
+  // all: the donor walks away believing they are on a roster they are not on.
+  // On failure, put the toggle back and say why.
+  function rsvpHandlers(optimistic) {
+    return {
+      onMutate: (campId) => {
+        setBusyId(campId);
+        setErrs((e) => ({ ...e, [campId]: undefined }));
+        setDirty((r) => ({ ...r, [campId]: optimistic }));
+      },
+      onSuccess: () => qc.invalidateQueries({ queryKey: ['donor', 'camps'] }),
+      onError: (e, campId) => {
+        setDirty((r) => ({ ...r, [campId]: !optimistic }));
+        setErrs((x) => ({ ...x, [campId]: rsvpErrorText(e) }));
+        // A refused RSVP usually means our copy of the camp is stale (completed
+        // or cancelled since this page loaded), so refetch as well.
+        qc.invalidateQueries({ queryKey: ['donor', 'camps'] });
+      },
+      onSettled: () => setBusyId(null),
+    };
+  }
+
+  const rsvp = useMutation({
+    mutationFn: (campId) => apiRequest('POST', `/camps/${campId}/register`),
+    ...rsvpHandlers(true),
+  });
+  const cancel = useMutation({
+    mutationFn: (campId) => apiRequest('DELETE', `/camps/${campId}/register`),
+    ...rsvpHandlers(false),
+    // A cancel that could not be honoured comes back 200 with cancelled:false
+    // rather than as an error - an 'NS' row, say, which nothing here can undo.
+    // Without this the optimistic un-tick would stand and the donor would
+    // believe they had cancelled something they had not.
+    onSuccess: (r, campId) => {
+      if (r && r.cancelled === false && r.reason !== 'not_registered') {
+        setDirty((x) => ({ ...x, [campId]: true }));
+        setErrs((x) => ({
+          ...x,
+          [campId]: 'This registration can no longer be cancelled here.',
+        }));
+      }
+      qc.invalidateQueries({ queryKey: ['donor', 'camps'] });
+    },
+  });
+
+  // Five was an arbitrary cap with no way past it - a donor in a district
+  // running eight camps this month could not reach camp six at all.
+  const allCamps = q.data?.camps || [];
+  const camps = showAll ? allCamps : allCamps.slice(0, 5);
 
   return (
     <section>
@@ -484,11 +569,9 @@ function UpcomingCampsSection({ donorDistrictId }) {
                       </span>
                       <button
                         type="button"
-                        className="text-[11px] text-slate-500 hover:text-rk-700 hover:underline"
-                        onClick={() => {
-                          cancel.mutate(c.id);
-                          setDirty((r) => ({ ...r, [c.id]: false }));
-                        }}
+                        className="text-[11px] text-slate-500 hover:text-rk-700 hover:underline disabled:opacity-50"
+                        onClick={() => cancel.mutate(c.id)}
+                        disabled={busyId === c.id}
                       >
                         Cancel RSVP
                       </button>
@@ -497,21 +580,28 @@ function UpcomingCampsSection({ donorDistrictId }) {
                     <button
                       type="button"
                       className="rk-button-primary text-xs"
-                      onClick={() => {
-                        rsvp.mutate(c.id);
-                        setDirty((r) => ({ ...r, [c.id]: true }));
-                      }}
-                      disabled={rsvp.isPending}
+                      onClick={() => rsvp.mutate(c.id)}
+                      disabled={busyId === c.id}
                     >
-                      I’ll be there
+                      {busyId === c.id ? '…' : 'I’ll be there'}
                     </button>
                   )}
                 </div>
+                {errs[c.id] ? <p className="text-xs text-rk-700">{errs[c.id]}</p> : null}
               </article>
             );
           })
         )}
       </div>
+      {allCamps.length > 5 ? (
+        <button
+          type="button"
+          className="mt-2 px-1 text-xs font-medium text-rk-700 hover:underline"
+          onClick={() => setShowAll((v) => !v)}
+        >
+          {showAll ? 'Show fewer' : `Show all ${allCamps.length} camps near you`}
+        </button>
+      ) : null}
     </section>
   );
 }

@@ -21,6 +21,7 @@
     "og:build": "node scripts/build_og_image.js",
     "smoke": "node scripts/smoke_test.js",
     "smoke:frontend": "npm --workspace frontend run build",
+    "smoke:camps": "node scripts/smoke_test_camps.js",
     "smoke:whatsapp-hmac": "node scripts/smoke_whatsapp_webhook_hmac.js",
     "seed:dev-vendor": "node scripts/seed_dev_vendor.js",
     "sim:vendor-push": "node scripts/vendor_push_simulator.js",

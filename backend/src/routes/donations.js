@@ -19,6 +19,7 @@ const { withRlsContext } = require('../middleware/rlsContext');
 const { verifyJWT, requireRole } = require('../middleware/auth');
 const { seal } = require('../services/pii');
 const { validateDonation } = require('../services/donations/validate');
+const { resolveCampForCollection } = require('../services/donations/camp');
 const {
   lookupCandidates: lookupAttributionCandidates,
   applyAttribution,
@@ -47,6 +48,11 @@ const donationSchema = z.object({
   // donor_alert_choices match this donation. Auto-attribution kicks in when
   // exactly one candidate exists; the field is only needed for tie-breaks.
   attribute_to_choice_id: z.string().uuid().optional(),
+  // Camp attribution. Supplying this sets source='CA' and — via migration 314's
+  // trigger — marks the donor Attended on that camp's roster. It is the only
+  // way a camp ever learns who actually donated, so the BB portal offers it
+  // prominently rather than as an afterthought.
+  donation_camp_id: z.string().uuid().optional(),
 });
 
 // ── POST /donations ──────────────────────────────────────────────────────
@@ -71,16 +77,35 @@ router.post('/', verifyJWT, requireRole('blood_bank'), async (req, res) => {
           throw Object.assign(new Error(v.error), { status: 422, code: v.error, detail: v.detail });
         }
 
+        // Camp attribution, checked before the INSERT so a wrong camp id is a
+        // clear 409 rather than an attendance row credited to the wrong camp.
+        let camp = null;
+        if (data.donation_camp_id) {
+          const cv = await resolveCampForCollection(c, {
+            campId: data.donation_camp_id,
+            collectionDate: data.collection_date,
+            bloodBankId: req.user.institutionId,
+          });
+          if (!cv.ok) {
+            throw Object.assign(new Error(cv.error), {
+              status: 409,
+              code: cv.error,
+              detail: cv.detail,
+            });
+          }
+          camp = cv.camp;
+        }
+
         const r = await c.query(
           `INSERT INTO donation_history (
               donor_id, blood_bank_id, trust_level, source,
               collection_date, collection_time, component_id, volume_ml,
               hb_gdl, hb_method, pulse_bpm, bp_systolic, bp_diastolic, weight_kg,
-              isbt_barcode, recorded_by_user_id, notes)
-           VALUES ($1, $2, 'V', 'BB',
+              isbt_barcode, recorded_by_user_id, notes, donation_camp_id)
+           VALUES ($1, $2, 'V', $16,
                    $3, $4, $5, $6,
                    $7, $8, $9, $10, $11, $12,
-                   $13, $14, $15)
+                   $13, $14, $15, $17)
            RETURNING id, isbt_barcode, collection_date`,
           [
             data.donor_id,
@@ -98,6 +123,8 @@ router.post('/', verifyJWT, requireRole('blood_bank'), async (req, res) => {
             data.isbt_barcode,
             req.user.userId,
             data.notes ?? null,
+            camp ? 'CA' : 'BB',
+            camp ? camp.id : null,
           ],
         );
 
@@ -144,6 +171,9 @@ router.post('/', verifyJWT, requireRole('blood_bank'), async (req, res) => {
           inventory_bag: bag.rows[0] || null,
           screening_required: true,
           attribution,
+          // Echo the camp so the portal can confirm the roster was credited
+          // without a second round-trip.
+          camp: camp ? { id: camp.id, name: camp.name, scheduled_date: camp.scheduled_date } : null,
         };
       },
       { change_reason: 'blood-bank donation entry' },
@@ -151,8 +181,8 @@ router.post('/', verifyJWT, requireRole('blood_bank'), async (req, res) => {
 
     res.status(201).json(result);
   } catch (err) {
-    if (err.status === 422) {
-      return res.status(422).json({ error: err.code, detail: err.detail });
+    if (err.status === 422 || err.status === 409) {
+      return res.status(err.status).json({ error: err.code, detail: err.detail });
     }
     if (/unique constraint/i.test(err.message) && /isbt_barcode/i.test(err.message)) {
       return res.status(409).json({ error: 'isbt_barcode_already_used' });

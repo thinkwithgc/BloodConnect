@@ -8,6 +8,7 @@ import { RoleSwitcher } from '../../components/RoleSwitcher.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { CommunityLeaderHelpDrawer } from '../help/CommunityLeaderHelpDrawer.jsx';
 import { LeaderMobilise } from './LeaderMobilise.jsx';
+import { MyCampsSection } from '../camps/MyCampsSection.jsx';
 
 /**
  * Community-leader dashboard (Phase 1 — placeholder).
@@ -178,6 +179,14 @@ export function CommunityLeaderDashboard() {
                 </ul>
               )}
             </section>
+
+            {/* Every camp this leader hosts, in one list. Their communities
+                each show their own camps above; this is the cross-community
+                view, and it also picks up camps they applied for publicly
+                before they ever had a leader login. Mounted here rather than
+                linked to /donor because a community_leader JWT cannot pass
+                that route's guard. */}
+            <MyCampsSection />
 
             <section className="rk-card bg-sand/40">
               <h2 className="text-sm font-semibold uppercase tracking-wide text-stone-500">

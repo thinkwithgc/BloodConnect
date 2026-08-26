@@ -120,7 +120,11 @@ the rest collapses into a hamburger drawer. Dropdowns close on click-outside +
 Escape. Labels are i18n keys (`lp_nav_*`) in all three languages.
 
 All public endpoints are rate-limited (100 req/IP/min global, 3/h/mobile on
-OTP send, 10/15min/IP on institutional login). **Note:** the global limiter keys
+OTP send, and on institutional login 10/15min per username plus a 60/15min/IP
+sweep ceiling). A hospital reaches us through a single NAT'd address, so the
+per-account key is what stops ten people signing in at shift change from reading
+as ten guesses; the 5-attempt per-account lockout is the actual brute-force
+defence. **Note:** the global limiter keys
 on `req.ip`; a camp where many donors register from one WiFi can trip it — see
 §18 deferred items.
 

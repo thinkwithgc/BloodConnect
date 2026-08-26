@@ -531,7 +531,10 @@ function CampsCard({ community }) {
                 <th className="px-2 py-1.5 text-left">Venue</th>
                 <th className="px-2 py-1.5 text-left">Status</th>
                 <th className="px-2 py-1.5 text-right">RSVPs</th>
-                <th className="px-2 py-1.5 text-right">Attended</th>
+                {/* Derived from the donations the blood bank records against
+                    the camp (migrations 313 + 314), not a roster tap - so it is
+                    donations, and it now matches every other surface. */}
+                <th className="px-2 py-1.5 text-right">Donated</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -567,6 +570,9 @@ function CampStatusBadge({ status }) {
     LV: { label: 'Live', cls: 'bg-emerald-100 text-emerald-800' },
     CO: { label: 'Completed', cls: 'bg-slate-100 text-slate-700' },
     CA: { label: 'Cancelled', cls: 'bg-rk-100 text-rk-800' },
+    // Was missing, so a declined camp rendered the raw code 'DC' to the very
+    // person who needs to read why it was declined.
+    DC: { label: 'Declined', cls: 'bg-rk-100 text-rk-800' },
   };
   const m = map[status] || { label: status, cls: 'bg-slate-100 text-slate-700' };
   return (

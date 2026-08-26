@@ -28,6 +28,12 @@ export const requestSchema = z.object({
 // Mirrors backend `routes/donations.js` donationSchema (Phase 4).
 export const donationSchema = z.object({
   donor_id: z.string().uuid(),
+  // Camp attribution. Optional, but load-bearing when present: migration 314
+  // derives camp_registrations.status='AT' from a donation carrying this id, so
+  // this is what fills a camp roster without anyone tapping it. z.object strips
+  // unknown keys and submit() posts parsed.data - omitting the key here would
+  // silently drop the camp on every send.
+  donation_camp_id: z.string().uuid().optional(),
   collection_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'invalid_date'),
   collection_time: z
     .string()

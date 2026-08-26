@@ -123,7 +123,8 @@ export function CampsTab() {
               <th className="px-3 py-2 text-left">District</th>
               <th className="px-3 py-2 text-left">Organiser</th>
               <th className="px-3 py-2 text-right">Registered</th>
-              <th className="px-3 py-2 text-right">Attended</th>
+              <th className="px-3 py-2 text-right">Donated</th>
+              <th className="px-3 py-2 text-right">Couldn&apos;t donate</th>
               <th className="px-3 py-2 text-left">Status</th>
               <th className="px-3 py-2"></th>
             </tr>
@@ -160,7 +161,15 @@ export function CampsTab() {
                       <span className="text-xs font-normal text-slate-500"> / {c.target_donor_count}</span>
                     ) : null}
                   </td>
-                  <td className="px-3 py-2 text-right text-slate-700">{c.attended_donor_count ?? 0}</td>
+                  {/* Both columns are projections of the roster after migration
+                      313, so they agree with the organizer dashboard and the
+                      public page instead of showing 0 as they used to. */}
+                  <td className="px-3 py-2 text-right text-slate-700">
+                    {c.attended_donor_count ?? 0}
+                  </td>
+                  <td className="px-3 py-2 text-right text-slate-700">
+                    {c.deferred_donor_count ?? 0}
+                  </td>
                   <td className="px-3 py-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${s.cls}`}>
                       {s.label}
@@ -212,7 +221,7 @@ export function CampsTab() {
             })}
             {rows.length === 0 && !listQ.isLoading ? (
               <tr>
-                <td colSpan={8} className="px-3 py-6 text-center text-sm text-slate-500">
+                <td colSpan={9} className="px-3 py-6 text-center text-sm text-slate-500">
                   {filter === 'PE'
                     ? 'No camp applications awaiting review — great.'
                     : filter === 'STALE'
@@ -258,7 +267,12 @@ export function CampsTab() {
 // the row-level Complete / Cancel buttons in the camps table.
 function StatusActionModal({ camp, kind, onClose, onDone }) {
   const isComplete = kind === 'complete';
-  const [attended, setAttended] = useState(String(camp.attended_donor_count || ''));
+  // Starts BLANK, not pre-filled from attended_donor_count. That column is now
+  // derived from the donations recorded against this camp, so echoing it back as
+  // an editable value would invite an admin to "correct" a number they cannot
+  // change - the backend files whatever is typed here in review_notes as the
+  // organiser's own headcount and leaves the derived figure alone.
+  const [attended, setAttended] = useState('');
   const [units, setUnits] = useState(String(camp.units_collected || ''));
   const [notes, setNotes] = useState('');
   const [reason, setReason] = useState('');
@@ -295,15 +309,19 @@ function StatusActionModal({ camp, kind, onClose, onDone }) {
           <>
             <div className="grid grid-cols-2 gap-3">
               <label className="block">
-                <span className="rk-label">Attended donors</span>
+                <span className="rk-label">Organiser&apos;s headcount (optional)</span>
                 <input
                   type="number"
                   min="0"
                   className="rk-input"
                   value={attended}
                   onChange={(e) => setAttended(e.target.value)}
-                  placeholder={String(camp.registered_donor_count || 0)}
+                  placeholder="leave blank"
                 />
+                <span className="mt-1 block text-xs text-slate-500">
+                  Filed in the notes only. Attendance itself comes from the donations the
+                  blood bank records against this camp.
+                </span>
               </label>
               <label className="block">
                 <span className="rk-label">Units collected</span>
@@ -327,8 +345,11 @@ function StatusActionModal({ camp, kind, onClose, onDone }) {
               />
             </label>
             <p className="text-xs text-slate-500">
-              Leave attendance / units blank to keep the numbers the organizer entered via
-              their magic-link dashboard (if any).
+              <strong>Attendance is not entered here.</strong> It is derived from the
+              donations the blood bank records against this camp, on every surface. Units
+              collected is likewise counted from those donations - a figure typed here is
+              kept only if it is <em>higher</em>, for a camp whose donations were never
+              entered against it. Both fields are safe to leave blank.
             </p>
           </>
         ) : (
@@ -625,7 +646,10 @@ function ReviewPanel({ camp, onClose, onActioned }) {
   );
 }
 
-function CreateCampForm({ onCreated }) {
+// Exported so the coordinator portal can reuse it rather than grow a second
+// copy of the same POST /camps form. Coordinators are already allowed on that
+// endpoint (requireRole in camps.js), so nothing about authority changes.
+export function CreateCampForm({ onCreated }) {
   const [states, setStates] = useState([]);
   const [districts, setDistricts] = useState([]);
   const [form, setForm] = useState({
@@ -769,10 +793,15 @@ function CreateCampForm({ onCreated }) {
   );
 }
 
+// AT and NS are derived, not set here: AT from a donation recorded against the
+// camp (migration 314), NS from the camp-close-roster job. DF - came, could not
+// donate - is an attendance fact only and never implies a clinical deferral on
+// the donor record (migration 312).
 const REG_STATUS = {
   RG: { label: 'Registered', cls: 'bg-sky-100 text-sky-800' },
-  AT: { label: 'Attended', cls: 'bg-green-100 text-green-800' },
-  NS: { label: 'No-show', cls: 'bg-amber-100 text-amber-800' },
+  AT: { label: 'Donated', cls: 'bg-green-100 text-green-800' },
+  DF: { label: "Couldn't donate", cls: 'bg-amber-100 text-amber-800' },
+  NS: { label: 'No-show', cls: 'bg-slate-200 text-slate-700' },
   CN: { label: 'Cancelled', cls: 'bg-slate-200 text-slate-700' },
 };
 
@@ -781,6 +810,9 @@ const REG_SOURCE = {
   WA: 'WhatsApp',
   CO: 'Coordinator',
   QR: 'QR scan',
+  // The blood bank recorded a donation for someone who was never on the roster:
+  // an unknown walk-in the platform only learned about from the donation itself.
+  WI: 'Walk-in',
 };
 
 function maskMobile(m) {
@@ -856,7 +888,7 @@ function RosterPanel({ camp, onClose }) {
                 <th className="px-3 py-2 text-left">Source</th>
                 <th className="px-3 py-2 text-left">RSVP</th>
                 <th className="px-3 py-2 text-left">Registered</th>
-                <th className="px-3 py-2 text-right">Mark as</th>
+                <th className="px-3 py-2 text-right">Record</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 bg-white">
@@ -905,28 +937,32 @@ function RosterPanel({ camp, onClose }) {
                         <span className="text-[10px] text-slate-400">camp closed</span>
                       ) : (
                         <div className="inline-flex gap-2 whitespace-nowrap">
-                          {r.status !== 'AT' ? (
-                            <button
-                              type="button"
-                              className="text-[11px] font-medium text-green-700 hover:underline disabled:opacity-40"
-                              disabled={isBusy}
-                              onClick={() => mark.mutate({ regId: r.id, status: 'AT' })}
-                              title="Mark this donor as attended"
-                            >
-                              Attended
-                            </button>
-                          ) : null}
-                          {r.status !== 'NS' ? (
+                          {r.status === 'RG' || r.status === 'NS' ? (
                             <button
                               type="button"
                               className="text-[11px] font-medium text-amber-700 hover:underline disabled:opacity-40"
                               disabled={isBusy}
-                              onClick={() => mark.mutate({ regId: r.id, status: 'NS' })}
-                              title="Mark this donor as no-show"
+                              onClick={() => mark.mutate({ regId: r.id, status: 'DF' })}
+                              title="Came to the camp but could not donate (turned away at screening)"
                             >
-                              No-show
+                              Couldn&apos;t donate
                             </button>
                           ) : null}
+                          {r.status === 'RG' ? (
+                            <button
+                              type="button"
+                              className="text-[11px] font-medium text-slate-600 hover:underline disabled:opacity-40"
+                              disabled={isBusy}
+                              onClick={() => mark.mutate({ regId: r.id, status: 'CN' })}
+                              title="Donor cancelled their registration"
+                            >
+                              Cancel
+                            </button>
+                          ) : null}
+                          {/* Revert is the one correction path for a false
+                              Donated left by a donation attributed to the wrong
+                              camp - the other half of that fix is re-tagging the
+                              donation itself. */}
                           {r.status !== 'RG' ? (
                             <button
                               type="button"
@@ -951,16 +987,23 @@ function RosterPanel({ camp, onClose }) {
 
       {mark.error ? (
         <p className="text-xs text-rk-700">
-          Mark failed: {mark.error?.response?.data?.error || 'unknown'}
+          {mark.error?.response?.data?.error === 'attendance_is_derived'
+            ? 'Attendance cannot be set by hand. Donated comes from the donation the blood bank records against this camp; No-show from the roster-close job two days after the camp.'
+            : `Could not update: ${mark.error?.response?.data?.error || 'unknown'}`}
         </p>
       ) : null}
 
       <p className="text-xs text-slate-500">
-        Marking a donor <strong>Attended</strong> updates the camp's per-registration status
-        but does not automatically create a donation record — the blood bank still records
-        the actual draw through the donation entry flow. Reconciliation between{' '}
-        <em>attended count</em> here and <em>attended_donor_count</em> on the camp row
-        (set when you Complete the camp) is a good sanity check.
+        <strong>Donated</strong> and <strong>No-show</strong> are derived, not marked.{' '}
+        <strong>Donated</strong> is written the moment the blood bank records a donation
+        against this camp, so the roster and the camp&apos;s counts cannot disagree with
+        what was actually collected; anyone still <strong>Registered</strong> two days after
+        the camp becomes a <strong>No-show</strong> on its own. The two statuses recorded by
+        hand are <strong>Couldn&apos;t donate</strong> — came and was turned away at
+        screening, an attendance fact that never touches the donor&apos;s clinical deferral
+        record — and <strong>Cancelled</strong>. A donor who reached the roster as{' '}
+        <em>Walk-in</em> was never registered: the blood bank recorded their donation and the
+        platform learned of them from it.
       </p>
     </article>
   );

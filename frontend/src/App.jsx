@@ -4,7 +4,13 @@ import { Landing } from './pages/Landing.jsx';
 import { DonorLogin } from './pages/donor/DonorLogin.jsx';
 import { DonorRegister } from './pages/donor/DonorRegister.jsx';
 import { DonorDashboard } from './pages/donor/DonorDashboard.jsx';
-import { DonorRaiseRequest } from './pages/donor/DonorRaiseRequest.jsx';
+// PILOT SCOPE (Aug 2026): citizen blood-request raising is switched off for the
+// PDMC pilot, which runs the donor + camp modules first. Import and route are
+// commented rather than deleted — DonorRaiseRequest.jsx and POST
+// /requests/citizen are both intact and tested, so re-enabling is uncommenting
+// these two blocks plus the CTA in DonorDashboard.jsx. See CLAUDE.md
+// "Pilot scope".
+// import { DonorRaiseRequest } from './pages/donor/DonorRaiseRequest.jsx';
 import { StaffLogin } from './pages/staff/StaffLogin.jsx';
 import { StaffSetup2FA } from './pages/staff/StaffSetup2FA.jsx';
 import { CoordinatorPortal } from './pages/coordinator/CoordinatorPortal.jsx';
@@ -81,6 +87,11 @@ export default function App() {
           </RequireAuth>
         }
       />
+      {/* PILOT SCOPE (Aug 2026) — off for the PDMC donor+camp pilot. Restore by
+          uncommenting this and the import at the top of this file. A donor who
+          deep-links to /donor/raise while this is off falls through to the
+          catch-all redirect rather than a blank screen. */}
+      {/*
       <Route
         path="/donor/raise"
         element={
@@ -89,6 +100,7 @@ export default function App() {
           </RequireAuth>
         }
       />
+      */}
       <Route
         path="/coordinator"
         element={

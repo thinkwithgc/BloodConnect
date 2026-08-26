@@ -76,18 +76,22 @@ function fetchJson(method, urlPath, opts = {}) {
 async function ensureGeoAndStaff() {
   const c = await db.pool.connect();
   try {
-    await c.query(
-      `INSERT INTO states (id, name, name_hi, iso_code, is_active)
-       VALUES ($1,'Maharashtra (smoke)','महाराष्ट्र','IN-MH', TRUE)
-       ON CONFLICT (id) DO NOTHING`,
-      [TEST.state_id],
+    // The dev DB carries imported LGD geography, so INSERTing a synthetic
+    // Amravati collides with uq_district_short_per_state. Take whatever active
+    // district exists instead (same approach as smoke_test_phase2).
+    const geo = await c.query(
+      `SELECT d.id AS district_id, d.state_id
+         FROM districts d
+         JOIN states s ON s.id = d.state_id
+        WHERE d.is_active AND s.is_active
+        ORDER BY d.id ASC
+        LIMIT 1`,
     );
-    await c.query(
-      `INSERT INTO districts (id, state_id, name, district_code_short, is_active)
-       VALUES ($1,$2,'Amravati (smoke)','AMRA', TRUE)
-       ON CONFLICT (id) DO NOTHING`,
-      [TEST.district_id, TEST.state_id],
-    );
+    if (geo.rowCount === 0) {
+      throw new Error('no active district in the DB - run the LGD import or seeds first');
+    }
+    TEST.district_id = geo.rows[0].district_id;
+    TEST.state_id = geo.rows[0].state_id;
     // ngo_admin
     await c.query(
       `INSERT INTO platform_users (role, email, password_hash, password_set_at)

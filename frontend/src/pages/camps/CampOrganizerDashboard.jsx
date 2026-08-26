@@ -5,21 +5,22 @@ import { QRCodeSVG } from 'qrcode.react';
 
 import { Wordmark } from '../../components/Wordmark.jsx';
 import { apiRequest } from '../../lib/api.js';
+import { CAMP_STATUS } from '../../lib/campStatus.js';
 
+// Roster status. AT and NS are DERIVED, never tapped: AT comes from the blood
+// bank recording a donation against this camp (migration 314) and NS from the
+// camp-close-roster job 48h after the camp date. DF and CN are the only two the
+// desk sets, plus RG to undo them.
+//
+// DF is an ATTENDANCE fact - "came, could not donate". It says nothing clinical
+// about the donor and never touches their deferral fields; the reason lives in
+// the blood bank's screening record, not here (migration 312).
 const STATUS = {
   RG: { label: 'Registered', cls: 'bg-sky-100 text-sky-800' },
-  AT: { label: 'Attended', cls: 'bg-green-100 text-green-800' },
+  AT: { label: 'Donated', cls: 'bg-green-100 text-green-800' },
+  DF: { label: "Came, couldn't donate", cls: 'bg-amber-100 text-amber-800' },
   NS: { label: 'No-show', cls: 'bg-slate-200 text-slate-700' },
   CN: { label: 'Cancelled', cls: 'bg-rk-700/80 text-white' },
-};
-
-const CAMP_STATUS = {
-  PE: { label: 'Pending review', cls: 'bg-amber-100 text-amber-800' },
-  PL: { label: 'Planned', cls: 'bg-sky-100 text-sky-800' },
-  LV: { label: 'Live', cls: 'bg-green-100 text-green-800' },
-  CO: { label: 'Completed', cls: 'bg-slate-200 text-slate-700' },
-  CA: { label: 'Cancelled', cls: 'bg-rk-700/80 text-white' },
-  DC: { label: 'Declined', cls: 'bg-rk-700/80 text-white' },
 };
 
 function fmtDate(v) {
@@ -112,8 +113,16 @@ export function CampOrganizerDashboard() {
   const regs = dashQ.data?.registrations || [];
 
   const counts = useMemo(() => {
-    const c = { RG: 0, AT: 0, NS: 0, CN: 0 };
+    const c = { RG: 0, AT: 0, NS: 0, CN: 0, DF: 0 };
     for (const r of regs) c[r.status] = (c[r.status] || 0) + 1;
+    // Same definition as migration 313's fn_camp_recount, so this card can
+    // never disagree with donation_camps.registered_donor_count: everything
+    // that is not a cancellation was a registration.
+    c.registered = c.RG + c.AT + c.NS + c.DF;
+    // Turnout is who actually showed up - donated or turned away at screening.
+    // Keeping DF out of it would make a well-attended camp look half-empty,
+    // which is exactly why the two are recorded separately.
+    c.turnout = c.AT + c.DF;
     return c;
   }, [regs]);
 
@@ -181,14 +190,23 @@ export function CampOrganizerDashboard() {
       </header>
 
       {/* KPI cards */}
-      <section className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+      <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <KpiCard
           label="Registered"
-          value={counts.RG + counts.AT}
+          value={counts.registered}
           sub={camp.target_donor_count ? `Target ${camp.target_donor_count}` : ''}
         />
-        <KpiCard label="Attended" value={counts.AT} sub="day-of marks" />
-        <KpiCard label="No-shows" value={counts.NS} />
+        <KpiCard
+          label="Donated"
+          value={counts.AT}
+          sub="from blood bank records"
+        />
+        <KpiCard label="Couldn't donate" value={counts.DF} sub="turned away at screening" />
+        <KpiCard
+          label="Turnout"
+          value={counts.turnout}
+          sub={counts.NS > 0 ? `${counts.NS} did not come` : 'donated + turned away'}
+        />
         <KpiCard label="Units collected" value={camp.units_collected ?? 0} sub="from blood bank" />
       </section>
 
@@ -244,9 +262,26 @@ export function CampOrganizerDashboard() {
             Roster ({regs.length})
           </h2>
           <span className="text-xs text-slate-500">
-            Tap a donor to mark attendance on camp day.
+            Attendance fills itself as the blood bank records donations.
           </span>
         </div>
+        {/* Said once, plainly, because the desk used to tick attendance here and
+            will look for the buttons. Nobody marks Donated or No-show now. */}
+        <p className="border-y border-slate-100 bg-slate-50/70 px-4 py-2 text-xs text-slate-600">
+          <strong>Donated</strong> appears on its own when the blood bank records that
+          donation - usually during the camp, sometimes the next morning. Anyone still{' '}
+          <strong>Registered</strong> two days after the camp becomes a{' '}
+          <strong>No-show</strong> automatically. The one thing to record here is a donor who
+          came and was <strong>turned away at screening</strong> - and only that they were,
+          never why.
+        </p>
+        {markStatus.error ? (
+          <p className="border-b border-rk-100 bg-rk-50 px-4 py-2 text-xs text-rk-700">
+            {markStatus.error?.response?.data?.error === 'attendance_is_derived'
+              ? 'Attendance is not set by hand - it comes from the donation the blood bank records against this camp.'
+              : markStatus.error?.response?.data?.error || 'could_not_update'}
+          </p>
+        ) : null}
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
@@ -254,7 +289,7 @@ export function CampOrganizerDashboard() {
               <th className="px-3 py-2 text-left">Blood group</th>
               <th className="px-3 py-2 text-left">RSVP&apos;d</th>
               <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-right">Mark</th>
+              <th className="px-3 py-2 text-right">Record</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -283,30 +318,46 @@ export function CampOrganizerDashboard() {
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {r.status !== 'CN' ? (
-                      <div className="flex justify-end gap-1">
-                        {r.status !== 'AT' ? (
-                          <button
-                            type="button"
-                            className="rounded-md border border-green-300 px-2 py-0.5 text-xs font-medium text-green-800 hover:bg-green-50"
-                            onClick={() => markStatus.mutate({ regId: r.id, status: 'AT' })}
-                            disabled={markStatus.isPending}
-                          >
-                            Attended
-                          </button>
-                        ) : null}
-                        {r.status !== 'NS' ? (
-                          <button
-                            type="button"
-                            className="rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
-                            onClick={() => markStatus.mutate({ regId: r.id, status: 'NS' })}
-                            disabled={markStatus.isPending}
-                          >
-                            No-show
-                          </button>
-                        ) : null}
-                      </div>
-                    ) : null}
+                    {/* Nothing to press on a donor who has donated - that row
+                        came from the blood bank's own record and the desk
+                        cannot improve on it. RG and NS keep the one thing the
+                        desk knows better than anyone: whether the person was
+                        standing in front of them and got turned away. */}
+                    <div className="flex justify-end gap-1">
+                      {r.status === 'RG' || r.status === 'NS' ? (
+                        <button
+                          type="button"
+                          className="rounded-md border border-amber-300 px-2 py-0.5 text-xs font-medium text-amber-800 hover:bg-amber-50"
+                          onClick={() => markStatus.mutate({ regId: r.id, status: 'DF' })}
+                          disabled={markStatus.isPending}
+                        >
+                          Couldn&apos;t donate
+                        </button>
+                      ) : null}
+                      {r.status === 'RG' ? (
+                        <button
+                          type="button"
+                          className="rounded-md border border-slate-300 px-2 py-0.5 text-xs font-medium text-slate-600 hover:bg-slate-50"
+                          onClick={() => markStatus.mutate({ regId: r.id, status: 'CN' })}
+                          disabled={markStatus.isPending}
+                        >
+                          Cancel
+                        </button>
+                      ) : null}
+                      {r.status === 'DF' || r.status === 'CN' ? (
+                        <button
+                          type="button"
+                          className="rounded-md border border-sky-300 px-2 py-0.5 text-xs font-medium text-sky-800 hover:bg-sky-50"
+                          onClick={() => markStatus.mutate({ regId: r.id, status: 'RG' })}
+                          disabled={markStatus.isPending}
+                        >
+                          Undo
+                        </button>
+                      ) : null}
+                      {r.status === 'AT' ? (
+                        <span className="text-xs text-slate-400">recorded by blood bank</span>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );

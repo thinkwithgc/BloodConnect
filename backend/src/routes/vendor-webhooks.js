@@ -68,6 +68,7 @@ const { seal, open, blindIndex } = require('../services/pii');
 const { normaliseIndianMobile } = require('../utils/phone');
 const { sendNotification } = require('../services/notifications');
 const setupSvc = require('../services/users/setup');
+const { resolveCampForCollection } = require('../services/donations/camp');
 
 const router = express.Router();
 
@@ -229,6 +230,10 @@ const donationSchema = z.object({
   volume_ml: z.number().int().positive().max(1000),
   isbt_barcode: z.string().min(3).max(50), // required for verified donations
   hb_gdl: z.number().optional(),
+  // Camp attribution. A partner running its own camp can credit the donation to
+  // a Raktify camp, which marks the donor Attended on that roster via migration
+  // 314's trigger. Optional: most partner pushes are in-house collections.
+  donation_camp_id: z.string().uuid().optional(),
 });
 
 // ── POST /webhooks/v1/donor-registration ────────────────────────────────────
@@ -661,6 +666,26 @@ router.post('/donation', verifyVendorHmacMw, async (req, res) => {
         }
         const componentId = compR.rows[0].id;
 
+        // Camp attribution, validated exactly as POST /donations does — same
+        // helper, so a partner cannot credit attendance to a cancelled camp or
+        // one in another district when the staff portal could not.
+        let campId = null;
+        if (data.donation_camp_id) {
+          const cv = await resolveCampForCollection(c, {
+            campId: data.donation_camp_id,
+            collectionDate: data.collection_date,
+            bloodBankId: req.partner.institutionId,
+          });
+          if (!cv.ok) {
+            const err = new Error(cv.error);
+            err.status = 409;
+            err.code = cv.error;
+            err.detail = cv.detail;
+            throw err;
+          }
+          campId = cv.camp.id;
+        }
+
         // Resolve who to attribute this write to. Cascades to the
         // auto-created blood_inventory row (trigger fn_donation_creates_inventory
         // takes NEW.recorded_by_user_id → status_changed_by, which is NOT NULL).
@@ -675,14 +700,20 @@ router.post('/donation', verifyVendorHmacMw, async (req, res) => {
         // trust_level='V' (partner-attested verified), source='PT' (partner
         // system). Constraints require blood_bank_id + isbt_barcode when
         // trust_level='V' — both provided via req.partner and data.
+        //
+        // source stays 'PT' even for a camp donation, unlike POST /donations
+        // which switches to 'CA'. There is one source column and for a partner
+        // push the provenance is the thing worth keeping: it is what an incident
+        // review needs. The camp link is carried explicitly by
+        // donation_camp_id, which is all the attendance trigger reads.
         const dhR = await c.query(
           `INSERT INTO donation_history
              (donor_id, blood_bank_id, trust_level, source,
               collection_date, component_id, volume_ml,
-              isbt_barcode, hb_gdl, recorded_by_user_id)
+              isbt_barcode, hb_gdl, recorded_by_user_id, donation_camp_id)
            VALUES ($1, $2, 'V', 'PT',
               $3, $4, $5,
-              $6, $7, $8)
+              $6, $7, $8, $9)
            RETURNING id`,
           [
             donor.id,
@@ -693,6 +724,7 @@ router.post('/donation', verifyVendorHmacMw, async (req, res) => {
             data.isbt_barcode,
             data.hb_gdl || null,
             attributedUserId,
+            campId,
           ],
         );
 
@@ -726,6 +758,18 @@ router.post('/donation', verifyVendorHmacMw, async (req, res) => {
         error: 'donor_not_found',
         hint: 'Push donor-registration first, then retry this donation event.',
       });
+    }
+    if (err.code === 'camp_not_collectable') {
+      try {
+        await recordIdempotent(pool, req.partner.partnerKey, data.vendor_event_id, endpoint, {
+          status: 409,
+          action: 'rejected',
+          errorCode: 'camp_not_collectable',
+        });
+      } catch {
+        /* ignore */
+      }
+      return res.status(409).json({ error: 'camp_not_collectable', detail: err.detail });
     }
     if (err.code === 'unknown_component') {
       try {

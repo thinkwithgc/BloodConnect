@@ -110,12 +110,52 @@ export function DonorRegister() {
     };
   }, [details.mobile]);
 
-  // If the user arrived from a public camp link (/register?camp=<slug>),
-  // persist that intent in sessionStorage so it survives a multi-step wizard
-  // refresh and is honoured by the redirect-after-completion logic below.
+  // If the user arrived from a public camp link (/register?camp=<slug>) - the
+  // QR poster at the camp desk, or the Register button on /c/<slug> - persist
+  // that intent in sessionStorage so it survives a multi-step wizard refresh
+  // and is honoured by the redirect-after-completion logic below.
+  //
+  // Then resolve the slug to the camp id, because the intent is not only a
+  // redirect: it is the donor's ATTRIBUTION. The payload below used to send a
+  // flat registration_source:'WEB' and drop the camp entirely, so every QR
+  // signup at every camp was recorded as an ordinary web registration and no
+  // organiser could ever see how many donors their poster actually brought -
+  // even though the backend has validated and stored 'QRC' +
+  // registration_camp_id since the Phase 3 scaffold (donors.js:152).
+  const [campId, setCampId] = useState(null);
+  const [campName, setCampName] = useState(null);
   useEffect(() => {
-    const campParam = new URLSearchParams(window.location.search).get('camp');
-    if (campParam) window.sessionStorage.setItem('rk.pendingCampRsvp', campParam);
+    const slug =
+      new URLSearchParams(window.location.search).get('camp') ||
+      window.sessionStorage.getItem('rk.pendingCampRsvp');
+    if (!slug) return;
+    window.sessionStorage.setItem('rk.pendingCampRsvp', slug);
+    // Carry the share channel across the wizard too. The roster row - and with
+    // it referral_channel - is created back on /c/<slug> after signup, and that
+    // hand-back used to drop ?via=, so a donor who scanned the desk QR was
+    // filed on the roster as 'direct' and the organiser's channel mix
+    // undercounted the poster that actually brought them.
+    const via = new URLSearchParams(window.location.search).get('via');
+    if (via) window.sessionStorage.setItem('rk.pendingCampVia', via);
+    let alive = true;
+    (async () => {
+      try {
+        // This endpoint serves PL/LV camps only, which is the same gate the
+        // backend applies to a 'QRC' registration - so a camp it will not
+        // resolve is a camp we must not claim attribution for. Leaving campId
+        // null falls back to 'WEB' and the signup still goes through: an
+        // attribution tag is never worth failing a donor registration over.
+        const data = await apiRequest('GET', `/camps/public/${encodeURIComponent(slug)}`);
+        if (!alive) return;
+        setCampId(data.id);
+        setCampName(data.name);
+      } catch {
+        // Unknown, completed or cancelled camp - register without attribution.
+      }
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // Phase 3: if the user arrived from /community/<slug> (a leader's referral
@@ -172,7 +212,14 @@ export function DonorRegister() {
       const payload = {
         ...parsed.data,
         preferred_language: lang,
-        registration_source: 'WEB',
+        // 'QRC' + registration_camp_id closes the loop the schema has been
+        // waiting on since Phase 3 (CLAUDE.md Phase 3 TODO #2). Only sent when
+        // the slug actually resolved to an open camp - the backend rejects
+        // 'QRC' without a valid camp id (400 qr_registration_requires_camp_id),
+        // so guessing here would block the signup.
+        ...(campId
+          ? { registration_source: 'QRC', registration_camp_id: campId }
+          : { registration_source: 'WEB' }),
         // Phase 3 attribution: if the user came from /community/<slug>,
         // tag the donor to that community. The backend defaults
         // referred_by_community_leader_id to the community's current owner
@@ -232,11 +279,17 @@ export function DonorRegister() {
       setOtpStage('consented');
       // If they came from a public camp link, bounce back to /c/<slug> so
       // PublicCampPage can auto-RSVP using the sessionStorage marker.
-      const campParam = new URLSearchParams(window.location.search).get('camp');
+      const q = new URLSearchParams(window.location.search);
+      const campParam = q.get('camp');
       const pendingCamp = campParam || window.sessionStorage.getItem('rk.pendingCampRsvp');
-      navigate(pendingCamp ? `/c/${encodeURIComponent(pendingCamp)}` : '/donor', {
-        replace: true,
-      });
+      const pendingVia = q.get('via') || window.sessionStorage.getItem('rk.pendingCampVia');
+      navigate(
+        pendingCamp
+          ? `/c/${encodeURIComponent(pendingCamp)}` +
+              (pendingVia ? `?via=${encodeURIComponent(pendingVia)}` : '')
+          : '/donor',
+        { replace: true },
+      );
     } catch (err) {
       setError(err?.response?.data?.error || 'verify_failed');
     } finally {
@@ -254,6 +307,13 @@ export function DonorRegister() {
           labels={['Your details', 'Consent']}
           onJump={(s) => (s < step ? backTo(s) : null)}
         />
+
+        {campName ? (
+          <div className="mb-3 rounded-md bg-rk-50 p-2 text-sm text-rk-900 ring-1 ring-rk-200">
+            You&apos;re registering at <strong>{campName}</strong>. We&apos;ll add you to the
+            camp roster as soon as your number is verified.
+          </div>
+        ) : null}
 
         {communityName ? (
           <div className="mb-3 rounded-md bg-rk-50 p-2 text-sm text-rk-900 ring-1 ring-rk-200">

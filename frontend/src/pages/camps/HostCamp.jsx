@@ -198,9 +198,44 @@ export function HostCamp() {
             <p className="text-xs text-slate-500">
               {submitted.next_step}
             </p>
-            <Link to="/" className="rk-button-secondary inline-block">
-              Back to home
-            </Link>
+
+            {/* Hosting stays open to anyone - no sign-in wall on this page.
+                But a principal hosting three camps should not be holding
+                three magic links in three WhatsApp messages, so say where
+                the list lives. With a token the camp is already theirs; with
+                none, signing in on the same mobile inherits it, because the
+                number is stored either way. No link to the public camp page
+                here on purpose - it only serves verified camps, and this one
+                is still pending review. */}
+            {submitted.tracked_in_profile ? (
+              <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
+                <strong>This camp is now in your profile.</strong> Open{' '}
+                <strong>My camps</strong> to follow registrations, get the organiser link and
+                correct the details while it is still pending.
+              </p>
+            ) : (
+              <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                <strong>Sign in with this mobile number</strong> to track this camp - and any
+                other you host - from one place. We will link it to you automatically.
+              </p>
+            )}
+
+            <div className="flex flex-wrap gap-2">
+              {submitted.tracked_in_profile ? (
+                <Link to="/" className="rk-button-primary inline-block">
+                  Go to my camps
+                </Link>
+              ) : (
+                <>
+                  <Link to="/login" className="rk-button-primary inline-block">
+                    Sign in to track it
+                  </Link>
+                  <Link to="/" className="rk-button-secondary inline-block">
+                    Back to home
+                  </Link>
+                </>
+              )}
+            </div>
           </div>
         </main>
       </div>

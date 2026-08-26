@@ -32,8 +32,11 @@ const TEST = {
   donor2Mobile: `+919${RUN_TAG}002`,
   bbStaff1Email: `p4-bb1-${RUN_TAG}@example.com`,
   bbStaff2Email: `p4-bb2-${RUN_TAG}@example.com`,
+  bbStaff1User: `p4bb1-${RUN_TAG}`,
+  bbStaff2User: `p4bb2-${RUN_TAG}`,
   bbStaffPwd: 'Phase4BB!2026',
   hospitalEmail: `p4-ho-${RUN_TAG}@example.com`,
+  hospitalUser: `p4ho-${RUN_TAG}`,
   hospitalPwd: 'Phase4HO!2026',
   bbInst: null,
   hospitalInst: null,
@@ -78,14 +81,22 @@ function fetchJson(method, urlPath, opts = {}) {
 async function bootstrap() {
   const c = await db.pool.connect();
   try {
-    await c.query(
-      `INSERT INTO states (id, name, name_hi, iso_code, is_active) VALUES ($1,'Maharashtra (smoke)','महाराष्ट्र','IN-MH', TRUE) ON CONFLICT (id) DO NOTHING`,
-      [TEST.state_id],
+    // The dev DB carries imported LGD geography, so INSERTing a synthetic
+    // Amravati collides with uq_district_short_per_state. Take whatever active
+    // district exists instead (same approach as smoke_test_phase2).
+    const geo = await c.query(
+      `SELECT d.id AS district_id, d.state_id
+         FROM districts d
+         JOIN states s ON s.id = d.state_id
+        WHERE d.is_active AND s.is_active
+        ORDER BY d.id ASC
+        LIMIT 1`,
     );
-    await c.query(
-      `INSERT INTO districts (id, state_id, name, district_code_short, is_active) VALUES ($1,$2,'Amravati (smoke)','AMRA', TRUE) ON CONFLICT (id) DO NOTHING`,
-      [TEST.district_id, TEST.state_id],
-    );
+    if (geo.rowCount === 0) {
+      throw new Error('no active district in the DB - run the LGD import or seeds first');
+    }
+    TEST.district_id = geo.rows[0].district_id;
+    TEST.state_id = geo.rows[0].state_id;
 
     // BB institution
     const bb = await c.query(
@@ -111,16 +122,24 @@ async function bootstrap() {
     TEST.hospitalInst = ho.rows[0].id;
 
     // Two BB staff with TOTP enabled
-    for (const [emailKey, secretKey] of [
-      ['bbStaff1Email', 'bb1TotpSecret'],
-      ['bbStaff2Email', 'bb2TotpSecret'],
+    // Staff auth is username + password + TOTP as of migration 268, and the
+    // auth_path_required CHECK requires the username on every staff row.
+    for (const [emailKey, userKey, secretKey] of [
+      ['bbStaff1Email', 'bbStaff1User', 'bb1TotpSecret'],
+      ['bbStaff2Email', 'bbStaff2User', 'bb2TotpSecret'],
     ]) {
       const secret = totp.newSecret();
       await c.query(
-        `INSERT INTO platform_users (role, email, password_hash, password_set_at, institution_id,
-                                     totp_secret, totp_enabled)
-         VALUES ('blood_bank', $1, $2, NOW(), $3, $4, TRUE)`,
-        [TEST[emailKey], await bcrypt.hash(TEST.bbStaffPwd, 10), TEST.bbInst, encryption.encrypt(secret)],
+        `INSERT INTO platform_users (role, username, email, password_hash, password_set_at,
+                                     institution_id, totp_secret, totp_enabled)
+         VALUES ('blood_bank', $1, $2, $3, NOW(), $4, $5, TRUE)`,
+        [
+          TEST[userKey],
+          TEST[emailKey],
+          await bcrypt.hash(TEST.bbStaffPwd, 10),
+          TEST.bbInst,
+          encryption.encrypt(secret),
+        ],
       );
       TEST[secretKey] = secret;
     }
@@ -128,10 +147,16 @@ async function bootstrap() {
     // Hospital staff (TOTP-disabled for brevity)
     const hoSecret = totp.newSecret();
     await c.query(
-      `INSERT INTO platform_users (role, email, password_hash, password_set_at, institution_id,
-                                   totp_secret, totp_enabled)
-       VALUES ('hospital', $1, $2, NOW(), $3, $4, TRUE)`,
-      [TEST.hospitalEmail, await bcrypt.hash(TEST.hospitalPwd, 10), TEST.hospitalInst, encryption.encrypt(hoSecret)],
+      `INSERT INTO platform_users (role, username, email, password_hash, password_set_at,
+                                   institution_id, totp_secret, totp_enabled)
+       VALUES ('hospital', $1, $2, $3, NOW(), $4, $5, TRUE)`,
+      [
+        TEST.hospitalUser,
+        TEST.hospitalEmail,
+        await bcrypt.hash(TEST.hospitalPwd, 10),
+        TEST.hospitalInst,
+        encryption.encrypt(hoSecret),
+      ],
     );
     TEST.hoTotpSecret = hoSecret;
   } finally {
@@ -139,10 +164,10 @@ async function bootstrap() {
   }
 }
 
-async function loginInstitutional(email, password, totpSecret) {
+async function loginInstitutional(username, password, totpSecret) {
   const code = totpSecret ? await totp.currentCode(totpSecret) : undefined;
   const r = await fetchJson('POST', '/auth/institutional/login', {
-    body: { email, password, totp_code: code },
+    body: { username, password, totp_code: code },
   });
   return r;
 }
@@ -154,11 +179,11 @@ async function main() {
 
   try {
     // Logins
-    let r = await loginInstitutional(TEST.bbStaff1Email, TEST.bbStaffPwd, TEST.bb1TotpSecret);
+    let r = await loginInstitutional(TEST.bbStaff1User, TEST.bbStaffPwd, TEST.bb1TotpSecret);
     TEST.bb1Token = r.body.token;
-    r = await loginInstitutional(TEST.bbStaff2Email, TEST.bbStaffPwd, TEST.bb2TotpSecret);
+    r = await loginInstitutional(TEST.bbStaff2User, TEST.bbStaffPwd, TEST.bb2TotpSecret);
     TEST.bb2Token = r.body.token;
-    r = await loginInstitutional(TEST.hospitalEmail, TEST.hospitalPwd, TEST.hoTotpSecret);
+    r = await loginInstitutional(TEST.hospitalUser, TEST.hospitalPwd, TEST.hoTotpSecret);
     TEST.hoToken = r.body.token;
     assert(TEST.bb1Token && TEST.bb2Token && TEST.hoToken, 'all institutional logins succeeded');
 

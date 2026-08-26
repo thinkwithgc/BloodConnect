@@ -176,7 +176,7 @@ Specific operational gaps Raktify targets:
 
 ### Security hardening
 
-- Helmet CSP `default-src 'none'`, CORS whitelist (no wildcards), global rate limit 100 req/IP/min, per-route rate limits (OTP 3/h/mobile, login 10/15min/IP).
+- Helmet CSP `default-src 'none'`, CORS whitelist (no wildcards), global rate limit 100 req/IP/min, per-route rate limits (OTP 3/h/mobile; institutional login 10/15min per username plus a 60/15min/IP sweep ceiling).
 - ESLint rule blocks `c.query(\`...${userInput}...\`)` — every SQL site is parameterised.
 - All secrets in Azure Key Vault, App Service references via `@Microsoft.KeyVault(SecretUri=...)` so no secrets in env-as-plaintext.
 

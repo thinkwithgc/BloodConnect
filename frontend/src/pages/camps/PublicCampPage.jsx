@@ -67,6 +67,10 @@ export function PublicCampPage() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['donor', 'me'] });
       window.sessionStorage.removeItem(PENDING_KEY);
+      // Set by the signup wizard so the channel survives the detour. Clearing
+      // it here stops a stale 'qr' from being attached to an unrelated camp the
+      // donor opens later with no ?via= of its own.
+      window.sessionStorage.removeItem('rk.pendingCampVia');
     },
   });
 
@@ -138,6 +142,12 @@ export function PublicCampPage() {
     );
   }
 
+  // Migration 313 made registered_donor_count derive as
+  // COUNT(*) FILTER (WHERE status <> 'CN'), so a donor who cancelled frees their
+  // slot again and someone already recorded as having donated still occupies
+  // one. NS is in that set too, but this page only ever renders PL/LV camps and
+  // camp-close-roster only writes NS to camps more than a day past, so for an
+  // upcoming camp the figure is exactly RG + AT + DF.
   const slotsLeft =
     camp?.target_donor_count && camp?.registered_donor_count != null
       ? Math.max(0, camp.target_donor_count - camp.registered_donor_count)

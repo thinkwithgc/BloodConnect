@@ -34,6 +34,63 @@ commit/deploy cycles — get it right the first time by following these:
 - Reuse `.rk-button*/.rk-card/.rk-input/.rk-label/.rk-legal` — don't
   restyle from scratch. Shadows `shadow-soft`/`shadow-lift` (warm-tinted).
 
+## Pilot scope — Donor + Camp modules only (Aug 2026)
+
+PDMC (blood bank in-charge + Dean) agreed to run the **donor and camp modules
+first**, prove the platform's robustness and reliability, and only then switch
+blood requests on. Consequences for anyone touching the code:
+
+- The donor-facing **"raise a blood request"** surface is **commented out, not
+  deleted**. Four blocks, all carrying the literal marker
+  `PILOT SCOPE (Aug 2026)` — grep for it:
+  `frontend/src/App.jsx` (the `DonorRaiseRequest` import; the
+  `<Route path="/donor/raise">`) and
+  `frontend/src/pages/donor/DonorDashboard.jsx` (the `import { Link }`; the
+  `<Link to="/donor/raise">` CTA). **Re-enabling is uncommenting those four
+  — do not rewrite the feature.**
+- `frontend/src/pages/donor/DonorRaiseRequest.jsx` and **`POST /requests/citizen`
+  stay live**. Do **not** disable the endpoint: `scripts/smoke_test_phase5.js`
+  covers it, and the ask was frontend invisibility only.
+- Only the *donor self-service* entry point is hidden. Tier 1/2/3 request paths
+  (hospital, coordinator-on-behalf, community) are untouched.
+- Read this as a scope decision, not a defect — nothing behind the hidden CTA
+  is broken, and the request engine, matcher and escalation ladder are all still
+  exercised by their smoke tests.
+
+### Camp attendance DERIVES ITSELF — nobody ticks a roster (Aug 2026)
+
+Migrations 312–314 moved attendance out of human hands. Before touching camps:
+
+- **`camp_registrations.status` `'AT'` is written by a trigger**, not by a route.
+  Recording a donation with `donation_camp_id` set (and `trust_level IN ('V','R')`)
+  upserts the roster row to `'AT'`. `POST /camps/:id/registrations/:regId/status`
+  and its magic-link twin **reject `'AT'` and `'NS'` with `409
+  attendance_is_derived`** — deliberately loud, so an old client says why.
+  Settable statuses are `RG` (revert), `DF` (came, could not donate) and `CN`.
+- **`'DF'` is an attendance fact only.** It must never write
+  `donors.deferral_until` / `next_eligible_date` — a roster tap is not a clinical
+  gate (hard rule 1). The clinical deferral stays on the BB's donation path.
+- **No-show is derived too**, by the `camp_close_roster` job (02:10 IST) — `RG` →
+  `NS` only once the camp is >48h past **and** either its status is `CO` or the
+  roster already holds an `AT`/`DF`. The grace exists because blood banks
+  batch-enter a camp's donations the next morning; 314's upsert overwrites `NS`,
+  so a late entry self-heals.
+- **`is_invalidated` (TTI-reactive) does NOT unwind attendance.** The donation is
+  discarded; the person still came.
+- **`units_collected`** derives from `COUNT(*)` over the camp's donations; the
+  manual field at `POST /camps/:id/complete` only wins when larger, and an
+  organiser-reported `attended_donor_count` is **filed into `review_notes` as a
+  headcount rather than stored** — it must not overwrite the derived value.
+- Every camp a person hosts — donor, coordinator or community leader — lists at
+  **`GET /camps/mine`**, keyed on their **mobile** (not their session), which is
+  what unifies the two auth clusters without bridging them. `PATCH /camps/:id`
+  edits details only; verify / decline / complete / cancel stay behind
+  password + TOTP.
+- **Gate: `npm run smoke:camps`** (`scripts/smoke_test_camps.js`, 53 assertions)
+  covers the whole derivation. `smoke_test_phase4.js` is the regression gate —
+  314 adds a trigger to `donation_history`, the most safety-critical insert path
+  in the system, so if phase 4 fails, the trigger is wrong.
+
 ## Phase status
 
 | Phase | Status | Smoke test | Notes |
@@ -49,7 +106,7 @@ commit/deploy cycles — get it right the first time by following these:
 | 8 — Admin + reporting + deploy | ✅ core (code-complete) | `npm run lint && npm run smoke:frontend` | See **Phase 8 status** below |
 | Post-8 — Live deploy + feature gap-close | ✅ live on Azure (single-env `raktify` RG) | `npm run lint && npm run smoke:frontend` | See **Post-Phase-8 status** below |
 
-> **Current totals (2026-08-19):** 89 migrations (latest `310_mou_paper_signing_mode`),
+> **Current totals (2026-08-27):** 93 migrations (latest `314_camp_attendance_from_donation`),
 > 104 route handlers across 17 resource routers, 6 frontend role-portals + public
 > surfaces, 3 notification providers (console / MSG91 / WhatsApp Cloud). Phases 0–8
 > **and** all post-Phase-8 additions are code-complete and live on Azure
@@ -420,7 +477,7 @@ have data to widen. Existing HMAC-signature enforcement is unchanged.
 ### Security hardening (`backend/src/app.js` + `middleware/sanitize.js` + `eslint.config.js`)
 - **Helmet CSP** tightened: `default-src 'none'; frame-ancestors 'none'`. We're an API, not an HTML server.
 - **CORS whitelist** — `FRONTEND_URL` + `ALLOWED_ORIGINS` (comma-separated) only; no wildcard. Origin-less requests (curl, same-origin) still allowed.
-- **Global rate limit** — 100 req/IP/min on every route; `/health` exempt. Stacks under the OTP (3/h/mobile) and institutional-login (10/15min/IP) per-route limits already in `routes/auth.js`.
+- **Global rate limit** — 100 req/IP/min on every route; `/health` exempt. Stacks under the OTP (3/h/mobile) and institutional-login (10/15min per **username** + a wider 60/15min/IP sweep ceiling — a hospital is one NAT'd IP, so an account-keyed budget is what keeps a shift change from locking the ward out) per-route limits already in `routes/auth.js`.
 - **`sanitizeInput` middleware** — recursively strips ASCII control chars + script/iframe/object/embed bookends + caps string fields at 8 KiB. Type coercion stays with Zod; SQL escaping stays with parameterised queries.
 - **ESLint `no-restricted-syntax`** rule blocks any `c.query(\`... ${userInput} ...\`)`. Five existing dynamic-SQL sites where the interpolation is a Zod-validated whitelist or constant fragment carry justified `eslint-disable-next-line` comments. Two sites (rlsContext, auth lockout interval) were rewritten to use parameter placeholders instead.
 - `app.set('trust proxy', 1)` so `req.ip` keys correctly behind ALB.
@@ -582,9 +639,13 @@ Internal-only repo migrations: `010_grant_helper_roles`, `011_grant_schema_to_he
 | `265_dho_role` | DHO role + `platform_users.district_id` |
 | `266_staff_constraint_allow_dho` | Allow `dho` in the institutional-staff CHECK |
 | `310_mou_paper_signing_mode` | `mou_versions.signing_mode` (`ES`/`PA`) + `institutions.mou_signing_mode`; drops NOT NULL on `leegally_doc_id`/`pdf_storage_key`/`pdf_sha256` and re-imposes the old invariant as `esign_requires_doc_id` CHECK. Enables the paper-MoU path |
+| `311_platform_user_lifecycle` | `platform_users.deactivated_at`/`deactivated_by`/`deactivation_reason` + `institutions.onboarding_status='AR'` (archived). Staff and institutions are retired with a mandatory reason, never hard-deleted; reversible by `super_admin` |
+| `312_camp_registration_deferred` | `camp_registrations.status` gains `'DF'` (came, could not donate) + `donation_camps.deferred_donor_count`. **`DF` is an attendance fact only** — it must never write `donors.deferral_until` or `next_eligible_date` (hard rule 1) |
+| `313_camp_counts_derived` | One `AFTER INSERT/UPDATE OF status/DELETE` trigger recomputes all three camp counts from the roster (`registered` = `status <> 'CN'`, `attended` = `'AT'`, `deferred` = `'DF'`). Backfills every camp, wrapping attended in `GREATEST(derived, existing)` **on the backfill only** so hand-typed totals survive |
+| `314_camp_attendance_from_donation` | **Attendance derives itself.** `AFTER INSERT OR UPDATE OF donation_camp_id ON donation_history` upserts a `'AT'` roster row when `donation_camp_id IS NOT NULL AND trust_level IN ('V','R')`; adds roster `source='WI'`. A trigger, not route code, because there are three donation-insert paths (`POST /donations`, the vendor webhook, bulk upload). Self-reported (`S`) donations never create attendance, and `is_invalidated` never unwinds it — the person still came |
 
-> **⚠ This table is STALE.** It lists 220–266 plus 310, but the repo actually holds
-> **89 migration files, latest `310_mou_paper_signing_mode`** — migrations 267–309
+> **⚠ This table is STALE.** It lists 220–266 plus 310–314, but the repo actually holds
+> **93 migration files, latest `314_camp_attendance_from_donation`** — migrations 267–309
 > (vendor webhook 307/308, blood-group HITL 309, citizen-raise 303, community-leader
 > served-districts 304, donor-alert horizon 305, institution eSign state + paired BB
 > 306, and others) shipped without being documented here. Do not trust the counts

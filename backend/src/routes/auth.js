@@ -438,8 +438,19 @@ router.post('/institutional/confirm-totp', verifyJWT, async (req, res) => {
     return res.status(400).json({ error: 'invalid_totp' });
   }
 
+  // Stamping last_login_at here is not incidental: for a brand-new account this
+  // response IS the first sign-in. /institutional/login only stamps it on the
+  // branch where TOTP was already enabled, and enrolment is by definition the
+  // branch every new staff member takes instead — so without this an account in
+  // daily use since setup still reported `never_signed_in` on the roster
+  // (services/users/directory.js), which is the label an operator relies on to
+  // spot credentials that reached the wrong person.
   await pool.query(
-    `UPDATE platform_users SET totp_enabled = TRUE, totp_verified_at = NOW() WHERE id = $1`,
+    `UPDATE platform_users
+        SET totp_enabled = TRUE,
+            totp_verified_at = NOW(),
+            last_login_at = clock_timestamp()
+      WHERE id = $1`,
     [req.user.userId],
   );
 

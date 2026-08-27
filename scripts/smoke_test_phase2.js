@@ -534,6 +534,24 @@ async function main() {
     });
     assert(r.status === 200 && r.body.status === 'totp_enabled', 'TOTP enabled');
 
+    // Enrolment alone must already count as a sign-in: confirm-totp hands out a
+    // full session token, so someone who enrols and then simply keeps working
+    // HAS signed in. Asserted HERE rather than after the re-login below, because
+    // that re-login stamps last_login_at on its own and masked this gap
+    // completely until 2026-08-27 - the roster read `never_signed_in` for
+    // accounts in daily use, which is the label operators trust to spot
+    // credentials that reached the wrong person.
+    r = await fetchJson('GET', `/institutions/${TEST.institutionId}/users`, { headers: auth });
+    const enrolledRow = (r.body.users || []).find((u) => u.username === TEST.hoAdminUsername);
+    assert(
+      enrolledRow && !!enrolledRow.last_login_at,
+      'TOTP enrolment stamps last_login_at (that response grants a full session)',
+    );
+    assert(
+      enrolledRow && enrolledRow.credential_state === 'active',
+      `enrolled admin reads active, not never_signed_in (got ${enrolledRow && enrolledRow.credential_state})`,
+    );
+
     r = await fetchJson('POST', '/auth/institutional/login', {
       body: { username: TEST.hoAdminUsername, password: TEST.hoAdminPwd },
     });

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiRequest } from '../../lib/api.js';
@@ -13,6 +13,7 @@ import {
   ReasonDialog,
   institutionErrorText,
 } from '../../components/institution/ReasonDialog.jsx';
+import { InviteForm } from '../../components/institution/InviteForm.jsx';
 
 /**
  * Cross-institution staff-login directory — the one screen that answers
@@ -27,7 +28,11 @@ import {
  * success:false without throwing when a template env var is unset).
  *
  * Actions post to the same institution-scoped endpoints the hospital's own Team
- * tab uses — there is one set of write paths, not an admin copy.
+ * tab uses — there is one set of write paths, not an admin copy. That includes
+ * ADDING a login: the NGO has to be able to provision the first account itself,
+ * because until it can, an institution whose only admin never received their
+ * setup link is deadlocked — they cannot sign in to invite anyone, and every
+ * other invite path in the app requires an institution admin already signed in.
  */
 
 const ROLE_FILTERS = [
@@ -196,6 +201,16 @@ export function InstitutionUsersTab() {
         </div>
       ) : null}
 
+      <AddLoginSection
+        preselectId={institutionFilter}
+        onIssued={(next) => {
+          setIssued(next);
+          setActionNote(null);
+          setActionError(null);
+        }}
+        onDone={refresh}
+      />
+
       {/* State pills. Counts are over the whole directory, not the current
           filter, so the numbers stay meaningful while drilled in. */}
       <div className="flex flex-wrap items-center gap-2">
@@ -331,6 +346,103 @@ export function InstitutionUsersTab() {
         />
       ) : null}
     </div>
+  );
+}
+
+/**
+ * Add a staff login to a chosen institution.
+ *
+ * Only active institutions are offered. POST /institutions/:id/users refuses
+ * anything else with 409 institution_not_active — a login for a pending or
+ * archived institution is rejected at sign-in anyway, so listing one here would
+ * only be a dead end. Hospitals and blood banks only: ROLE_FOR_KIND in
+ * routes/institutions.js maps HO and BB to a staff role and nothing else does,
+ * and a DHO carries no institution row at all.
+ *
+ * Kept collapsed until an institution is picked so the directory — whose job is
+ * "is anyone stuck?" — does not open on a form.
+ */
+function AddLoginSection({ preselectId, onIssued, onDone }) {
+  const listQ = useQuery({
+    queryKey: ['admin', 'institutions', 'active-for-invite'],
+    queryFn: () => apiRequest('GET', '/institutions?status=AC'),
+    staleTime: 60_000,
+  });
+
+  const options = (listQ.data?.institutions || []).filter((i) => i.kind === 'HO' || i.kind === 'BB');
+  const [target, setTarget] = useState('');
+
+  // Follow the deep link (OnboardingDetail arrives with ?institution_id=…), but
+  // only once the list has loaded and only if that institution can take a login.
+  const preselectable = preselectId && options.some((i) => i.id === preselectId);
+  const chosen = target || (preselectable ? preselectId : '');
+  const chosenInst = options.find((i) => i.id === chosen) || null;
+
+  return (
+    <section className="space-y-2 rounded-md border border-stone-200 bg-white p-3">
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="min-w-[18rem] flex-1">
+          <label className="rk-label" htmlFor="iu-invite-inst">
+            Add a login to
+          </label>
+          <select
+            id="iu-invite-inst"
+            className="rk-input"
+            value={chosen}
+            onChange={(e) => setTarget(e.target.value)}
+            disabled={listQ.isLoading || options.length === 0}
+          >
+            <option value="">
+              {listQ.isLoading ? 'Loading institutions…' : 'Choose a hospital or blood bank…'}
+            </option>
+            {options.map((i) => (
+              <option key={i.id} value={i.id}>
+                {i.display_name || i.legal_name} — @{i.shortname}
+                {i.kind === 'BB' ? ' (blood bank)' : ''}
+              </option>
+            ))}
+          </select>
+        </div>
+        {chosenInst ? (
+          <Link
+            to={`/admin/institutions/${chosenInst.id}`}
+            className="pb-2 text-xs text-rk-700 hover:underline"
+          >
+            open its record →
+          </Link>
+        ) : null}
+      </div>
+
+      {preselectId && !preselectable && !listQ.isLoading ? (
+        <p className="text-xs text-amber-700">
+          The institution this page was opened for is not active, so it cannot take a new login yet.
+          Activate it from Onboarding first.
+        </p>
+      ) : null}
+
+      {listQ.error ? (
+        <p className="text-xs text-rk-700">
+          {institutionErrorText(listQ.error?.response?.data?.error || 'load_failed')}
+        </p>
+      ) : null}
+
+      {chosen ? (
+        // Keyed so switching institution clears a half-typed mobile rather than
+        // carrying it to the wrong hospital.
+        <InviteForm
+          key={chosen}
+          institutionId={chosen}
+          onIssued={onIssued}
+          onDone={onDone}
+          defaultOpen
+        />
+      ) : (
+        <p className="text-xs text-slate-500">
+          Normally an institution's own admin invites their colleagues from their Team tab. Do it
+          here when they have nobody able to sign in yet.
+        </p>
+      )}
+    </section>
   );
 }
 

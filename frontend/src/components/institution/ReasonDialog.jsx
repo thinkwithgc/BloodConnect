@@ -171,9 +171,19 @@ export function institutionErrorText(code, { minLength = 10 } = {}) {
       return 'Your account is not permitted to do this.';
     case 'not_institution_admin':
       return 'Only an institution admin can manage staff logins.';
+    // Three different failures that used to share one sentence. `not_found` and
+    // `institution_not_found` come from a handler that looked for a row and did not
+    // find it. `route_not_found` comes from the API's catch-all: the endpoint itself
+    // is not there, which in practice means this tab is running against an older API
+    // than it was built for — the two deploys leave from one push but not at one
+    // speed. Telling that operator to go back to the register sent them looking for a
+    // record that was never missing, so it now says what actually helps: reload.
+    case 'route_not_found':
+      return 'This page is newer than the server it just called. Reload the page (Ctrl+Shift+R) and try again — if it still fails after a minute, tell the NGO team.';
     case 'not_found':
+      return 'That record is no longer at this address. Reload the list and re-open it.';
     case 'institution_not_found':
-      return 'This no longer exists at this address. Go back to the register and re-open it.';
+      return 'That institution is no longer on the register. Go back to the register and re-open it.';
     case 'load_failed':
       return 'Could not load this. Reload the page; if it keeps failing, tell the NGO team.';
     case 'invalid_input':

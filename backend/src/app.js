@@ -160,8 +160,18 @@ function createApp() {
   // community-related routes in one module.
   app.use('/community', communityLeaderRouter.publicRouter);
 
+  // Nothing matched. This says `route_not_found`, NOT `not_found`, and the
+  // distinction is load-bearing: a dozen handlers answer a missing ROW with
+  // `not_found`, so a shared code made "this endpoint does not exist" and "that
+  // record is gone" render as the same sentence on screen. That cost a real
+  // investigation. The frontend and the API deploy from one push but not at one
+  // speed — the static web app finished ~65s ahead of the App Service on the
+  // 2026-08-28 release — so for that minute a new button called a route the
+  // running API did not have yet, and the operator was told to go back to the
+  // register and re-open a record that was never missing. An unmatched route now
+  // says so in its own words.
   app.use((_req, res) => {
-    res.status(404).json({ error: 'not_found' });
+    res.status(404).json({ error: 'route_not_found' });
   });
 
   app.use((err, req, res, _next) => {

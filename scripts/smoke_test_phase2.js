@@ -1304,7 +1304,85 @@ async function main() {
       `re-issue now has somewhere to send the link (got ${r.status} ${r.body.error || ''})`,
     );
 
-    console.log('── 20. Reversible lifecycle: suspend / archive ─────────────');
+    console.log('── 20. The paired blood bank is a record in its own right ──');
+    // Reported from the field the day this shipped: opening the in-house blood
+    // bank from the register and saving its contact details answered "This no
+    // longer exists at this address." Section 18 only ever patched the parent
+    // hospital, so a 404 reachable on a CHILD row could ship unseen — and the
+    // sentence the operator reads is the same one a mistyped URL produces, so it
+    // told nobody which of the two it was. Both surfaces on that screen, pinned.
+
+    // 20a. The child's own detail page loads, and carries the id the save posts
+    // back to. GET /:id filters on nothing but the id — no kind, no parentage —
+    // and that is deliberate: a blood bank inside a hospital is still a row.
+    r = await fetchJson('GET', `/institutions/${TEST.childInstitutionId}`, { headers: auth });
+    assert(
+      r.status === 200 && r.body.id === TEST.childInstitutionId,
+      `the paired blood bank's own record opens (got ${r.status} ${r.body.error || ''})`,
+    );
+    assert(
+      r.body.kind === 'BB' && r.body.parent_institution_id === TEST.institutionId,
+      'and reports itself as the in-house blood bank of the hospital that governs it',
+    );
+    assert(
+      'primary_contact_mobile' in r.body && 'primary_contact_name' in r.body,
+      'and carries the primary-contact fields the details form binds to',
+    );
+
+    // 20b. Contact details are a routine edit: no reason gate, and no licence
+    // demand either. PUT /:id re-checks the CDSCO licence for a BB, but against
+    // the patch MERGED over the row — so a contact-only save on a properly
+    // onboarded blood bank must not be asked for a licence it already holds.
+    const bbInstMobile = `+919${RUN_TAG}014`;
+    r = await fetchJson('PUT', `/institutions/${TEST.childInstitutionId}`, {
+      headers: auth,
+      body: {
+        primary_contact_name: 'Dr S. Kale',
+        primary_contact_designation: 'Blood bank officer',
+        primary_contact_mobile: bbInstMobile,
+      },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'updated',
+      `the blood bank's contact details save (got ${r.status} ${r.body.error || ''})`,
+    );
+    assert(
+      r.body.reason_recorded === false && r.body.fields_updated.length === 3,
+      'unreasoned, because a phone number is not a licence number',
+    );
+
+    // 20c. ...and it landed on the child. Parent and child share one page shape,
+    // so a save that wrote through to the hospital would look identical on screen.
+    const bbInstRow = await dbRow(
+      `SELECT primary_contact_mobile, primary_contact_name FROM institutions WHERE id = $1`,
+      [TEST.childInstitutionId],
+    );
+    assert(
+      bbInstRow && String(bbInstRow.primary_contact_mobile).trim() === bbInstMobile,
+      `the number is on the blood bank (got ${bbInstRow && bbInstRow.primary_contact_mobile})`,
+    );
+    const parentInstRow = await dbRow(
+      `SELECT primary_contact_mobile FROM institutions WHERE id = $1`,
+      [TEST.institutionId],
+    );
+    assert(
+      parentInstRow && String(parentInstRow.primary_contact_mobile).trim() !== bbInstMobile,
+      'and not on the hospital that governs it',
+    );
+
+    // 20d. The roster action on that same screen. Section 19 proved the route;
+    // this pins it from the blood bank's own page, which is where the report came
+    // from — the two are one click apart and the error text cannot tell them apart.
+    r = await fetchJson('POST', bbContactPath, {
+      headers: auth,
+      body: { email: `bb.officer.${RUN_TAG}@smoke.invalid` },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'updated',
+      `its admin login stays editable from that page (got ${r.status} ${r.body.error || ''})`,
+    );
+
+    console.log('── 21. Reversible lifecycle: suspend / archive ─────────────');
     // Suspend used to be a one-way door and 'AR' was unreachable. What this
     // section pins down is that every step back out exists, that retiring an
     // institution sits one rank above pausing one, and that an institution with
@@ -1491,6 +1569,48 @@ async function main() {
     assert(
       r.status === 409 && r.body.error === 'not_found_or_not_suspended',
       `un-suspending an active institution → 409 (got ${r.status} ${r.body.error})`,
+    );
+
+    // ──────────────────────────────────────────────────────────────────────
+    // 22. A missing ENDPOINT and a missing ROW do not read the same
+    //
+    // These two 404s shared the literal code `not_found` until 2026-08-29, and
+    // that cost a real investigation. The web app and the API deploy from one
+    // push but not at one speed — the static web app finished ~65s ahead of the
+    // App Service on the release that shipped the staff-contact editor — so for
+    // that minute a live button called a route the running API did not have. The
+    // operator was told "this no longer exists at this address, go back to the
+    // register and re-open it" about a record that was never missing.
+    //
+    // The codes must stay distinguishable, so they are asserted as different.
+    console.log('');
+    console.log('── 22. A missing endpoint and a missing row differ ─────────');
+
+    // 22a. The catch-all. A path under a mounted router that no handler claims.
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.institutionId}/users/${bbAdminUserId}/no-such-action`,
+      { headers: auth, body: {} },
+    );
+    assert(
+      r.status === 404 && r.body.error === 'route_not_found',
+      `an unmatched endpoint answers route_not_found, not not_found (got ${r.status} ${r.body.error})`,
+    );
+
+    // 22b. A handler that looked for a row and did not find one. Valid UUID,
+    // absent from the table — the genuine "this record is gone" case.
+    const ABSENT_UUID = '00000000-0000-4000-8000-000000000000';
+    r = await fetchJson('GET', `/institutions/${ABSENT_UUID}`, { headers: auth });
+    assert(
+      r.status === 404 && r.body.error === 'not_found',
+      `a missing institution row still answers not_found (got ${r.status} ${r.body.error})`,
+    );
+
+    // 22c. The whole point: an operator cannot be shown one sentence for both.
+    r = await fetchJson('GET', `/institutions/${ABSENT_UUID}/nope`, { headers: auth });
+    assert(
+      r.body.error === 'route_not_found' && r.body.error !== 'not_found',
+      `missing endpoint and missing row carry different codes (got ${r.body.error})`,
     );
   } catch (err) {
     console.error('FATAL during smoke:', err.message);

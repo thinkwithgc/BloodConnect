@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { Header } from '../../components/Header.jsx';
 import { apiRequest } from '../../lib/api.js';
+import { isoOffsetDays, isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
 
 const ORGANISER_TYPES = [
   { code: 'CC', label: 'Corporate / company' },
@@ -88,6 +89,9 @@ export function HostCamp() {
   const [topError, setTopError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [submitted, setSubmitted] = useState(null);
+  // Set only by a 409 blood_bank_day_full. Holds the alternatives the backend
+  // offered, so the rejection can suggest a day instead of just refusing one.
+  const [dayFull, setDayFull] = useState(null);
 
   function update(k, v) {
     setForm((p) => ({ ...p, [k]: v }));
@@ -140,6 +144,7 @@ export function HostCamp() {
     e.preventDefault();
     setErrors({});
     setTopError('');
+    setDayFull(null);
 
     const payload = {
       ...form,
@@ -185,7 +190,22 @@ export function HostCamp() {
       setSubmitted(r);
       window.scrollTo({ top: 0, behavior: 'smooth' });
     } catch (err) {
-      setTopError(err?.response?.data?.error || 'submit_failed');
+      const data = err?.response?.data || {};
+      if (data.error === 'blood_bank_day_full') {
+        // Not a validation failure - the form is correct, the day is taken. The
+        // alternatives ride down to the strip beside the blood bank, which is
+        // where the choice actually gets made.
+        setDayFull(data);
+        setErrors({ scheduled_date: 'that blood bank is full on this day' });
+        setTopError(
+          'That blood bank cannot take another camp on ' +
+            (data.scheduled_date || 'that date') +
+            '. Pick one of the open days shown below, or leave the blood bank blank ' +
+            'and we will arrange one.',
+        );
+      } else {
+        setTopError(data.error || 'submit_failed');
+      }
     } finally {
       setSubmitting(false);
     }
@@ -359,6 +379,8 @@ export function HostCamp() {
                 type="date"
                 className="rk-input"
                 value={form.scheduled_date}
+                min={todayISO()}
+                max={isoOffsetYears(1)}
                 onChange={(e) => update('scheduled_date', e.target.value)}
                 required
               />
@@ -504,6 +526,14 @@ export function HostCamp() {
                 </select>
               </Field>
             )}
+            {form.requested_blood_bank_id ? (
+              <AvailabilityStrip
+                bloodBankId={form.requested_blood_bank_id}
+                date={form.scheduled_date}
+                dayFull={dayFull}
+                onPickDate={(d) => update('scheduled_date', d)}
+              />
+            ) : null}
           </section>
 
           {/* Volunteer training */}
@@ -603,4 +633,157 @@ export function HostCamp() {
       </main>
     </div>
   );
+}
+
+// ── What the chosen blood bank has already committed to ────────────────────
+//
+// Migration 316 lets a blood bank publish, a month ahead, how many camps a day
+// it can staff. This is the organiser's side of that: the days it has already
+// filled read as taken BEFORE the date is committed, so the clash is found on
+// the form instead of on a phone call a week later.
+//
+// A day with no published capacity looks completely normal here, and that is
+// correct - absence of a row means "not planned", never "closed" (316's
+// header). On the day this ships no blood bank has published anything, so this
+// strip renders its quiet "nothing marked" state for every date. It gets more
+// useful as blood banks fill their calendars, and it is never in the way.
+function AvailabilityStrip({ bloodBankId, date, dayFull, onPickDate }) {
+  const [data, setData] = useState(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    if (!bloodBankId) {
+      setData(null);
+      setFailed(false);
+      return undefined;
+    }
+    let live = true;
+    setData(null);
+    setFailed(false);
+    // 90 days: inside the endpoint's 92-day cap, and past the horizon anyone
+    // books a camp on.
+    apiRequest(
+      'GET',
+      `/camps/bb-availability?blood_bank_id=${bloodBankId}` +
+        `&from=${todayISO()}&to=${isoOffsetDays(90)}`,
+    )
+      .then((r) => {
+        if (live) setData(r);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [bloodBankId]);
+
+  // The strip must never stop anyone submitting. If this call fails the form
+  // behaves exactly as it did before the feature existed, and the backend gate
+  // still catches a genuine clash.
+  if (failed) return null;
+
+  const days = data?.days || [];
+  const full = days.filter((d) => d.published && !d.ok);
+  const open = days.filter((d) => d.published && d.ok && d.max_camps > 0);
+  const chosen = date ? days.find((d) => d.date === date) || null : null;
+
+  // The alternatives the backend offered on a 409 beat anything worked out
+  // here: they were computed at the moment of the refusal.
+  const suggestions = (dayFull?.next_open_dates?.length
+    ? dayFull.next_open_dates
+    : open.map((d) => d.date)
+  ).slice(0, 6);
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
+      <p className="font-medium text-slate-700">
+        {data?.blood_bank_name || 'This blood bank'} - days it can take a camp
+      </p>
+
+      {!data ? (
+        <p className="mt-1 text-slate-500">Checking their calendar...</p>
+      ) : dayFull ? (
+        <p className="mt-1 font-medium text-rk-700">
+          Fully booked on {fmtDay(dayFull.scheduled_date)} - {dayFull.confirmed} of{' '}
+          {dayFull.max_camps} camps already taken. Choose another day below.
+        </p>
+      ) : chosen && chosen.published && chosen.max_camps === 0 ? (
+        <p className="mt-1 font-medium text-rk-700">
+          They are closed for camps on {fmtDay(chosen.date)}. Choose another day below.
+        </p>
+      ) : chosen && chosen.published && !chosen.ok ? (
+        <p className="mt-1 font-medium text-amber-700">
+          Already full on {fmtDay(chosen.date)} - {chosen.confirmed} of {chosen.max_camps}{' '}
+          camps taken. Choose another day below.
+        </p>
+      ) : chosen && chosen.published ? (
+        <p className="mt-1 text-green-800">
+          Room on {fmtDay(chosen.date)} - {chosen.confirmed} of {chosen.max_camps} camps
+          taken, {chosen.slots_left} still free.
+          {chosen.pending ? ` ${chosen.pending} other application is being reviewed.` : ''}
+        </p>
+      ) : chosen ? (
+        <p className="mt-1 text-slate-600">
+          They have not published a plan for {fmtDay(chosen.date)} yet. Go ahead - our team
+          confirms it with them when we review your application.
+        </p>
+      ) : full.length ? (
+        <p className="mt-1 text-slate-600">
+          Already full on{' '}
+          <span className="font-medium text-slate-800">
+            {full
+              .slice(0, 5)
+              .map((d) => fmtDay(d.date))
+              .join(', ')}
+          </span>
+          {full.length > 5 ? ` and ${full.length - 5} more` : ''}. Every other day is open.
+        </p>
+      ) : (
+        <p className="mt-1 text-slate-600">
+          Nothing marked full in the next 90 days. Pick whichever date suits you.
+        </p>
+      )}
+
+      {/* Suggested days, one tap each. Shown only when the chosen day will not
+          work - offering alternatives to someone whose date is already fine
+          just invites second-guessing. Published, non-full days only: a day the
+          blood bank has not committed to is not an assurance to hand out. */}
+      {suggestions.length && (dayFull || (chosen && chosen.published && !chosen.ok)) ? (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {suggestions.map((d) => (
+            <button
+              key={d}
+              type="button"
+              className="rounded-full border border-rk-700 px-3 py-1 text-xs font-medium text-rk-700 hover:bg-rk-50"
+              onClick={() => onPickDate(d)}
+            >
+              {fmtDay(d)}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
+      <p className="mt-2 text-xs text-slate-500">
+        You can still apply for any date. Our NGO team confirms the blood bank before the
+        camp is published.
+      </p>
+    </div>
+  );
+}
+
+// "Sat 14 Sep". Short enough to sit five-across on a phone, and the weekday is
+// there because a camp on a working Tuesday is a different proposition from one
+// on a Sunday.
+function fmtDay(iso) {
+  if (!iso) return '';
+  try {
+    return new Date(`${String(iso).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+    });
+  } catch {
+    return String(iso).slice(0, 10);
+  }
 }

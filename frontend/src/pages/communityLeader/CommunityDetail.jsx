@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Header } from '../../components/Header.jsx';
 import { Footer } from '../../components/Footer.jsx';
 import { apiRequest } from '../../lib/api.js';
+import { isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
 
 /**
  * Community detail — placeholder shell for Phase 2.
@@ -713,7 +714,8 @@ function HostCampModal({ community, onClose }) {
                 value={form.scheduled_date}
                 onChange={(e) => setForm({ ...form, scheduled_date: e.target.value })}
                 required
-                min={new Date().toISOString().slice(0, 10)}
+                min={todayISO()}
+                max={isoOffsetYears(1)}
               />
             </Field>
             <Field label="Start" required>

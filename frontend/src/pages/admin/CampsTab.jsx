@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiRequest } from '../../lib/api.js';
+import { isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
 
 const STATUS = {
   PE: { label: 'Pending review', cls: 'bg-amber-100 text-amber-800' },
@@ -23,6 +24,10 @@ const ORGANISER = {
 
 const FILTERS = [
   { id: 'PE',    label: 'Pending review' },
+  // Its own queue rather than a status: a declined camp is still 'PL' and still
+  // happening (migration 317 is an orthogonal axis), so it would otherwise sit
+  // invisibly among the planned camps with nobody coming to collect.
+  { id: 'BBDC',  label: 'BB declined — reassign' },
   { id: 'PL',    label: 'Planned' },
   { id: '',      label: 'Upcoming (PL + LV)' },
   { id: 'STALE', label: 'Stale (needs update)' },
@@ -30,6 +35,118 @@ const FILTERS = [
   { id: 'CA',    label: 'Cancelled' },
   { id: 'DC',    label: 'Declined' },
 ];
+
+// Migration 317's reason vocabulary, phrased for the admin reading it rather
+// than the blood bank that wrote it. Kept as a map because the wire value is a
+// CHAR(2) and rendering 'NC' at a person is not an answer.
+const BB_DECLINE_REASONS = {
+  NC: 'No capacity that day',
+  ND: 'Staff not on duty',
+  DT: 'Date clash with another camp',
+  VE: 'Venue / logistics not workable',
+  OT: 'Other',
+};
+
+// The blood bank's answer, which is NOT the camp's status. STATUS above still
+// owns status; this is the separate axis migration 317 added, and conflating the
+// two is what a single 'BA' status value would have forced.
+const BB_RESPONSE = {
+  AC: { label: 'BB accepted', cls: 'bg-green-100 text-green-800' },
+  PE: { label: 'Awaiting BB', cls: 'bg-amber-100 text-amber-800' },
+  DC: { label: 'BB declined', cls: 'bg-rk-700/80 text-white' },
+};
+
+/**
+ * One line about the blood bank on a camp row. Three distinct nulls hide here
+ * and the admin needs them apart:
+ *   partnered + response  the normal case
+ *   requested only        the organiser named a BB, this camp is not verified yet
+ *   neither               no blood bank at all, which is legal and stays 'PL'
+ *                         (talukas in Amravati have none; district fallback
+ *                         collects under GET /camps/collectable)
+ */
+function BloodBankCell({ camp }) {
+  if (camp.partnered_blood_bank_id) {
+    const r = BB_RESPONSE[camp.bb_response];
+    return (
+      <div>
+        <div className="text-slate-800">{camp.partnered_blood_bank_name || 'Partnered'}</div>
+        {r ? (
+          <span
+            className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${r.cls}`}
+          >
+            {r.label}
+          </span>
+        ) : (
+          <div className="text-xs text-slate-500">No answer recorded</div>
+        )}
+        {camp.bb_response === 'DC' && camp.bb_decline_reason ? (
+          <div className="mt-0.5 text-[11px] text-rk-700">
+            {BB_DECLINE_REASONS[camp.bb_decline_reason] || camp.bb_decline_reason}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  if (camp.requested_blood_bank_id) {
+    return (
+      <div>
+        <div className="text-slate-600">{camp.requested_blood_bank_name || 'Requested'}</div>
+        <div className="text-xs text-slate-500">Asked for — not partnered yet</div>
+      </div>
+    );
+  }
+  return <span className="text-xs text-slate-400">None</span>;
+}
+
+/**
+ * What one blood bank's day already looks like, shown beside the partner
+ * dropdown so the admin can see they are about to overbook BEFORE clicking.
+ * Reads the same public endpoint the organiser's hosting form reads, which is
+ * the point — one occupancy number, one service (services/camps/capacity.js).
+ *
+ * Overbooking is never blocked here: the NGO admin is the bridge, and a camp
+ * with 200 RSVPs and no collector needs a person to override a number. The
+ * backend records the override in review_notes.
+ */
+function DayOccupancy({ bloodBankId, date }) {
+  const q = useQuery({
+    queryKey: ['camps', 'bb-availability', bloodBankId, date],
+    queryFn: () =>
+      apiRequest(
+        'GET',
+        `/camps/bb-availability?blood_bank_id=${bloodBankId}&from=${date}&to=${date}`,
+      ),
+    enabled: Boolean(bloodBankId && date),
+    staleTime: 60_000,
+  });
+  if (!bloodBankId || !date) return null;
+  if (q.isLoading) {
+    return <span className="mt-1 block text-xs text-slate-400">Checking that day…</span>;
+  }
+  const day = q.data?.days?.[0];
+  if (!day) return null;
+  if (!day.published) {
+    return (
+      <span className="mt-1 block text-xs text-slate-500">
+        This blood bank has not planned {fmtDate(date)} yet — nothing blocks the booking.
+        {day.confirmed ? ` It already has ${day.confirmed} camp(s) that day.` : ''}
+      </span>
+    );
+  }
+  const full = !day.ok;
+  return (
+    <span
+      className={'mt-1 block text-xs font-medium ' + (full ? 'text-rk-700' : 'text-green-700')}
+    >
+      {fmtDate(date)}: {day.confirmed} of {day.max_camps} camps confirmed
+      {day.pending ? ` · ${day.pending} pending` : ''}
+      {full
+        ? ' — already full. You can still partner them, and the override is recorded.'
+        : ` · ${day.slots_left} slot(s) free`}
+    </span>
+  );
+}
 
 function fmtDate(v) {
   if (!v) return '—';
@@ -45,6 +162,7 @@ export function CampsTab() {
   const [showForm, setShowForm] = useState(false);
   const [selectedCamp, setSelectedCamp] = useState(null);
   const [reviewCamp, setReviewCamp] = useState(null);
+  const [reassignCamp, setReassignCamp] = useState(null);
   const [filter, setFilter] = useState('PE');
   const [statusAction, setStatusAction] = useState(null); // { camp, kind: 'complete' | 'cancel' }
 
@@ -52,6 +170,10 @@ export function CampsTab() {
     queryKey: ['admin', 'camps', filter],
     queryFn: () => {
       if (filter === 'STALE') return apiRequest('GET', '/camps?stale=true');
+      // Not a status filter: bb_response is an orthogonal axis (migration 317),
+      // so these camps are still 'PL' and the backend has to escape its own
+      // future-only default to return them.
+      if (filter === 'BBDC') return apiRequest('GET', '/camps?bb_declined=true');
       return apiRequest('GET', filter ? `/camps?status=${filter}` : '/camps');
     },
     staleTime: 15_000,
@@ -96,6 +218,15 @@ export function CampsTab() {
         </p>
       ) : null}
 
+      {filter === 'BBDC' && rows.length > 0 ? (
+        <p className="text-xs text-slate-500">
+          {rows.length} camp{rows.length === 1 ? '' : 's'} whose blood bank said no. The camp
+          is still going ahead and donors may already have RSVP&apos;d — use{' '}
+          <strong>Reassign</strong> to partner a different blood bank. The organiser has been
+          told a replacement is being arranged, never the reason.
+        </p>
+      ) : null}
+
       {filter === 'STALE' && rows.length > 0 ? (
         <p className="text-xs text-slate-500">
           {rows.length} camp{rows.length === 1 ? '' : 's'} scheduled in the past but still
@@ -122,6 +253,7 @@ export function CampsTab() {
               <th className="px-3 py-2 text-left">Date</th>
               <th className="px-3 py-2 text-left">District</th>
               <th className="px-3 py-2 text-left">Organiser</th>
+              <th className="px-3 py-2 text-left">Blood bank</th>
               <th className="px-3 py-2 text-right">Registered</th>
               <th className="px-3 py-2 text-right">Donated</th>
               <th className="px-3 py-2 text-right">Couldn&apos;t donate</th>
@@ -155,6 +287,9 @@ export function CampsTab() {
                     <div className="text-slate-800">{c.organiser_name}</div>
                     <div className="text-xs text-slate-500">{ORGANISER[c.organiser_type]}</div>
                   </td>
+                  <td className="px-3 py-2">
+                    <BloodBankCell camp={c} />
+                  </td>
                   <td className="px-3 py-2 text-right font-semibold text-slate-900">
                     {c.registered_donor_count ?? 0}
                     {c.target_donor_count ? (
@@ -186,6 +321,16 @@ export function CampsTab() {
                       </button>
                     ) : (
                       <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                        {c.bb_response === 'DC' && c.status !== 'CO' && c.status !== 'CA' ? (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-rk-700 hover:underline"
+                            onClick={() => setReassignCamp(c)}
+                            title="Partner a different blood bank"
+                          >
+                            Reassign
+                          </button>
+                        ) : null}
                         {(c.status === 'PL' || c.status === 'LV') ? (
                           <>
                             <button
@@ -221,12 +366,14 @@ export function CampsTab() {
             })}
             {rows.length === 0 && !listQ.isLoading ? (
               <tr>
-                <td colSpan={9} className="px-3 py-6 text-center text-sm text-slate-500">
+                <td colSpan={10} className="px-3 py-6 text-center text-sm text-slate-500">
                   {filter === 'PE'
                     ? 'No camp applications awaiting review — great.'
-                    : filter === 'STALE'
-                      ? 'No stale camps — every past-dated camp has been completed or cancelled.'
-                      : 'No camps in this filter.'}
+                    : filter === 'BBDC'
+                      ? 'No blood bank has declined a camp — nothing to reassign.'
+                      : filter === 'STALE'
+                        ? 'No stale camps — every past-dated camp has been completed or cancelled.'
+                        : 'No camps in this filter.'}
                 </td>
               </tr>
             ) : null}
@@ -248,6 +395,17 @@ export function CampsTab() {
           }}
         />
       ) : null}
+      {reassignCamp ? (
+        <RepartnerPanel
+          camp={reassignCamp}
+          onClose={() => setReassignCamp(null)}
+          onDone={() => {
+            setReassignCamp(null);
+            qc.invalidateQueries({ queryKey: ['admin', 'camps'] });
+          }}
+        />
+      ) : null}
+
       {reviewCamp ? (
         <ReviewPanel
           camp={reviewCamp}
@@ -392,6 +550,151 @@ function StatusActionModal({ camp, kind, onClose, onDone }) {
             onClick={() => m.mutate()}
           >
             {m.isPending ? '…' : isComplete ? 'Mark completed' : 'Confirm cancellation'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * RepartnerPanel — the blood bank said no; find another one.
+ *
+ * A separate surface from ReviewPanel on purpose: ReviewPanel only ever opens
+ * for a 'PE' camp (isPending), and a declined camp is 'PL' — already verified,
+ * already public, possibly with 200 RSVPs. Nothing about it needs re-reviewing.
+ * The only open question is who collects the blood.
+ *
+ * The decline reason is shown HERE and nowhere the organiser can reach: they see
+ * only that a replacement is being arranged (the founder's call), so the reason
+ * is an internal input to this decision, not news to be broken.
+ */
+function RepartnerPanel({ camp, onClose, onDone }) {
+  const [bloodBanks, setBloodBanks] = useState([]);
+  const [bbId, setBbId] = useState('');
+  const [reason, setReason] = useState('');
+
+  useEffect(() => {
+    if (!camp.district_id) {
+      setBloodBanks([]);
+      return;
+    }
+    apiRequest('GET', `/camps/blood-bank-options?district_id=${camp.district_id}`)
+      .then((r) => setBloodBanks(r.blood_banks || []))
+      .catch(() => setBloodBanks([]));
+  }, [camp.id, camp.district_id]);
+
+  const m = useMutation({
+    mutationFn: () =>
+      apiRequest('POST', `/camps/${camp.id}/repartner`, {
+        partnered_blood_bank_id: bbId,
+        ...(reason.trim() ? { reason: reason.trim() } : {}),
+      }),
+    onSuccess: onDone,
+  });
+
+  // The BB that just declined is still on the row — offering it back would be a
+  // guaranteed second decline.
+  const options = bloodBanks.filter((b) => b.id !== camp.partnered_blood_bank_id);
+  const date = String(camp.scheduled_date).slice(0, 10);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
+      <div className="mt-16 w-full max-w-lg space-y-4 rounded-xl bg-white p-6 shadow-lift">
+        <h3 className="text-lg font-semibold text-slate-900">Reassign blood bank</h3>
+        <p className="text-sm text-slate-600">
+          <strong>{camp.name}</strong> · {camp.venue} · {fmtDate(camp.scheduled_date)}
+        </p>
+
+        <div className="rounded-md border border-rk-100 bg-rk-50/60 p-3 text-sm">
+          <div className="font-medium text-rk-700">
+            {camp.partnered_blood_bank_name || 'The partnered blood bank'} declined
+          </div>
+          <div className="mt-0.5 text-slate-700">
+            {BB_DECLINE_REASONS[camp.bb_decline_reason] ||
+              camp.bb_decline_reason ||
+              'No reason recorded'}
+          </div>
+          {camp.bb_decline_note ? (
+            <div className="mt-1 whitespace-pre-wrap text-xs text-slate-600">
+              &ldquo;{camp.bb_decline_note}&rdquo;
+            </div>
+          ) : null}
+          <div className="mt-2 text-xs text-slate-500">
+            Internal only. The organiser has been told a different blood bank is being
+            arranged — never the reason.
+          </div>
+        </div>
+
+        {options.length === 0 ? (
+          <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
+            No other onboarded blood bank in {camp.district_name || 'this district'}. The camp
+            still runs — a district blood bank can collect without being partnered (it appears
+            on their collectable list), so arrange it off-platform and leave this as it is.
+          </p>
+        ) : (
+          <label className="block text-sm">
+            <span className="rk-label">
+              New collecting blood bank <span className="text-rk-700">*</span>
+            </span>
+            <select className="rk-input" value={bbId} onChange={(e) => setBbId(e.target.value)}>
+              <option value="">— choose —</option>
+              {options.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.display_name}
+                </option>
+              ))}
+            </select>
+            <DayOccupancy bloodBankId={bbId} date={date} />
+            <span className="mt-1 block text-xs text-slate-500">
+              They are asked to confirm, exactly as the first one was. The organiser sees the
+              new name on their dashboard and on the public camp page once they accept.
+            </span>
+          </label>
+        )}
+
+        <label className="block text-sm">
+          <span className="rk-label">Note for the record (optional)</span>
+          <textarea
+            className="rk-input"
+            rows={2}
+            value={reason}
+            onChange={(e) => setReason(e.target.value)}
+            placeholder="e.g. Spoke to Dr. Kulkarni, their team can cover the 14th."
+          />
+          <span className="mt-1 block text-xs text-slate-500">
+            Appended to the camp&apos;s review notes. Not shown to the organiser.
+          </span>
+        </label>
+
+        {m.error ? (
+          <p className="text-xs text-rk-700">
+            {m.error?.response?.data?.error === 'camp_is_closed'
+              ? 'This camp is completed or cancelled — there is nothing left to reassign.'
+              : m.error?.response?.data?.error === 'blood_bank_not_available'
+                ? 'That blood bank is no longer active. Pick another.'
+                : m.error?.response?.data?.error || 'reassign_failed'}
+          </p>
+        ) : null}
+
+        {m.data?.capacity_overridden ? (
+          <p className="text-xs text-amber-700">
+            Booked past that blood bank&apos;s published capacity for {fmtDate(date)}. The
+            override is recorded on the camp.
+          </p>
+        ) : null}
+
+        <div className="flex justify-end gap-2">
+          <button type="button" className="rk-button-secondary" onClick={onClose}>
+            Close
+          </button>
+          <button
+            type="button"
+            className="rk-button-primary"
+            disabled={!bbId || m.isPending}
+            onClick={() => m.mutate()}
+          >
+            {m.isPending ? '…' : 'Partner this blood bank'}
           </button>
         </div>
       </div>
@@ -666,6 +969,10 @@ function ReviewPanel({ camp, onClose, onActioned }) {
                 ))}
               </select>
             )}
+            <DayOccupancy
+              bloodBankId={partneredBbId}
+              date={String(camp.scheduled_date).slice(0, 10)}
+            />
             <span className="mt-1 block text-xs text-slate-500">
               The organiser sees this name on their dashboard and on the public camp page.
               {camp.requested_blood_bank_name
@@ -828,7 +1135,9 @@ export function CreateCampForm({ onCreated }) {
       </label>
       <label className="block">
         <span className="rk-label">Date</span>
-        <input type="date" className="rk-input" value={form.scheduled_date} onChange={(e) => set('scheduled_date', e.target.value)} required />
+        {/* Bounded so the native picker opens on a useful month and a slipped
+            keystroke cannot file a camp in 2206 or yesterday. */}
+        <input type="date" className="rk-input" value={form.scheduled_date} onChange={(e) => set('scheduled_date', e.target.value)} required min={todayISO()} max={isoOffsetYears(1)} />
       </label>
       <label className="block">
         <span className="rk-label">Pincode</span>

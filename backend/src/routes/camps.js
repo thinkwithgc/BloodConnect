@@ -8,6 +8,15 @@
  *   GET  /camps/collectable        camps a blood bank may record donations against
  *   GET  /camps/blood-bank-options PUBLIC — blood banks in a district, for the
  *                                  hosting form's "who will collect?" picker
+ *   GET  /camps/bb-availability    PUBLIC — one blood bank's published camp
+ *                                  capacity, per day (counts only)
+ *   GET/PUT /camps/bb/settings     blood bank's standing camp posture
+ *   GET/PUT /camps/bb/capacity     per-day capacity + live occupancy
+ *   POST /camps/bb/capacity/publish-month
+ *                                  generate a month from the settings template
+ *   GET  /camps/bb/camps           this blood bank's camps, any status
+ *   POST /camps/:id/bb-response    the partnered BB accepts or declines
+ *   GET  /camps/:id/donations      post-camp results worklist (masked mobile)
  *   GET  /camps/:id                detail
  *   GET  /camps/:id/registrations  roster — coordinator/admin/BB
  *   POST /camps                    create direct — coordinator/admin (status=PL)
@@ -31,10 +40,22 @@ const { verifyJWT, requireRole } = require('../middleware/auth');
 const { verify: verifyJwtToken } = require('../utils/jwt');
 const logger = require('../config/logger');
 const env = require('../config/env');
-const { normaliseIndianMobile } = require('../utils/phone');
+const { normaliseIndianMobile, maskMobile } = require('../utils/phone');
 const { openRows } = require('../services/pii');
 const { sendNotification } = require('../services/notifications');
 const { DATE_TOLERANCE_DAYS } = require('../services/donations/camp');
+const capacity = require('../services/camps/capacity');
+
+// Who may see a camp's submitter PII and the NGO's internal review text.
+// Shared by GET /camps and GET /camps/:id so the two can never disagree about
+// what a donor or a blood bank is allowed to read.
+const CAMP_REVIEWER_ROLES = ['ngo_admin', 'super_admin', 'coordinator'];
+const CAMP_SUBMITTER_KEYS = [
+  'submitted_by_name',
+  'submitted_by_mobile',
+  'submitted_by_email',
+  'submitted_by_role',
+];
 
 // Behind Azure App Service / Front Door, req.ip can surface as a multi-hop
 // X-Forwarded-For string, an IPv4-mapped IPv6 like '::ffff:1.2.3.4', or an
@@ -71,6 +92,10 @@ router.get('/', verifyJWT, async (req, res) => {
   const districtId = req.query.district_id ? Number(req.query.district_id) : null;
   const status = req.query.status || null;
   const stale = req.query.stale === 'true';
+  // The reassignment queue: camps whose partnered blood bank said no. These need
+  // an admin to find another BB, and unlike `stale` they are not necessarily in
+  // the past, so the filter has to escape the default future-only window too.
+  const bbDeclined = req.query.bb_declined === 'true';
   const isReviewer = ['ngo_admin', 'super_admin', 'coordinator'].includes(req.user.role);
 
   const r = await withRlsContext(req, (c) =>
@@ -83,6 +108,8 @@ router.get('/', verifyJWT, async (req, res) => {
               c.target_donor_count, c.registered_donor_count,
               c.attended_donor_count, c.deferred_donor_count, c.units_collected,
               c.status, c.partnered_blood_bank_id,
+              c.bb_response, c.bb_response_at,
+              c.bb_decline_reason, c.bb_decline_note,
               i.display_name AS partnered_blood_bank_name,
               c.requested_blood_bank_id,
               rb.display_name AS requested_blood_bank_name,
@@ -100,14 +127,16 @@ router.get('/', verifyJWT, async (req, res) => {
         WHERE ($1::int  IS NULL OR c.district_id = $1)
           AND ($2::text IS NULL OR c.status = $2)
           AND ($3::boolean IS TRUE
+                 OR $4::boolean IS TRUE
                  OR $2::text IS NOT NULL
                  OR (c.status IN ('PL','LV') AND c.scheduled_date >= CURRENT_DATE))
           AND ($3::boolean IS NOT TRUE
                  OR (c.status IN ('PL','LV')
                      AND c.scheduled_date < CURRENT_DATE - INTERVAL '1 day'))
+          AND ($4::boolean IS NOT TRUE OR c.bb_response = 'DC')
      ORDER BY c.scheduled_date ASC, c.start_time ASC
         LIMIT 100`,
-      [districtId, status, stale],
+      [districtId, status, stale, bbDeclined],
     ),
   );
 
@@ -115,12 +144,13 @@ router.get('/', verifyJWT, async (req, res) => {
   // PII. The columns above are returned for the SQL convenience of a single
   // query; we redact them per-row before sending the response.
   const REDACT_KEYS = [
-    'submitted_by_name',
-    'submitted_by_mobile',
-    'submitted_by_email',
-    'submitted_by_role',
+    ...CAMP_SUBMITTER_KEYS,
     'review_notes',
     'declined_reason',
+    'bb_decline_reason',
+    'bb_decline_note',
+    'bb_response',
+    'bb_response_at',
   ];
   const camps = isReviewer
     ? r.rows
@@ -233,6 +263,7 @@ router.post('/apply', async (req, res) => {
   // the admin then has to untangle, and the whole point of this field is to
   // save the admin work, not create it.
   let requestedBbName = null;
+  let autoAcceptBb = false;
   if (d.requested_blood_bank_id) {
     const bb = await withRlsContextRaw({ actor_role: 'onboarding' }, (c) =>
       c.query(
@@ -246,6 +277,63 @@ router.post('/apply', async (req, res) => {
       return res.status(400).json({ error: 'blood_bank_not_in_district' });
     }
     requestedBbName = bb.rows[0].display_name;
+
+    // ── The capacity gate (migration 316) ────────────────────────────────
+    //
+    // The BB has published how many camps it can staff that day. If that day
+    // is full, say so NOW — before a camp row exists — and hand back the days
+    // it can still serve. A 409 with alternatives is a form the organiser can
+    // finish; a filed camp that the BB later declines is three phone calls.
+    //
+    //   ⚠ ONLY A PUBLISHED, FULL DAY BLOCKS.
+    //   A day with no capacity row is unpublished, never closed (316 header) —
+    //   on the day this ships that is every day for every BB, and blocking
+    //   there would stop camp hosting platform-wide. capacity.js encodes this
+    //   as ok:true, so this reads `slot.ok` and never `max_camps`.
+    //
+    // Only `confirmed` (verified camps this BB is on the hook for) blocks.
+    // Pending applications are surfaced on the BB's own calendar and never
+    // gate, or one abandoned form would hold a day hostage.
+    //
+    // The NGO admin can still overbook at verify — they are the bridge, and an
+    // emergency is exactly when a rule like this must yield to a person.
+    const slot = await withRlsContextRaw({ actor_role: 'system' }, async (c) => {
+      const day = await capacity.checkSlot(c, d.requested_blood_bank_id, d.scheduled_date);
+      if (!day.ok) {
+        day.next_open_dates = await capacity.nextOpenDates(
+          c,
+          d.requested_blood_bank_id,
+          d.scheduled_date,
+        );
+        return day;
+      }
+      const s = await c.query(
+        `SELECT auto_accept_within_capacity FROM bb_camp_settings WHERE blood_bank_id = $1`,
+        [d.requested_blood_bank_id],
+      );
+      day.auto_accept = day.published && s.rows[0]?.auto_accept_within_capacity === true;
+      return day;
+    });
+
+    if (!slot.ok) {
+      return res.status(409).json({
+        error: 'blood_bank_day_full',
+        blood_bank_name: requestedBbName,
+        scheduled_date: d.scheduled_date,
+        max_camps: slot.max_camps,
+        confirmed: slot.confirmed,
+        // Actionable, not just a refusal. Published non-full days only — see
+        // capacity.nextOpenDates.
+        next_open_dates: slot.next_open_dates || [],
+      });
+    }
+
+    // auto_accept_within_capacity: the BB has said in advance that anything
+    // inside published capacity is a yes. Promote request → partner and stamp
+    // 'AC' at apply time, leaving bb_response_by NULL — this is a standing
+    // policy, not a person's click, and recording a user here would put a name
+    // on a decision nobody made today.
+    autoAcceptBb = slot.auto_accept === true;
   }
 
   const slug = `${slugify(d.name)}-${Date.now().toString(36).slice(-5)}`;
@@ -293,7 +381,8 @@ router.post('/apply', async (req, res) => {
            submitted_by_email, submitted_by_role,
            volunteer_training_requested, expected_volunteer_count,
            review_notes, created_by_user_id,
-           requested_blood_bank_id)
+           requested_blood_bank_id,
+           partnered_blood_bank_id, bb_response, bb_response_at)
          VALUES (
            $1, $2, $3,
            $4, $5, $6,
@@ -305,8 +394,17 @@ router.post('/apply', async (req, res) => {
            $18, $19,
            $20, $21,
            $22, $23,
-           $24)
-         RETURNING id, name, slug, scheduled_date, status`,
+           $24,
+           -- Only auto-accept writes a partner here. Otherwise the NGO admin's
+           -- verify is what promotes requested → partnered, and 317's
+           -- bb_response_needs_partner CHECK keeps bb_response NULL until then.
+           -- Both casts are load-bearing: $26 appears twice, and without them
+           -- Postgres cannot infer a type for the IS NULL use and rejects the
+           -- statement outright ("could not determine data type of parameter").
+           $25::uuid, $26::char(2),
+           CASE WHEN $26::char(2) IS NULL THEN NULL ELSE clock_timestamp() END)
+         RETURNING id, name, slug, scheduled_date, status,
+                   partnered_blood_bank_id, bb_response`,
         [
           d.name,
           slug,
@@ -332,6 +430,8 @@ router.post('/apply', async (req, res) => {
           d.notes || null,
           ownerUserId,
           d.requested_blood_bank_id || null,
+          autoAcceptBb ? d.requested_blood_bank_id : null,
+          autoAcceptBb ? 'AC' : null,
         ],
       );
       return r.rows[0];
@@ -358,6 +458,10 @@ router.post('/apply', async (req, res) => {
     // who is coming to collect — instead of leaving them to wonder. null means
     // they answered "I don't know", and the NGO arranges it.
     requested_blood_bank_name: requestedBbName,
+    // 'AC' here means the BB pre-approved this day, so the success screen can
+    // say "confirmed to collect" instead of "we'll arrange it". Absent unless
+    // that BB opted into auto-accept.
+    bb_response: created.bb_response || null,
     next_step:
       'Our NGO coordinator will contact you within 2 working days to verify details and arrange volunteer training.',
   });
@@ -482,6 +586,11 @@ router.get('/mine', verifyJWT, async (req, res) => {
                 c.expected_volunteer_count, c.volunteer_training_requested,
                 c.target_donor_count, c.units_collected,
                 c.declined_reason, c.review_notes,
+                -- The blood bank's own answer (migration 317). The organiser is
+                -- told a replacement is being arranged; bb_decline_reason and
+                -- bb_decline_note are deliberately NOT selected here — 317's
+                -- column comment reserves those for the NGO admin.
+                c.bb_response,
                 c.community_id,
                 d.name AS district_name,
                 s.name AS state_name,
@@ -643,7 +752,703 @@ router.get('/blood-bank-options', async (req, res) => {
   res.json({ blood_banks: r.rows, count: r.rowCount });
 });
 
+// ═════════════════════════════════════════════════════════════════════════
+// Blood-bank camp capacity (migrations 316 + 317)
+//
+// A blood bank publishes, in advance, how many camps it can staff per day.
+// That single act pre-answers the question that generates every phone call
+// between an organiser, the NGO admin and the blood bank — "can you do the
+// 14th?" — and reduces the per-camp accept/decline below to an exception path.
+//
+// ⚠ EVERY literal path in this block is declared BEFORE GET /:id or Express
+// binds it to the :id param. Same hazard as apply / mine / collectable /
+// blood-bank-options above.
+//
+// ⚠ RLS IS INERT AT RUNTIME (the app connects as a BYPASSRLS owner; app_user is
+// NOLOGIN). The `WHERE blood_bank_id = <resolved target>` in each handler below
+// IS the security boundary, not migration 316's policies.
+// ═════════════════════════════════════════════════════════════════════════
+
+// Longest window any capacity read will serve. A month grid needs ~31 days and
+// the hosting form's availability strip needs a quarter at the outside; beyond
+// that this is somebody enumerating an institution's schedule.
+const CAPACITY_MAX_DAYS = 92;
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Resolve WHOSE capacity a request is about.
+//
+// For a blood_bank caller the answer is always its own institution, and any
+// blood_bank_id in the query string is IGNORED — that is precisely the boundary,
+// so it is resolved here once rather than trusted per handler.
+//
+// ngo_admin / super_admin MUST name a blood bank explicitly. On the day this
+// ships no BB has published anything, and the admin is the bridge between
+// organiser and blood bank, so bootstrapping capacity on a BB's behalf is a
+// first-class action rather than a back door.
+function resolveBbTarget(req) {
+  if (req.user.role === 'blood_bank') {
+    if (!req.user.institutionId) return { error: 'no_institution_on_session' };
+    return { bbId: req.user.institutionId, onBehalf: false };
+  }
+  const asked = req.query.blood_bank_id || (req.body && req.body.blood_bank_id);
+  if (!asked) return { error: 'blood_bank_id_required' };
+  if (!/^[0-9a-f-]{36}$/i.test(String(asked))) return { error: 'invalid_blood_bank_id' };
+  return { bbId: String(asked), onBehalf: true };
+}
+
+// from/to with defaults (today → +30d) and a hard span cap.
+function parseRange(req) {
+  const today = capacity.toIsoDate(new Date());
+  const from = req.query.from ? String(req.query.from) : today;
+  if (!ISO_DATE.test(from)) return { error: 'invalid_from' };
+  let to = req.query.to ? String(req.query.to) : null;
+  if (to && !ISO_DATE.test(to)) return { error: 'invalid_to' };
+  if (!to) {
+    const d = new Date(`${from}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + 30);
+    to = d.toISOString().slice(0, 10);
+  }
+  if (to < from) return { error: 'range_inverted' };
+  const span = capacity.datesBetween(from, to).length;
+  if (span > CAPACITY_MAX_DAYS) return { error: 'range_too_wide', max_days: CAPACITY_MAX_DAYS };
+  return { from, to };
+}
+
+// ── GET /camps/bb-availability (PUBLIC) ──────────────────────────────────
+// The calendar an organiser sees while choosing a date on the public hosting
+// form, before they have committed to anything.
+//
+// COUNTS AND NOTHING ELSE. Never a camp id, name, venue, organiser, target or
+// note — a note can name a person ("2 techs on leave") and is deliberately
+// dropped here even though the BB's own calendar shows it. What this does
+// expose is one licensed establishment's schedule density, which is the same
+// class of public-record fact already on PublicCampPage.
+//
+// No verifyJWT, matching GET /camps/blood-bank-options: POST /camps/apply is
+// public by design, so its availability strip cannot require a token either.
+// Left under the global 100/min IP limiter and deliberately NOT added to
+// app.js's CAMP_EXEMPT_PATHS — that exemption exists for 40 donors bursting
+// through one camp-WiFi NAT; this is one host loading one calendar.
+router.get('/bb-availability', async (req, res) => {
+  const bbId = String(req.query.blood_bank_id || '');
+  if (!/^[0-9a-f-]{36}$/i.test(bbId)) {
+    return res.status(400).json({ error: 'invalid_blood_bank_id' });
+  }
+  const range = parseRange(req);
+  if (range.error) return res.status(400).json(range);
+
+  const out = await withRlsContextRaw({ actor_role: 'onboarding' }, async (c) => {
+    // Confirm the blood bank is one the public picker would have offered in the
+    // first place. Without this, the endpoint answers for any UUID — including
+    // hospitals and archived institutions — and turns into an existence oracle.
+    const bb = await c.query(
+      `SELECT id, display_name FROM institutions
+        WHERE id = $1 AND kind = 'BB' AND onboarding_status = 'AC' AND is_active = TRUE`,
+      [bbId],
+    );
+    if (bb.rowCount === 0) return null;
+
+    const days = await capacity.occupancyFor(c, bbId, range.from, range.to);
+    return {
+      blood_bank_id: bbId,
+      blood_bank_name: bb.rows[0].display_name,
+      from: range.from,
+      to: range.to,
+      // Gaps filled, so the strip renders a continuous run of days. An
+      // unpublished day carries published:false and ok:true — it looks normal,
+      // because it IS normal: absence of capacity is "not planned", not
+      // "closed" (see migration 316's header).
+      days: capacity.datesBetween(range.from, range.to).map((date) => {
+        const d = capacity.dayOrEmpty(days, date);
+        return {
+          date: d.date,
+          published: d.published,
+          max_camps: d.max_camps,
+          confirmed: d.confirmed,
+          pending: d.pending,
+          slots_left: d.slots_left,
+          ok: d.ok,
+        };
+      }),
+    };
+  });
+
+  if (!out) return res.status(404).json({ error: 'blood_bank_not_found' });
+  res.json(out);
+});
+
+// ── GET /camps/bb/settings ───────────────────────────────────────────────
+// The BB's standing posture: headcount arithmetic, the publish-month template,
+// and whether it auto-accepts inside published capacity.
+router.get(
+  '/bb/settings',
+  verifyJWT,
+  requireRole('blood_bank', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const t = resolveBbTarget(req);
+    if (t.error) return res.status(400).json({ error: t.error });
+
+    const r = await withRlsContext(req, (c) =>
+      c.query(`SELECT * FROM bb_camp_settings WHERE blood_bank_id = $1`, [t.bbId]),
+    );
+    // No row is a legitimate state, not a 404: a BB that has never opened this
+    // tab has no settings, and the UI must render defaults rather than an error.
+    const settings = r.rows[0] || null;
+    res.json({
+      blood_bank_id: t.bbId,
+      settings,
+      suggested_max_camps: capacity.suggestedMaxCamps(settings),
+    });
+  },
+);
+
+// ── PUT /camps/bb/settings ───────────────────────────────────────────────
+const bbSettingsSchema = z.object({
+  staff_total: z.number().int().min(0).max(500).nullable().optional(),
+  staff_per_camp: z.number().int().min(1).max(100).nullable().optional(),
+  default_max_camps: z.number().int().min(0).max(20).optional(),
+  // ISO dow, 0 = Sunday. A template for publish-month, never a live gate.
+  weekly_closed_days: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  auto_accept_within_capacity: z.boolean().optional(),
+  blood_bank_id: z.string().uuid().optional(), // admin-on-behalf; ignored for BB
+});
+router.put(
+  '/bb/settings',
+  verifyJWT,
+  requireRole('blood_bank', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const parsed = bbSettingsSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const t = resolveBbTarget(req);
+    if (t.error) return res.status(400).json({ error: t.error });
+    const d = parsed.data;
+
+    const out = await withRlsContext(
+      req,
+      async (c) => {
+        // Upsert with COALESCE on every optional field so a partial PUT from
+        // one half of the settings form cannot blank the other half. Explicit
+        // null on staff_total / staff_per_camp is therefore "leave it" rather
+        // than "clear it" — clearing headcount is not a thing the UI offers,
+        // and silently wiping it on a partial save would be worse.
+        const r = await c.query(
+          `INSERT INTO bb_camp_settings (
+             blood_bank_id, staff_total, staff_per_camp, default_max_camps,
+             weekly_closed_days, auto_accept_within_capacity, updated_by_user_id)
+           VALUES ($1, $2, $3, COALESCE($4, 1), COALESCE($5::smallint[], '{}'),
+                   COALESCE($6, FALSE), $7)
+           ON CONFLICT (blood_bank_id) DO UPDATE SET
+             staff_total        = COALESCE($2, bb_camp_settings.staff_total),
+             staff_per_camp     = COALESCE($3, bb_camp_settings.staff_per_camp),
+             default_max_camps  = COALESCE($4, bb_camp_settings.default_max_camps),
+             weekly_closed_days = COALESCE($5::smallint[], bb_camp_settings.weekly_closed_days),
+             auto_accept_within_capacity =
+               COALESCE($6, bb_camp_settings.auto_accept_within_capacity),
+             updated_by_user_id = $7,
+             updated_at         = clock_timestamp()
+           RETURNING *`,
+          [
+            t.bbId,
+            d.staff_total ?? null,
+            d.staff_per_camp ?? null,
+            d.default_max_camps ?? null,
+            d.weekly_closed_days ?? null,
+            d.auto_accept_within_capacity ?? null,
+            req.user.userId,
+          ],
+        );
+        return r.rows[0];
+      },
+      { change_reason: 'update bb camp settings' },
+    );
+
+    res.json({ settings: out, suggested_max_camps: capacity.suggestedMaxCamps(out) });
+  },
+);
+
+// ── GET /camps/bb/capacity ───────────────────────────────────────────────
+// The month grid the BB reads: published capacity joined with live occupancy,
+// one row per day, gaps filled. Same numbers the booking gate uses, from the
+// same service function — that is the whole point of services/camps/capacity.js.
+router.get(
+  '/bb/capacity',
+  verifyJWT,
+  requireRole('blood_bank', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const t = resolveBbTarget(req);
+    if (t.error) return res.status(400).json({ error: t.error });
+    const range = parseRange(req);
+    if (range.error) return res.status(400).json(range);
+
+    const out = await withRlsContext(req, async (c) => {
+      const s = await c.query(`SELECT * FROM bb_camp_settings WHERE blood_bank_id = $1`, [t.bbId]);
+      const days = await capacity.occupancyFor(c, t.bbId, range.from, range.to);
+      return {
+        settings: s.rows[0] || null,
+        suggested_max_camps: capacity.suggestedMaxCamps(s.rows[0]),
+        days: capacity
+          .datesBetween(range.from, range.to)
+          .map((date) => capacity.dayOrEmpty(days, date)),
+      };
+    });
+
+    res.json({ blood_bank_id: t.bbId, from: range.from, to: range.to, ...out });
+  },
+);
+
+// ── PUT /camps/bb/capacity ───────────────────────────────────────────────
+// A whole month of edits in one request. The calendar UI is a grid the BB
+// clicks around in; sending one request per cell would make a half-saved month
+// the normal outcome of a flaky camp-WiFi connection.
+const bbCapacityDaySchema = z.object({
+  date: z.string().regex(ISO_DATE),
+  // null = WITHDRAW the day back to unpublished. 0 = a published holiday.
+  // These are different states and the UI needs both: 0 tells an organiser
+  // "closed that day", null is the only undo for an accidental publish.
+  max_camps: z.number().int().min(0).max(20).nullable(),
+  staff_committed: z.number().int().min(0).max(500).nullable().optional(),
+  note: z.string().max(500).nullable().optional(),
+});
+const bbCapacitySchema = z.object({
+  days: z.array(bbCapacityDaySchema).min(1).max(CAPACITY_MAX_DAYS),
+  blood_bank_id: z.string().uuid().optional(), // admin-on-behalf
+});
+router.put(
+  '/bb/capacity',
+  verifyJWT,
+  requireRole('blood_bank', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const parsed = bbCapacitySchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const t = resolveBbTarget(req);
+    if (t.error) return res.status(400).json({ error: t.error });
+
+    // One date twice in one payload is a UI bug, and letting it through means
+    // the last write silently wins. Say so instead.
+    const seen = new Set();
+    for (const d of parsed.data.days) {
+      if (seen.has(d.date)) {
+        return res.status(400).json({ error: 'duplicate_date', date: d.date });
+      }
+      seen.add(d.date);
+    }
+
+    const out = await withRlsContext(
+      req,
+      async (c) => {
+        let written = 0;
+        let removed = 0;
+        for (const d of parsed.data.days) {
+          if (d.max_camps === null) {
+            const r = await c.query(
+              `DELETE FROM bb_camp_capacity
+                WHERE blood_bank_id = $1 AND capacity_date = $2::date`,
+              [t.bbId, d.date],
+            );
+            removed += r.rowCount;
+            continue;
+          }
+          await c.query(
+            `INSERT INTO bb_camp_capacity (
+               blood_bank_id, capacity_date, max_camps, staff_committed, note, set_by_user_id)
+             VALUES ($1, $2::date, $3, $4, $5, $6)
+             ON CONFLICT (blood_bank_id, capacity_date) DO UPDATE SET
+               max_camps       = $3,
+               staff_committed = $4,
+               note            = $5,
+               set_by_user_id  = $6,
+               updated_at      = clock_timestamp()`,
+            [
+              t.bbId,
+              d.date,
+              d.max_camps,
+              d.staff_committed ?? null,
+              d.note ?? null,
+              req.user.userId,
+            ],
+          );
+          written += 1;
+        }
+        return { written, removed };
+      },
+      { change_reason: 'set bb camp capacity' },
+    );
+
+    logger.info(
+      { blood_bank_id: t.bbId, ...out, on_behalf: t.onBehalf },
+      'bb camp capacity updated',
+    );
+    res.json({ blood_bank_id: t.bbId, ...out });
+  },
+);
+
+// ── POST /camps/bb/capacity/publish-month ────────────────────────────────
+// "Plan the month" — one click turns default_max_camps + weekly_closed_days
+// into a month of rows.
+//
+// ⚠ NEVER OVERWRITES A DAY THAT ALREADY HAS A ROW (ON CONFLICT DO NOTHING).
+// A BB that closed the 12th–15th for Diwali and then hits Plan the month again
+// must not silently reopen them. Re-publishing is additive by construction.
+router.post(
+  '/bb/capacity/publish-month',
+  verifyJWT,
+  requireRole('blood_bank', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const month = String((req.body && req.body.month) || '');
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      return res.status(400).json({ error: 'invalid_month', expected: 'YYYY-MM' });
+    }
+    const t = resolveBbTarget(req);
+    if (t.error) return res.status(400).json({ error: t.error });
+
+    const today = capacity.toIsoDate(new Date());
+    const monthStart = `${month}-01`;
+    // Clamp to today: publishing capacity for days that have already passed
+    // creates rows nothing will ever read, and makes the "already published"
+    // count on the calendar header lie.
+    const from = monthStart > today ? monthStart : today;
+
+    const out = await withRlsContext(
+      req,
+      async (c) => {
+        const s = await c.query(
+          `SELECT default_max_camps, weekly_closed_days
+             FROM bb_camp_settings WHERE blood_bank_id = $1`,
+          [t.bbId],
+        );
+        // No settings row means nothing to template from. A silent 0-row
+        // success here would read on the calendar as "the month is planned".
+        if (!s.rows.length) {
+          throw Object.assign(new Error('settings_not_set'), { status: 409 });
+        }
+        const { default_max_camps, weekly_closed_days } = s.rows[0];
+
+        const r = await c.query(
+          `INSERT INTO bb_camp_capacity (
+             blood_bank_id, capacity_date, max_camps, set_by_user_id)
+           SELECT $1, d::date,
+                  CASE WHEN EXTRACT(DOW FROM d)::smallint = ANY($4::smallint[])
+                       THEN 0 ELSE $5 END,
+                  $6
+             FROM generate_series(
+                    $2::date,
+                    (date_trunc('month', $3::date) + INTERVAL '1 month - 1 day')::date,
+                    INTERVAL '1 day') AS d
+           ON CONFLICT (blood_bank_id, capacity_date) DO NOTHING
+           RETURNING capacity_date, max_camps`,
+          [t.bbId, from, monthStart, weekly_closed_days || [], default_max_camps, req.user.userId],
+        );
+        return { created: r.rowCount, default_max_camps, weekly_closed_days };
+      },
+      { change_reason: `publish camp capacity for ${month}` },
+    );
+
+    res.json({ blood_bank_id: t.bbId, month, from, ...out });
+  },
+);
+
+// ── GET /camps/bb/camps ──────────────────────────────────────────────────
+// This blood bank's camps at ANY status, partnered OR requested-to-me.
+//
+// GET /camps cannot express this: it defaults to future PL/LV only, and it has
+// no notion of "a camp that named me but nobody has verified yet" — which is
+// precisely the queue the BB needs to answer. GET /camps/collectable cannot
+// either: it is date-centred (±DATE_TOLERANCE_DAYS around one day) and includes
+// every camp in the district, partnered or not.
+//
+// ⚠ ORGANISER CONTACT IS REVEALED ONLY AFTER THIS BB HAS ACCEPTED.
+// While bb_response is 'PE' (or NULL), submitted_by_name / submitted_by_mobile
+// are stripped — a BB deciding whether to take a camp does not need the host's
+// number, and a request it may decline is not consent to their contact details.
+// Once it sets 'AC' it needs them: gate access, table space, power on the day.
+// Fetching that number from the NGO admin is one of the phone calls this whole
+// feature exists to delete.
+router.get(
+  '/bb/camps',
+  verifyJWT,
+  requireRole('blood_bank', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const t = resolveBbTarget(req);
+    if (t.error) return res.status(400).json({ error: t.error });
+    const range = parseRange(req);
+    if (range.error) return res.status(400).json(range);
+    const pendingOnly = req.query.pending === 'true';
+
+    const r = await withRlsContext(req, (c) =>
+      c.query(
+        `SELECT c.id, c.name, c.slug, c.status, c.venue, c.address_line,
+                to_char(c.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
+                c.start_time, c.end_time,
+                c.organiser_type, c.organiser_name,
+                c.target_donor_count,
+                c.registered_donor_count, c.attended_donor_count,
+                c.deferred_donor_count, c.units_collected,
+                c.bb_response, c.bb_response_at,
+                c.bb_decline_reason, c.bb_decline_note,
+                c.partnered_blood_bank_id, c.requested_blood_bank_id,
+                c.submitted_by_name, c.submitted_by_mobile,
+                d.name AS district_name, tk.name AS taluka_name,
+                (SELECT COUNT(*)::int FROM donation_history dh
+                  WHERE dh.donation_camp_id = c.id
+                    AND dh.is_invalidated = FALSE) AS donations_recorded
+           FROM donation_camps c
+           JOIN districts d ON d.id = c.district_id
+      LEFT JOIN talukas tk ON tk.id = c.taluka_id
+          WHERE (c.partnered_blood_bank_id = $1 OR c.requested_blood_bank_id = $1)
+            AND c.scheduled_date BETWEEN $2::date AND $3::date
+            AND ($4 = FALSE OR c.bb_response IS NULL OR c.bb_response = 'PE')
+       ORDER BY c.scheduled_date ASC, c.name ASC
+          LIMIT 200`,
+        [t.bbId, range.from, range.to, pendingOnly],
+      ),
+    );
+
+    // Redact in the application layer rather than in SQL: the condition is
+    // per-row, and a CASE expression repeated across two columns is one edit
+    // away from disagreeing with itself.
+    const camps = r.rows.map((row) => {
+      if (row.bb_response === 'AC') return row;
+      return { ...row, submitted_by_name: undefined, submitted_by_mobile: undefined };
+    });
+
+    res.json({
+      blood_bank_id: t.bbId,
+      from: range.from,
+      to: range.to,
+      camps,
+      count: camps.length,
+      awaiting_response: camps.filter((x) => !x.bb_response || x.bb_response === 'PE').length,
+    });
+  },
+);
+
+// ── POST /camps/:id/bb-response ──────────────────────────────────────────
+// The partnered blood bank's answer. blood_bank ONLY: an admin clicking accept
+// on a BB's behalf would put words in its mouth, and the whole point of this
+// column is that the answer came from the party that has to staff the day.
+//
+// ⚠ NEVER TOUCHES status. The NGO's PE → PL gate is independent, so BB
+// acceptance and NGO verification can happen in either order.
+//
+// ⚠ A DECLINE DOES NOT CLEAR partnered_blood_bank_id. The camp is still
+// happening — possibly with 200 donors already RSVP'd — and clearing the
+// partner would erase who declined and silently return the camp to "nobody
+// asked yet", which is the state the admin most needs to tell it apart from.
+const bbResponseSchema = z
+  .object({
+    response: z.enum(['AC', 'DC']),
+    decline_reason: z.enum(['NC', 'ND', 'DT', 'VE', 'OT']).optional(),
+    note: z.string().max(1000).optional(),
+  })
+  .refine((v) => v.response !== 'DC' || !!v.decline_reason, {
+    message: 'decline_reason is required when declining',
+    path: ['decline_reason'],
+  });
+
+router.post('/:id/bb-response', verifyJWT, requireRole('blood_bank'), async (req, res) => {
+  const parsed = bbResponseSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+  }
+  if (!req.user.institutionId) {
+    return res.status(400).json({ error: 'no_institution_on_session' });
+  }
+  const { response, decline_reason, note } = parsed.data;
+
+  const result = await withRlsContext(
+    req,
+    async (c) => {
+      // partnered_blood_bank_id = $2 IS the security boundary (RLS is inert at
+      // runtime). It is also the business rule: only the BB actually on the
+      // hook may answer, and a BB that merely appears in
+      // requested_blood_bank_id has not been partnered yet — the NGO admin
+      // still owns that promotion.
+      // Every $3 is cast, for the same reason $26 is cast in POST /camps/apply:
+      // Postgres infers one type per PLACEHOLDER, not per use. Assigned to
+      // bb_response it deduces char(2); compared against the 'DC' literal it
+      // deduces text, and the two readings collide as 42P08 ("inconsistent
+      // types deduced for parameter $3") — a 500, not a validation error.
+      const r = await c.query(
+        `UPDATE donation_camps
+            SET bb_response        = $3::char(2),
+                bb_response_at     = clock_timestamp(),
+                bb_response_by     = $4,
+                bb_decline_reason  = CASE WHEN $3::char(2) = 'DC' THEN $5::char(2) ELSE NULL END,
+                bb_decline_note    = CASE WHEN $3::char(2) = 'DC' THEN $6 ELSE NULL END
+          WHERE id = $1
+            AND partnered_blood_bank_id = $2
+        RETURNING id, name, status, bb_response, bb_response_at,
+                  bb_decline_reason,
+                  to_char(scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
+                  venue, submitted_by_name, submitted_by_mobile,
+                  registered_donor_count, target_donor_count`,
+        [
+          req.params.id,
+          req.user.institutionId,
+          response,
+          req.user.userId,
+          decline_reason || null,
+          note || null,
+        ],
+      );
+      if (r.rowCount === 0) {
+        throw Object.assign(new Error('not_your_camp'), { status: 409 });
+      }
+      return r.rows[0];
+    },
+    { change_reason: `blood bank camp response ${response}` },
+  );
+
+  logger.info(
+    {
+      camp_id: result.id,
+      blood_bank_id: req.user.institutionId,
+      bb_response: response,
+      decline_reason: decline_reason || null,
+    },
+    'camp bb response recorded',
+  );
+
+  // Best-effort organiser notification. Per the product decision a late decline
+  // is surfaced to the organiser IMMEDIATELY — but as a neutral reassignment
+  // line only. The reason code is for the NGO admin; an organiser told "your
+  // blood bank has no capacity" starts making calls, which is the behaviour
+  // this feature exists to remove.
+  if (result.submitted_by_mobile) {
+    const templateType = response === 'AC' ? 'CAMP_BB_ACCEPTED' : 'CAMP_BB_CHANGED';
+    sendNotification({
+      recipientId: result.submitted_by_mobile,
+      templateType,
+      variables: {
+        organiser_name: result.submitted_by_name || 'Organiser',
+        camp_name: result.name,
+        scheduled_date: result.scheduled_date,
+      },
+      channel: 'WA',
+      language: 'en',
+    }).catch((err) => logger.warn({ err: err.message }, 'camp bb-response notify failed'));
+  }
+
+  res.json({
+    ...result,
+    // On accept the BB keeps the organiser contact it just earned. On decline
+    // it goes straight back out of reach.
+    submitted_by_name: response === 'AC' ? result.submitted_by_name : undefined,
+    submitted_by_mobile: response === 'AC' ? result.submitted_by_mobile : undefined,
+  });
+});
+
+// ── GET /camps/:id/donations ─────────────────────────────────────────────
+// The post-camp worklist: every donation recorded at this camp, and whether its
+// TTI panel has been entered and verified yet.
+//
+// This adds NO screening write path. POST /donations/:id/screening and
+// /screening/verify are reused byte-for-byte, so 4-eyes, the separate
+// `screening` encryption key kind and the lookback cascade are all untouched.
+// The only thing missing today is a way to REACH them: ScreeningEntry asks the
+// operator to paste a donation UUID, and after a 200-donor camp that is 200
+// UUIDs. This endpoint is the list that replaces them.
+//
+// ⚠ MOBILE IS MASKED (+91XXXXX1234). The tech is matching a paper sheet by the
+// last four digits, not dialling. ?mobile= still accepts the FULL number as a
+// lookup key — it goes in, it never comes back out.
+router.get(
+  '/:id/donations',
+  verifyJWT,
+  requireRole('blood_bank', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const pendingOnly = String(req.query.pending || '') === 'true';
+    let mobile = null;
+    if (req.query.mobile) {
+      mobile = normaliseIndianMobile(String(req.query.mobile));
+      if (!mobile) return res.status(400).json({ error: 'invalid_mobile' });
+    }
+
+    const out = await withRlsContext(req, async (c) => {
+      // Scope. Deliberately WIDER than partnered_blood_bank_id: under the
+      // collectable district fallback a BB can legitimately collect at a camp
+      // it was never partnered on, and it must still be able to enter those
+      // results. So either it is the partner, or it already recorded a donation
+      // here. Admins pass NULL and see everything.
+      const bbId = req.user.role === 'blood_bank' ? req.user.institutionId : null;
+      if (req.user.role === 'blood_bank' && !bbId) {
+        throw Object.assign(new Error('no_institution_on_session'), { status: 400 });
+      }
+      const guard = await c.query(
+        `SELECT id FROM donation_camps
+          WHERE id = $1
+            AND ($2::uuid IS NULL
+                 OR partnered_blood_bank_id = $2::uuid
+                 OR EXISTS (SELECT 1 FROM donation_history dh
+                             WHERE dh.donation_camp_id = $1
+                               AND dh.blood_bank_id = $2::uuid))
+          LIMIT 1`,
+        [req.params.id, bbId],
+      );
+      if (guard.rowCount === 0) {
+        throw Object.assign(new Error('not_your_camp'), { status: 403 });
+      }
+
+      // No field-level TTI here — overall_clearance and verified_at only. The
+      // panel itself stays behind GET /donations/:id, which already gates it.
+      const r = await c.query(
+        `SELECT dh.id AS donation_id, dh.donor_id, dh.isbt_barcode,
+                to_char(dh.collection_date, 'YYYY-MM-DD') AS collection_date,
+                dh.volume_ml, dh.trust_level, dh.is_invalidated,
+                bc.code AS component_code,
+                d.full_name, d.mobile,
+                bg.code AS blood_group_code,
+                ds.id AS screening_id, ds.overall_clearance,
+                ds.verification_required, ds.verified_at
+           FROM donation_history dh
+           JOIN donors d ON d.id = dh.donor_id
+      LEFT JOIN blood_components bc ON bc.id = dh.component_id
+      LEFT JOIN blood_groups bg ON bg.id = d.blood_group_verified
+      LEFT JOIN donor_screening ds ON ds.donation_id = dh.id
+          WHERE dh.donation_camp_id = $1
+            AND ($2::char(13) IS NULL OR d.mobile = $2)
+            AND ($3 = FALSE OR ds.id IS NULL OR ds.verified_at IS NULL)
+          ORDER BY dh.collection_date ASC, dh.created_at ASC
+          LIMIT 500`,
+        [req.params.id, mobile, pendingOnly],
+      );
+
+      const rows = openRows(r.rows, ['full_name']);
+      return rows.map((row) => ({
+        ...row,
+        mobile: undefined,
+        mobile_masked: row.mobile ? maskMobile(row.mobile) : null,
+      }));
+    });
+
+    res.json({
+      camp_id: req.params.id,
+      donations: out,
+      count: out.length,
+      awaiting_screening: out.filter((x) => !x.screening_id).length,
+      awaiting_verification: out.filter((x) => x.screening_id && !x.verified_at).length,
+    });
+  },
+);
+
 // ── GET /camps/:id ───────────────────────────────────────────────────────
+//
+// SELECT c.* is convenient and returns submitter PII plus NGO-internal review
+// text, so the response is filtered per viewer before it leaves. Three tiers:
+//
+//   reviewer (ngo_admin / super_admin / coordinator)  everything
+//   the partnered BB that has ACCEPTED                organiser name + mobile,
+//                                                     and its own decline text
+//   everyone else (donor, hospital, other BB)         neither
+//
+// The middle tier is the founder's decision: a BB that has committed to staffing
+// the day needs the host's number for gate access, table space and power, and
+// fetching it from the NGO is one of the calls this feature exists to delete.
+// Before it accepts — and for every OTHER blood bank, always — it sees nothing.
 router.get('/:id', verifyJWT, async (req, res) => {
   const r = await withRlsContext(req, (c) =>
     c.query(
@@ -659,20 +1464,77 @@ router.get('/:id', verifyJWT, async (req, res) => {
     ),
   );
   if (r.rowCount === 0) return res.status(404).json({ error: 'not_found' });
-  res.json(r.rows[0]);
+
+  const row = r.rows[0];
+  if (CAMP_REVIEWER_ROLES.includes(req.user.role)) return res.json(row);
+
+  const safe = { ...row };
+  const acceptedPartner =
+    req.user.role === 'blood_bank' &&
+    !!req.user.institutionId &&
+    row.partnered_blood_bank_id === req.user.institutionId &&
+    row.bb_response === 'AC';
+
+  // NGO-internal review text is never for anyone outside the reviewer tier —
+  // not even the accepting BB. Its OWN decline note it may keep.
+  delete safe.review_notes;
+  delete safe.declined_reason;
+  if (!acceptedPartner) {
+    delete safe.bb_decline_reason;
+    delete safe.bb_decline_note;
+  }
+  if (!acceptedPartner) {
+    for (const k of CAMP_SUBMITTER_KEYS) delete safe[k];
+  }
+  res.json(safe);
 });
 
 // ── GET /camps/:id/registrations ─────────────────────────────────────────
 // Roster for the admin/coord/BB panel. Returns per-donor row + a summary
 // block with counts by status so the UI can render a reconciliation strip
-// without re-computing client-side. Mobile is plaintext CHAR(13) —
-// admin/coord/BB roles are trusted to see it (the same roles already have
-// access to donor mobile via /donors/lookup). Frontend masks for display.
+// without re-computing client-side. Mobile is plaintext CHAR(13) — admin,
+// coordinator and the CAMP'S OWN blood bank are trusted to see it (the same
+// roles already reach donor mobile via /donors/lookup). Frontend masks it for
+// display.
+//
+//   ⚠ A BLOOD BANK MAY ONLY READ A ROSTER FOR ITS OWN CAMP.
+//   The query's only predicate is camp_id, and RLS is inert at runtime, so
+//   without the guard below any authenticated BB user could read ANY camp's
+//   full roster — decrypted donor names and plaintext mobiles included. That
+//   is a cross-tenant PII read, not a scoping nicety. Coordinators and admins
+//   are district/platform-wide by role and stay unscoped.
+//
+// "Its own" is partnered OR requested-to-me, deliberately wider than
+// bb_response='AC': a BB weighing up a request needs the turnout to answer at
+// all, which is the whole point of asking it. Widened once more to a camp it
+// has actually collected at, because GET /camps/collectable lets a BB serve a
+// camp in its district that it was never partnered on.
 router.get(
   '/:id/registrations',
   verifyJWT,
   requireRole('coordinator', 'ngo_admin', 'super_admin', 'blood_bank'),
   async (req, res) => {
+    if (req.user.role === 'blood_bank') {
+      if (!req.user.institutionId) {
+        return res.status(403).json({ error: 'no_institution_on_session' });
+      }
+      const own = await withRlsContext(req, (c) =>
+        c.query(
+          `SELECT 1
+             FROM donation_camps c
+            WHERE c.id = $1
+              AND (c.partnered_blood_bank_id = $2
+                   OR c.requested_blood_bank_id = $2
+                   OR EXISTS (SELECT 1 FROM donation_history dh
+                               WHERE dh.donation_camp_id = c.id
+                                 AND dh.blood_bank_id = $2))
+            LIMIT 1`,
+          [req.params.id, req.user.institutionId],
+        ),
+      );
+      if (own.rowCount === 0) return res.status(403).json({ error: 'not_your_camp' });
+    }
+
     const [regs, summary] = await Promise.all([
       withRlsContext(req, (c) =>
         c.query(
@@ -1115,11 +1977,12 @@ router.patch('/:id', verifyJWT, async (req, res) => {
   let notified = 0;
   if (notifyWorthy.length > 0) {
     const c2 = updated.rows[0];
+    // camp_announcement renders the camp name and date as its own {{1}}/{{2}},
+    // so this carries only the detail those two cannot: the times and the
+    // venue. Repeating the name here would print it twice in the message.
     const message = (
-      `Update for the blood donation camp "${c2.name}": ` +
-      `${c2.scheduled_date}, ${String(c2.start_time).slice(0, 5)}-` +
-      `${String(c2.end_time).slice(0, 5)}, at ${c2.venue}. ` +
-      `Please note this change.`
+      `Now ${String(c2.start_time).slice(0, 5)}-${String(c2.end_time).slice(0, 5)} ` +
+      `at ${c2.venue}. Please note this change.`
     ).slice(0, 480);
 
     const audience = await withRlsContextRaw(
@@ -1140,7 +2003,8 @@ router.patch('/:id', verifyJWT, async (req, res) => {
         await sendNotification({
           recipientId: row.donor_id,
           templateType: 'CAMP_ANNC',
-          variables: { camp_id: camp.id, message },
+          // camp_name, not camp_id — a UUID cannot be rendered to a donor.
+          variables: { camp_name: c2.name, camp_date: String(c2.scheduled_date), message },
           channel: 'WA',
           language: 'mr',
         });
@@ -1194,29 +2058,101 @@ router.post(
           ]);
           if (cr.rowCount > 0) organisingCoordId = cr.rows[0].id;
         }
+
+        // ── Who is the blood bank, and has it answered? (migration 317) ──────
+        //
+        // The partner is resolved here in JS rather than by the COALESCE this
+        // UPDATE used to carry, because bb_response depends on WHICH bank ends
+        // up written — a fact the SQL would have to recompute that COALESCE to
+        // know. Precedence is unchanged: the admin's explicit choice, then the
+        // organiser's request, then whatever is already there. requested_ is
+        // still left untouched — it stays the record of the ask.
+        const before = await c.query(
+          `SELECT partnered_blood_bank_id, requested_blood_bank_id, bb_response,
+                  to_char(scheduled_date, 'YYYY-MM-DD') AS scheduled_date
+             FROM donation_camps
+            WHERE id = $1 AND status = 'PE'
+            FOR UPDATE`,
+          [req.params.id],
+        );
+        if (before.rowCount === 0) {
+          throw Object.assign(new Error('not_found_or_wrong_state'), { status: 409 });
+        }
+        const prev = before.rows[0];
+        const newPartner =
+          parsed.data.partnered_blood_bank_id ||
+          prev.requested_blood_bank_id ||
+          prev.partnered_blood_bank_id ||
+          null;
+
+        // 'PE' means "asked, awaiting an answer". Stamped when a partner is
+        // first set or changed — never when it is unchanged, because that would
+        // downgrade an apply-time auto-accept (or a BB's real click, if it
+        // answered before the NGO got round to verifying) back to unanswered
+        // every time an admin re-opened the camp.
+        //
+        //   ⚠ RE-PARTNERING MUST CLEAR THE DECLINE COLUMNS.
+        //   317's bb_decline_reason_needs_decline is
+        //   CHECK (bb_decline_reason IS NULL OR bb_response = 'DC'), so moving
+        //   the response to 'PE' while the previous BB's reason is still sitting
+        //   there fails the constraint outright — and would otherwise render a
+        //   red "declined" flag against a blood bank that never said anything.
+        const partnerChanged = !!newPartner && newPartner !== prev.partnered_blood_bank_id;
+        let newResponse = prev.bb_response;
+        if (!newPartner) newResponse = null;
+        else if (partnerChanged || !prev.bb_response) newResponse = 'PE';
+        const resetResponse = newResponse !== prev.bb_response;
+
+        // Overbooking is the admin's call, not the platform's — they are the
+        // bridge between organiser and blood bank, and an emergency is exactly
+        // when a capacity rule must yield to a person. So this RECORDS the
+        // override instead of blocking it: apply's 409 protects an organiser
+        // from a day the BB has published as full, whereas here a human has
+        // already decided otherwise and the note is what makes that decision
+        // legible afterwards.
+        let overbookNote = null;
+        if (newPartner && (partnerChanged || !prev.bb_response)) {
+          const slot = await capacity.checkSlot(c, newPartner, prev.scheduled_date);
+          if (!slot.ok) {
+            overbookNote =
+              `[capacity override ${prev.scheduled_date}] blood bank had ` +
+              `${slot.confirmed} of ${slot.max_camps} camps confirmed when partnered.`;
+          }
+        }
+
         const r = await c.query(
           `UPDATE donation_camps
               SET status = 'PL',
                   verified_by_user_id = $2,
                   verified_at = clock_timestamp(),
-                  review_notes = COALESCE($3, review_notes),
-                  -- The admin's explicit choice wins; failing that the
-                  -- organiser's request is promoted rather than dropped, so
-                  -- approving from an older client (or any path that omits the
-                  -- field) still honours what was asked for. requested_ is left
-                  -- untouched either way — it stays the record of the ask.
-                  partnered_blood_bank_id = COALESCE(
-                    $4::uuid, requested_blood_bank_id, partnered_blood_bank_id),
-                  organising_coordinator_id = COALESCE($5::uuid, organising_coordinator_id)
+                  -- CONCAT_WS skips NULLs, so this reads as "keep what is there
+                  -- unless the admin typed something", plus the override line
+                  -- when there is one. review_notes is plain TEXT and
+                  -- NGO-internal — never put a mobile number in it.
+                  review_notes = NULLIF(
+                    CONCAT_WS(E'\n', COALESCE($3, review_notes), $6::text), ''),
+                  partnered_blood_bank_id = $4::uuid,
+                  organising_coordinator_id = COALESCE($5::uuid, organising_coordinator_id),
+                  bb_response = $7::char(2),
+                  -- A response's metadata cannot outlive the response itself.
+                  -- On a re-partner all four go together, which is what keeps
+                  -- 317's bb_decline_reason_needs_decline satisfiable.
+                  bb_response_at = CASE WHEN $8 THEN NULL ELSE bb_response_at END,
+                  bb_response_by = CASE WHEN $8 THEN NULL ELSE bb_response_by END,
+                  bb_decline_reason = CASE WHEN $8 THEN NULL ELSE bb_decline_reason END,
+                  bb_decline_note = CASE WHEN $8 THEN NULL ELSE bb_decline_note END
             WHERE id = $1 AND status = 'PE'
-        RETURNING id, status, verified_at,
+        RETURNING id, status, verified_at, partnered_blood_bank_id, bb_response,
                   scheduled_date, submitted_by_name, submitted_by_mobile, name`,
           [
             req.params.id,
             req.user.userId,
             parsed.data.review_notes || null,
-            parsed.data.partnered_blood_bank_id || null,
+            newPartner,
             organisingCoordId,
+            overbookNote,
+            newResponse,
+            resetResponse,
           ],
         );
         if (r.rowCount === 0) {
@@ -1241,6 +2177,26 @@ router.post(
             camp.scheduled_date,
           ],
         );
+
+        // Everything the CAMP_BB_REQUEST send needs, gathered while we still
+        // have the transaction. Only on 'PE': an unchanged bb_response means
+        // this bank already answered, and an apply-time auto-accept ('AC')
+        // needs no prompt at all. Read back AFTER the UPDATE so the join
+        // follows the partner that was actually written, not the one this
+        // handler computed.
+        if (newResponse === 'PE') {
+          const brief = await c.query(
+            `SELECT i.display_name AS bb_name,
+                    dc.venue,
+                    dc.target_donor_count,
+                    to_char(dc.scheduled_date, 'YYYY-MM-DD') AS camp_date
+               FROM donation_camps dc
+               JOIN institutions i ON i.id = dc.partnered_blood_bank_id
+              WHERE dc.id = $1`,
+            [req.params.id],
+          );
+          if (brief.rowCount > 0) camp.bbRequest = brief.rows[0];
+        }
         return camp;
       },
       { change_reason: 'verify camp application' },
@@ -1255,26 +2211,213 @@ router.post(
       sendNotification({
         recipientId: result.submitted_by_mobile,
         templateType: 'CAMP_LINK',
+        // camp_organizer_link_v2 takes TWO body variables and the RAW token as
+        // its URL-button parameter — Meta appends it to the approved button
+        // path {BASE_URL}/camp/{{1}}. Passing magicUrl here would produce
+        // /camp/https%3A%2F%2F… and a dead link. Order is positional.
         variables: {
+          organiser_name: result.submitted_by_name || 'Organiser',
           camp_name: result.name,
-          scheduled_date: String(result.scheduled_date),
-          dashboard_url: magicUrl,
+          camp_token: token,
         },
         channel: 'WA',
         language: 'en',
       }).catch((err) => logger.warn({ err: err.message }, 'camp magic-link notify failed'));
     }
 
+    // Tell the blood bank it has a camp to answer. The BB's institution UUID
+    // goes in as recipientId rather than a bare number: the chokepoint resolves
+    // it to primary_contact_mobile AND stamps recipient_institution_id, so the
+    // notification_log row records WHICH institution was asked (precedent:
+    // routes/donorAlerts.js:294, services/notifications/index.js resolveRecipient).
+    // Body-only template, no button - a BB signs in with password + TOTP, so a
+    // button here could only carry a constant /bb link, which is exactly what
+    // got community_leader_welcome re-classified MARKETING (see env.js).
+    if (result.bbRequest) {
+      sendNotification({
+        recipientId: result.partnered_blood_bank_id,
+        templateType: 'CAMP_BB_REQUEST',
+        variables: {
+          bb_name: result.bbRequest.bb_name,
+          camp_date: result.bbRequest.camp_date,
+          venue: result.bbRequest.venue,
+          expected_donors: String(result.bbRequest.target_donor_count || 0),
+        },
+        channel: 'WA',
+        language: 'en',
+      }).catch((err) => logger.warn({ err: err.message }, 'camp bb-request notify failed'));
+    }
+
     res.json({
       ...result,
       submitted_by_mobile: undefined, // don't echo back; admin already has it
       submitted_by_name: undefined,
+      bbRequest: undefined, // notification scratch space, not part of the contract
       organizer_dashboard: {
         token,
         url: magicUrl,
         expires_in_days: 'scheduled_date + 30',
       },
     });
+  },
+);
+
+// ── POST /camps/:id/repartner ────────────────────────────────────────────
+// Move an already-verified camp to a different blood bank.
+//
+// This exists because nothing else can. PATCH /camps/:id lists
+// partnered_blood_bank_id under "WHAT IS NOT EDITABLE" — that column is the
+// NGO's verdict, not the host's description of its own event — and
+// POST /:id/verify only fires on status 'PE'. So the moment a BB declines a
+// camp that is already 'PL', the admin has a red row and no button, which is
+// not a workflow. This is the button.
+//
+// Deliberately NOT folded into PATCH: the host edits a camp with PATCH, whereas
+// this is the NGO reassigning collection responsibility. Keeping them as
+// separate, differently-authorised routes is what stops the two being confused.
+//
+//   ⚠ THE DECLINE COLUMNS MUST BE CLEARED — same reason verify clears them.
+//   317's bb_decline_reason_needs_decline is
+//   CHECK (bb_decline_reason IS NULL OR bb_response = 'DC'), so writing 'PE'
+//   while the previous BB's reason still sits there fails the constraint
+//   outright, and would otherwise render a red "declined" flag against a blood
+//   bank that never said anything.
+//
+// status is untouched, exactly as on a decline: the camp is still happening and
+// donors have already RSVP'd — only who collects is in question. And no
+// organiser notification fires from here. The decline already sent the neutral
+// "we're arranging a different blood bank" line, and the new BB's own accept
+// sends the confirmation; a third message between the two would just be noise.
+// (Notifying the incoming BB is the camp_bb_request template, which has no
+// handler or env key yet — a call site here would be a silent no-op.)
+const repartnerSchema = z.object({
+  partnered_blood_bank_id: z.string().uuid(),
+  reason: z.string().max(500).optional(),
+});
+router.post(
+  '/:id/repartner',
+  verifyJWT,
+  requireRole('coordinator', 'ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const parsed = repartnerSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+
+    const result = await withRlsContext(
+      req,
+      async (c) => {
+        const before = await c.query(
+          `SELECT status, partnered_blood_bank_id,
+                  to_char(scheduled_date, 'YYYY-MM-DD') AS scheduled_date
+             FROM donation_camps
+            WHERE id = $1
+            FOR UPDATE`,
+          [req.params.id],
+        );
+        if (before.rowCount === 0) {
+          throw Object.assign(new Error('not_found'), { status: 404 });
+        }
+        const prev = before.rows[0];
+        if (CAMP_TERMINAL_STATUSES.includes(prev.status)) {
+          throw Object.assign(new Error('camp_is_closed'), { status: 409 });
+        }
+
+        // The FK alone would accept a hospital's id. Resolve against the same
+        // predicate GET /camps/blood-bank-options offers, so an admin cannot
+        // partner a camp to something that would never appear in the picker.
+        const bb = await c.query(
+          `SELECT id, display_name
+             FROM institutions
+            WHERE id = $1
+              AND kind = 'BB'
+              AND onboarding_status = 'AC'
+              AND is_active = TRUE`,
+          [parsed.data.partnered_blood_bank_id],
+        );
+        if (bb.rowCount === 0) {
+          throw Object.assign(new Error('blood_bank_not_available'), { status: 400 });
+        }
+        const target = bb.rows[0];
+
+        // Overbooking RECORDS rather than blocks, same as verify. A
+        // reassignment usually happens because the first BB fell through days
+        // before the camp — which is exactly when a capacity number must yield
+        // to a person, and the note is what makes that decision legible later.
+        const slot = await capacity.checkSlot(c, target.id, prev.scheduled_date);
+        const noteParts = [];
+        if (parsed.data.reason) {
+          noteParts.push(`[repartner ${prev.scheduled_date}] ${parsed.data.reason}`);
+        }
+        if (!slot.ok) {
+          noteParts.push(
+            `[capacity override ${prev.scheduled_date}] ${target.display_name} had ` +
+              `${slot.confirmed} of ${slot.max_camps} camps confirmed when partnered.`,
+          );
+        }
+        const noteText = noteParts.length > 0 ? noteParts.join('\n') : null;
+
+        // No status predicate on the UPDATE: the SELECT above holds this row
+        // FOR UPDATE inside the same transaction, so the check it made cannot
+        // have gone stale by the time this runs.
+        const r = await c.query(
+          `UPDATE donation_camps
+              SET partnered_blood_bank_id = $2::uuid,
+                  bb_response        = 'PE',
+                  bb_response_at     = NULL,
+                  bb_response_by     = NULL,
+                  bb_decline_reason  = NULL,
+                  bb_decline_note    = NULL,
+                  -- CONCAT_WS skips NULLs: keep what is there, append the
+                  -- reason and any override line. review_notes is plain TEXT
+                  -- and NGO-internal — never put a mobile number in it.
+                  review_notes = NULLIF(CONCAT_WS(E'\n', review_notes, $3::text), '')
+            WHERE id = $1
+        RETURNING id, name, status, partnered_blood_bank_id, bb_response,
+                  venue, target_donor_count,
+                  to_char(scheduled_date, 'YYYY-MM-DD') AS scheduled_date`,
+          [req.params.id, target.id, noteText],
+        );
+        return {
+          ...r.rows[0],
+          blood_bank_name: target.display_name,
+          previous_blood_bank_id: prev.partnered_blood_bank_id,
+          capacity_overridden: !slot.ok,
+        };
+      },
+      { change_reason: 'camp re-partnered to a different blood bank' },
+    );
+
+    logger.info(
+      {
+        camp_id: result.id,
+        from_blood_bank_id: result.previous_blood_bank_id,
+        to_blood_bank_id: result.partnered_blood_bank_id,
+        capacity_overridden: result.capacity_overridden,
+      },
+      'camp re-partnered',
+    );
+
+    // The new blood bank is now the one on the hook, and this UPDATE always
+    // writes bb_response='PE', so there is no condition to check: a re-partner
+    // is by definition an unanswered ask. The bank it was moved AWAY from is
+    // deliberately not notified - it either declined (it knows) or was swapped
+    // out by the admin, and telling it about a camp it is no longer collecting
+    // is the kind of message this feature exists to remove.
+    sendNotification({
+      recipientId: result.partnered_blood_bank_id,
+      templateType: 'CAMP_BB_REQUEST',
+      variables: {
+        bb_name: result.blood_bank_name,
+        camp_date: result.scheduled_date,
+        venue: result.venue,
+        expected_donors: String(result.target_donor_count || 0),
+      },
+      channel: 'WA',
+      language: 'en',
+    }).catch((err) => logger.warn({ err: err.message }, 'camp bb-request notify failed'));
+
+    res.json(result);
   },
 );
 
@@ -1459,6 +2602,8 @@ router.get('/access/:token', async (req, res) => {
                   c.status, c.organiser_name, c.organiser_type,
                   c.target_donor_count, c.registered_donor_count,
                   c.attended_donor_count, c.deferred_donor_count, c.units_collected,
+                  -- Same boundary as /camps/mine: the answer, never the reason.
+                  c.bb_response,
                   d.name AS district_name,
                   i.display_name AS partnered_blood_bank_name
              FROM donation_camps c
@@ -1598,8 +2743,15 @@ router.post('/access/:token/broadcast', async (req, res) => {
         // 'DF' included: someone turned away at screening still came, and a
         // post-camp broadcast ("thank you", "next camp is on the 14th") is
         // exactly the message they should get. Only 'CN' and 'NS' are excluded.
-        `SELECT donor_id FROM camp_registrations
-          WHERE camp_id = $1 AND status IN ('RG', 'AT', 'DF')`,
+        // The camp name and date come along for the template: loadToken()
+        // returns neither, and widening that shared helper would add fields to
+        // an object several /access/:token/* routes spread straight into their
+        // responses. Joining here keeps the change to the one caller that
+        // needs it.
+        `SELECT cr.donor_id, dc.name AS camp_name, dc.scheduled_date
+           FROM camp_registrations cr
+           JOIN donation_camps dc ON dc.id = cr.camp_id
+          WHERE cr.camp_id = $1 AND cr.status IN ('RG', 'AT', 'DF')`,
         [v.token.camp_id],
       ),
   );
@@ -1610,8 +2762,11 @@ router.post('/access/:token/broadcast', async (req, res) => {
       await sendNotification({
         recipientId: row.donor_id,
         templateType: 'CAMP_ANNC',
+        // camp_name, not camp_id — a donor cannot read a UUID. Positional
+        // order must match camp_announcement's {{1}}/{{2}}/{{3}}.
         variables: {
-          camp_id: v.token.camp_id,
+          camp_name: row.camp_name,
+          camp_date: String(row.scheduled_date).slice(0, 10),
           message: parsed.data.message,
         },
         channel: 'WA',

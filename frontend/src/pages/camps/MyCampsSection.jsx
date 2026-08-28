@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
+import { CollectionBankLine } from '../../components/CollectionBankLine.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { campStatus } from '../../lib/campStatus.js';
+import { isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
 
 // Every camp this person hosts, wherever it was created from.
 //
@@ -164,6 +166,8 @@ function CampEditPanel({ camp, onDone }) {
             className="rk-input"
             value={form.scheduled_date}
             onChange={set('scheduled_date')}
+            min={todayISO()}
+            max={isoOffsetYears(1)}
           />
         </label>
         <label className="block">
@@ -317,10 +321,12 @@ export function MyCampsSection({
                       ) : null}
                       {c.venue ? ` · ${c.venue}` : ''}
                     </div>
-                    <div className="text-xs text-slate-500">
-                      {c.district_name}
-                      {c.partnered_blood_bank_name ? ` · ${c.partnered_blood_bank_name}` : ''}
-                    </div>
+                    <div className="text-xs text-slate-500">{c.district_name}</div>
+                    <CollectionBankLine
+                      bbResponse={c.bb_response}
+                      bloodBankName={c.partnered_blood_bank_name}
+                      requestedBloodBankName={c.requested_blood_bank_name}
+                    />
                   </div>
                   <span
                     className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${st.cls}`}

@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { QRCodeSVG } from 'qrcode.react';
 
+import { CollectionBankLine } from '../../components/CollectionBankLine.jsx';
 import { Wordmark } from '../../components/Wordmark.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { CAMP_STATUS } from '../../lib/campStatus.js';
@@ -172,10 +173,11 @@ export function CampOrganizerDashboard() {
             <p className="text-sm text-slate-600">
               {fmtDate(camp.scheduled_date)} · {fmtTime(camp.start_time)}–{fmtTime(camp.end_time)} · {camp.venue}
             </p>
-            <p className="text-xs text-slate-500">
-              {camp.district_name}
-              {camp.partnered_blood_bank_name ? ` · Partnered with ${camp.partnered_blood_bank_name}` : ''}
-            </p>
+            <p className="text-xs text-slate-500">{camp.district_name}</p>
+            <CollectionBankLine
+              bbResponse={camp.bb_response}
+              bloodBankName={camp.partnered_blood_bank_name}
+            />
           </div>
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cs.cls}`}>
             {cs.label}

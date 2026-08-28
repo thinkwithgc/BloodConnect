@@ -29,6 +29,13 @@
  *      leaks no PII and offers only ACTIVE onboarded BBs in the district, a
  *      cross-district ask is refused, the request NEVER auto-partners, and
  *      the admin's verify click is what promotes or overrides it
+ * 15.  the BB publishes capacity (316) and answers (317): settings + a
+ *      suggested max_camps, a capacity write scoped to the caller, max_camps=0
+ *      blocks an apply with alternatives and files NO camp row, a PE camp
+ *      counts as pending and never blocks, publish-month spares a hand-set
+ *      holiday, the public availability strip leaks only counts, PE → AC /
+ *      DC-with-reason, the partner-less CHECK, a decline keeps status +
+ *      partner + collectability, auto-accept, and the masked results worklist
  */
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
@@ -989,6 +996,618 @@ async function main() {
       r.status === 200 && (r.body.camps || []).some((c) => c.id === campAsk),
       `the partnered blood bank sees the camp in its collectable list (${r.status})`,
     );
+    console.log('── 15. the blood bank publishes capacity and answers ────────');
+
+    // A staff user on the SECOND blood bank. Every boundary assertion below
+    // needs a token belonging to a DIFFERENT institution than TEST.bbInst.
+    // seedCoordinatorOnHostMobile()'s sql() shape is the one that works here —
+    // bootstrap() holds a raw pool client that is long released by now.
+    const bb3User = `cmbb3-${RUN_TAG}`;
+    const bb3Secret = totp.newSecret();
+    await sql(
+      `INSERT INTO platform_users (role, username, email, password_hash, password_set_at,
+                                   institution_id, totp_secret, totp_enabled)
+       VALUES ('blood_bank', $1, $2, $3, NOW(), $4, $5, TRUE)`,
+      [
+        bb3User,
+        `${bb3User}@example.com`,
+        await bcrypt.hash(TEST.bbStaffPwd, 10),
+        bbSecond,
+        encryption.encrypt(bb3Secret),
+      ],
+      'camp smoke: staff on the second blood bank',
+    );
+    r = await loginInstitutional(bb3User, TEST.bbStaffPwd, bb3Secret);
+    const bb3Token = r.body.token;
+    assert(!!bb3Token, `a second blood bank's staff can sign in (${r.status})`);
+
+    // Section 14 already occupies isoDay(1) / 24 / 26 / 27, so capacity dates
+    // start at 41. CAP_MONTH is DERIVED from CAP_FULL rather than guessed, and
+    // CAP_UNPUB is day 15 of the FOLLOWING month — publish-month generates one
+    // month, so that is the one date it can never reach.
+    const CAP_FULL = isoDay(41); // max_camps = 0 → the holiday
+    const CAP_OPEN = isoDay(42); // max_camps = 2 → the bookable day
+    const CAP_XBB = isoDay(43); // used only for the cross-institution write
+    const CAP_AUTO = isoDay(44); // max_camps = 2 → auto-accept lands here
+    const CAP_MONTH = CAP_FULL.slice(0, 7);
+    const CAP_UNPUB = (() => {
+      const [y, m] = CAP_MONTH.split('-').map(Number);
+      const y2 = m === 12 ? y + 1 : y;
+      const m2 = m === 12 ? 1 : m + 1;
+      return `${y2}-${String(m2).padStart(2, '0')}-15`;
+    })();
+
+    // ── settings: no row is a state, not a 404 ──────────────────────────────
+    r = await fetchJson('GET', '/camps/bb/settings', {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    assert(
+      r.status === 200 && r.body.settings === null && r.body.suggested_max_camps === null,
+      `a blood bank that never published anything reads as null, not 404 (${r.status})`,
+    );
+
+    // The founder's own arithmetic: 50 staff, 8 per camp, so 6 camps a day.
+    r = await fetchJson('PUT', '/camps/bb/settings', {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: {
+        staff_total: 50,
+        staff_per_camp: 8,
+        default_max_camps: 6,
+        weekly_closed_days: [0],
+      },
+    });
+    assert(
+      r.status === 200 &&
+        r.body.suggested_max_camps === 6 &&
+        r.body.settings?.auto_accept_within_capacity === false,
+      `50 staff ÷ 8 per camp suggests 6 a day, and auto-accept stays off (${r.status}, ${r.body.suggested_max_camps})`,
+    );
+
+    // Every field is optional and the upsert COALESCEs, so a one-field PUT must
+    // not blank the rest. This is the difference between "edit the headcount"
+    // and "wipe the month template".
+    r = await fetchJson('PUT', '/camps/bb/settings', {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { staff_per_camp: 10 },
+    });
+    assert(
+      r.status === 200 &&
+        r.body.settings?.staff_total === 50 &&
+        r.body.settings?.default_max_camps === 6 &&
+        (r.body.settings?.weekly_closed_days || []).includes(0) &&
+        r.body.suggested_max_camps === 5,
+      `a partial settings PUT keeps the other fields (total ${r.body.settings?.staff_total}, suggested ${r.body.suggested_max_camps})`,
+    );
+
+    // ── the capacity write is scoped to the caller's own institution ────────
+    // resolveBbTarget IGNORES a blood_bank caller's blood_bank_id rather than
+    // rejecting it, so the assertion is about WHERE THE ROW LANDED, not a 403.
+    r = await fetchJson('PUT', '/camps/bb/capacity', {
+      headers: { Authorization: `Bearer ${bb3Token}` },
+      body: {
+        blood_bank_id: TEST.bbInst,
+        days: [{ date: CAP_XBB, max_camps: 4 }],
+      },
+    });
+    // Scoped to THIS run's two blood banks. capacity_date is an absolute date,
+    // so a second run of this file on the same day writes the same isoDay(43)
+    // under a fresh pair of institutions — an unscoped count would read those
+    // leftovers as a boundary breach.
+    const xbbRows = await sql(
+      `SELECT blood_bank_id FROM bb_camp_capacity
+        WHERE capacity_date = $1::date
+          AND blood_bank_id IN ($2::uuid, $3::uuid)`,
+      [CAP_XBB, bbSecond, TEST.bbInst],
+      'cross-institution capacity write',
+    );
+    assert(
+      r.status === 200 &&
+        xbbRows.rowCount === 1 &&
+        xbbRows.rows[0].blood_bank_id === bbSecond &&
+        xbbRows.rows[0].blood_bank_id !== TEST.bbInst,
+      `a blood bank writing capacity can only ever write its OWN (${r.status}, ${xbbRows.rowCount} row)`,
+    );
+
+    // ── an unpublished day is unconstrained, not closed ─────────────────────
+    r = await fetchJson(
+      'GET',
+      `/camps/bb/capacity?from=${CAP_UNPUB}&to=${CAP_UNPUB}`,
+      { headers: { Authorization: `Bearer ${TEST.bb1Token}` } },
+    );
+    const unpubDay = (r.body.days || [])[0];
+    assert(
+      r.status === 200 &&
+        unpubDay?.published === false &&
+        unpubDay?.slots_left === null &&
+        unpubDay?.ok === true,
+      `a date with no row reads published:false / slots_left:null / ok:true (${r.status})`,
+    );
+
+    r = await fetchJson('POST', '/camps/apply', {
+      body: {
+        ...applyBody(`Camp Smoke Unpub ${RUN_TAG}`, CAP_UNPUB),
+        requested_blood_bank_id: TEST.bbInst,
+      },
+    });
+    assert(
+      r.status === 201 && r.body.bb_response === null,
+      `an unpublished day does NOT block an application (${r.status}, response ${String(r.body.bb_response)})`,
+    );
+
+    // ── publish three days: a holiday, a bookable day, an auto-accept day ───
+    r = await fetchJson('PUT', '/camps/bb/capacity', {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: {
+        days: [
+          { date: CAP_FULL, max_camps: 0, note: 'Diwali' },
+          { date: CAP_OPEN, max_camps: 2, staff_committed: 16 },
+          { date: CAP_AUTO, max_camps: 2 },
+        ],
+      },
+    });
+    assert(r.status === 200 && r.body.written === 3, `three days publish in one call (${r.status})`);
+
+    r = await fetchJson('GET', `/camps/bb/capacity?from=${CAP_FULL}&to=${CAP_AUTO}`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    const fullDay = (r.body.days || []).find((d) => d.date === CAP_FULL);
+    assert(
+      r.status === 200 &&
+        fullDay?.published === true &&
+        fullDay?.max_camps === 0 &&
+        fullDay?.note === 'Diwali' &&
+        fullDay?.ok === false,
+      `max_camps=0 IS the holiday — published, closed, and carrying its note (${r.status})`,
+    );
+
+    // The duplicate scan runs before any write, so CAP_OPEN must be untouched.
+    r = await fetchJson('PUT', '/camps/bb/capacity', {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: {
+        days: [
+          { date: CAP_OPEN, max_camps: 9 },
+          { date: CAP_OPEN, max_camps: 1 },
+        ],
+      },
+    });
+    const openRow = await sql(
+      `SELECT max_camps FROM bb_camp_capacity WHERE blood_bank_id = $1 AND capacity_date = $2::date`,
+      [TEST.bbInst, CAP_OPEN],
+      'duplicate-date guard',
+    );
+    assert(
+      r.status === 400 && r.body.error === 'duplicate_date' && openRow.rows[0]?.max_camps === 2,
+      `one date twice in one payload is refused before anything is written (${r.status}, still ${openRow.rows[0]?.max_camps})`,
+    );
+
+    // ── a closed day blocks the application AND offers alternatives ─────────
+    r = await fetchJson('POST', '/camps/apply', {
+      body: {
+        ...applyBody(`Camp Smoke Full ${RUN_TAG}`, CAP_FULL),
+        requested_blood_bank_id: TEST.bbInst,
+      },
+    });
+    const fullFiled = await sql(
+      `SELECT id FROM donation_camps WHERE name = $1`,
+      [`Camp Smoke Full ${RUN_TAG}`],
+      'camp on a closed day',
+    );
+    assert(
+      r.status === 409 &&
+        r.body.error === 'blood_bank_day_full' &&
+        r.body.max_camps === 0 &&
+        r.body.confirmed === 0 &&
+        (r.body.next_open_dates || []).includes(CAP_OPEN),
+      `a closed day returns 409 blood_bank_day_full with open alternatives (${r.status}, next: ${(r.body.next_open_dates || []).join(',')})`,
+    );
+    assert(
+      fullFiled.rowCount === 0,
+      'a blocked application files NO camp row — the organiser is not half-registered',
+    );
+
+    // ── a pending application is surfaced and never blocks ──────────────────
+    r = await fetchJson('POST', '/camps/apply', {
+      body: {
+        ...applyBody(`Camp Smoke Cap ${RUN_TAG}`, CAP_OPEN),
+        requested_blood_bank_id: TEST.bbInst,
+      },
+    });
+    const campCap = r.body.camp_id;
+    assert(
+      r.status === 201 && r.body.bb_response === null,
+      `an application on an open day is filed with no BB response yet (${r.status}, ${String(r.body.bb_response)})`,
+    );
+
+    r = await fetchJson('GET', `/camps/bb/capacity?from=${CAP_OPEN}&to=${CAP_OPEN}`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    let capDay = (r.body.days || [])[0];
+    assert(
+      capDay?.pending === 1 &&
+        capDay?.confirmed === 0 &&
+        capDay?.slots_left === 2 &&
+        capDay?.ok === true &&
+        capDay?.staff_committed === 16,
+      `a PE camp counts as pending, never as occupancy (pending ${capDay?.pending}, confirmed ${capDay?.confirmed}, left ${capDay?.slots_left})`,
+    );
+
+    // ── the NGO's verify is what turns pending into confirmed ───────────────
+    r = await fetchJson('POST', `/camps/${campCap}/verify`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: {},
+    });
+    bbRow = await sql(
+      `SELECT status, bb_response, partnered_blood_bank_id FROM donation_camps WHERE id = $1`,
+      [campCap],
+      'verified capacity camp',
+    );
+    assert(
+      r.status === 200 &&
+        bbRow.rows[0]?.status === 'PL' &&
+        bbRow.rows[0]?.bb_response === 'PE' &&
+        bbRow.rows[0]?.partnered_blood_bank_id === TEST.bbInst,
+      `verify promotes requested → partnered and stamps bb_response='PE' (${r.status}, ${bbRow.rows[0]?.bb_response})`,
+    );
+
+    r = await fetchJson('GET', `/camps/bb/capacity?from=${CAP_OPEN}&to=${CAP_OPEN}`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    capDay = (r.body.days || [])[0];
+    assert(
+      capDay?.confirmed === 1 && capDay?.pending === 0 && capDay?.slots_left === 1,
+      `once verified the same camp moves pending → confirmed (confirmed ${capDay?.confirmed}, left ${capDay?.slots_left})`,
+    );
+
+    // ── publish-month never overwrites a hand-set day ───────────────────────
+    r = await fetchJson('POST', '/camps/bb/capacity/publish-month', {
+      headers: { Authorization: `Bearer ${bb3Token}` },
+      body: { month: CAP_MONTH },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'settings_not_set',
+      `publish-month without settings is a clean 409, not a crash (${r.status}, ${r.body.error})`,
+    );
+
+    r = await fetchJson('POST', '/camps/bb/capacity/publish-month', {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { month: CAP_MONTH },
+    });
+    const holiday = await sql(
+      `SELECT max_camps, note FROM bb_camp_capacity
+        WHERE blood_bank_id = $1 AND capacity_date = $2::date`,
+      [TEST.bbInst, CAP_FULL],
+      'holiday survives publish-month',
+    );
+    assert(
+      r.status === 200 && r.body.created > 0 && r.body.default_max_camps === 6,
+      `publish-month generates the rest of the month from the template (${r.status}, created ${r.body.created})`,
+    );
+    assert(
+      holiday.rows[0]?.max_camps === 0 && holiday.rows[0]?.note === 'Diwali',
+      `a hand-set holiday SURVIVES a re-publish (${holiday.rows[0]?.max_camps}, ${holiday.rows[0]?.note})`,
+    );
+
+    // ── the public availability strip: counts, and nothing else ─────────────
+    const AVAIL_KEYS = [
+      'date',
+      'published',
+      'max_camps',
+      'confirmed',
+      'pending',
+      'slots_left',
+      'ok',
+    ];
+    r = await fetchJson(
+      'GET',
+      `/camps/bb-availability?blood_bank_id=${TEST.bbInst}&from=${CAP_FULL}&to=${CAP_AUTO}`,
+    );
+    const availDays = r.body.days || [];
+    const availExtra = availDays.flatMap((d) => Object.keys(d).filter((k) => !AVAIL_KEYS.includes(k)));
+    const availMissing = availDays.flatMap((d) => AVAIL_KEYS.filter((k) => !(k in d)));
+    assert(
+      r.status === 200 && availDays.length === 4,
+      `the availability strip needs NO token and covers every day in the range (${r.status}, ${availDays.length} days)`,
+    );
+    assert(
+      availExtra.length === 0 && availMissing.length === 0,
+      `every row carries exactly the seven public keys — no note, no staff, no camp (extra: ${availExtra.join(',') || 'none'}; missing: ${availMissing.join(',') || 'none'})`,
+    );
+    assert(
+      availDays.find((d) => d.date === CAP_FULL)?.ok === false &&
+        availDays.find((d) => d.date === CAP_OPEN)?.ok === true,
+      'the organiser can see the closed day is closed and the open day is open',
+    );
+
+    r = await fetchJson('GET', `/camps/bb-availability?blood_bank_id=${hoSame}`);
+    assert(
+      r.status === 404 && r.body.error === 'blood_bank_not_found',
+      `a hospital has no camp availability to publish (${r.status})`,
+    );
+    r = await fetchJson('GET', '/camps/bb-availability?blood_bank_id=not-a-uuid');
+    assert(
+      r.status === 400 && r.body.error === 'invalid_blood_bank_id',
+      `a garbage blood_bank_id is a 400, never a 500 (${r.status})`,
+    );
+
+    // ── the response: accept, decline, and who may make it ──────────────────
+    r = await fetchJson('POST', `/camps/${campAsk}/bb-response`, {
+      headers: { Authorization: `Bearer ${bb3Token}` },
+      body: { response: 'AC' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'not_your_camp',
+      `a blood bank cannot answer for another blood bank's camp (${r.status}, ${r.body.error})`,
+    );
+
+    r = await fetchJson('POST', `/camps/${campAsk}/bb-response`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { response: 'DC' },
+    });
+    assert(r.status === 400, `a decline with no reason is refused (${r.status})`);
+
+    r = await fetchJson('POST', `/camps/${campAsk}/bb-response`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { response: 'AC' },
+    });
+    assert(
+      r.status === 200 && r.body.bb_response === 'AC' && !!r.body.submitted_by_mobile,
+      `accepting reveals the organiser's number to THAT blood bank (${r.status}, mobile ${r.body.submitted_by_mobile ? 'present' : 'absent'})`,
+    );
+
+    r = await fetchJson('POST', `/camps/${campDunno}/bb-response`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { response: 'AC' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'not_your_camp',
+      `a camp with no partner has nobody to answer for it (${r.status})`,
+    );
+
+    let ckErr = null;
+    try {
+      await sql(
+        `UPDATE donation_camps SET bb_response = 'AC' WHERE id = $1`,
+        [campDunno],
+        'response without a partner',
+      );
+    } catch (e) {
+      ckErr = e;
+    }
+    assert(
+      ckErr?.code === '23514',
+      `bb_response_needs_partner is enforced by the DB, not just the handler (${ckErr?.code})`,
+    );
+
+    // ── organiser contact is revealed on accept, and only to that BB ────────
+    r = await fetchJson('GET', `/camps/${campCap}`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    assert(
+      r.status === 200 && !('submitted_by_mobile' in r.body) && !('submitted_by_name' in r.body),
+      `while bb_response='PE' the organiser's contact is redacted (${r.status})`,
+    );
+    r = await fetchJson('GET', `/camps/${campAsk}`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    assert(
+      r.status === 200 && !!r.body.submitted_by_mobile && !r.body.review_notes,
+      `after 'AC' the same BB reads the contact — and still never the NGO's notes (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/bb/camps?from=${isoDay(0)}&to=${CAP_AUTO}`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    const mineAsk = (r.body.camps || []).find((c) => c.id === campAsk);
+    const mineCap = (r.body.camps || []).find((c) => c.id === campCap);
+    assert(
+      r.status === 200 && !!mineAsk && !!mineCap && r.body.awaiting_response >= 1,
+      `the BB's own camp list spans every status and counts what is awaiting an answer (${r.status}, awaiting ${r.body.awaiting_response})`,
+    );
+    assert(
+      !!mineAsk.submitted_by_mobile && !mineCap.submitted_by_mobile,
+      'the same split holds on the list: accepted camp reveals, pending camp redacts',
+    );
+
+    // ── a decline changes nothing except the answer ─────────────────────────
+    r = await fetchJson('POST', `/camps/${campCap}/bb-response`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { response: 'DC', decline_reason: 'NC', note: 'both vans out that day' },
+    });
+    bbRow = await sql(
+      `SELECT status, partnered_blood_bank_id, bb_response, bb_decline_reason
+         FROM donation_camps WHERE id = $1`,
+      [campCap],
+      'declined camp',
+    );
+    assert(
+      r.status === 200 &&
+        bbRow.rows[0]?.status === 'PL' &&
+        bbRow.rows[0]?.partnered_blood_bank_id === TEST.bbInst &&
+        bbRow.rows[0]?.bb_response === 'DC' &&
+        bbRow.rows[0]?.bb_decline_reason === 'NC',
+      `a decline keeps status PL and keeps the record of WHO declined (${r.status}, ${bbRow.rows[0]?.status}/${bbRow.rows[0]?.bb_response})`,
+    );
+
+    // The BB that declined on Monday must still be able to collect on Saturday.
+    // DATE_TOLERANCE_DAYS is 2, so this has to ask for the camp's own date.
+    r = await fetchJson('GET', `/camps/collectable?date=${CAP_OPEN}`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    assert(
+      r.status === 200 && (r.body.camps || []).some((c) => c.id === campCap),
+      `a declined camp is STILL collectable — the decline is not a cancellation (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/bb/capacity?from=${CAP_OPEN}&to=${CAP_OPEN}`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    capDay = (r.body.days || [])[0];
+    assert(
+      capDay?.confirmed === 1,
+      `a decline does not free the slot either — status still drives occupancy (confirmed ${capDay?.confirmed})`,
+    );
+
+    // ── re-partnering the declined camp ─────────────────────────────────────
+    // Nothing else in the file can do this: verify is bound to status 'PE' and
+    // PATCH lists partnered_blood_bank_id as not editable. Without this route a
+    // declined camp is a red row with no button.
+    r = await fetchJson('POST', `/camps/${campCap}/repartner`, {
+      headers: { Authorization: `Bearer ${TEST.coordToken}` },
+      body: { partnered_blood_bank_id: bbSecond, reason: 'first BB had no vans' },
+    });
+    bbRow = await sql(
+      `SELECT status, partnered_blood_bank_id, bb_response, bb_response_at,
+              bb_response_by, bb_decline_reason, bb_decline_note, review_notes
+         FROM donation_camps WHERE id = $1`,
+      [campCap],
+      're-partnered camp',
+    );
+    assert(
+      r.status === 200 &&
+        bbRow.rows[0]?.partnered_blood_bank_id === bbSecond &&
+        bbRow.rows[0]?.bb_response === 'PE' &&
+        bbRow.rows[0]?.status === 'PL',
+      `the declined camp moves to a new blood bank and asks it fresh (${r.status}, ${bbRow.rows[0]?.bb_response})`,
+    );
+    // 317's bb_decline_reason_needs_decline would have rejected the UPDATE
+    // outright if the reason had been left behind — but the NULL note and NULL
+    // timestamp matter too: a stale bb_response_at would date the new BB's
+    // silence to the old BB's refusal.
+    assert(
+      bbRow.rows[0]?.bb_decline_reason === null &&
+        bbRow.rows[0]?.bb_decline_note === null &&
+        bbRow.rows[0]?.bb_response_at === null &&
+        bbRow.rows[0]?.bb_response_by === null,
+      'no trace of the previous decline is left flagged against the new blood bank',
+    );
+    assert(
+      (bbRow.rows[0]?.review_notes || '').includes('first BB had no vans'),
+      'why the camp was moved is on the record, NGO-internal',
+    );
+
+    // The BB that declined no longer owns the camp; the new one does.
+    r = await fetchJson('POST', `/camps/${campCap}/bb-response`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { response: 'AC' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'not_your_camp',
+      `the blood bank that declined can no longer answer for the camp (${r.status})`,
+    );
+    r = await fetchJson('POST', `/camps/${campCap}/bb-response`, {
+      headers: { Authorization: `Bearer ${bb3Token}` },
+      body: { response: 'AC' },
+    });
+    assert(r.status === 200, `the new blood bank accepts the reassigned camp (${r.status})`);
+
+    // A hospital's UUID satisfies the FK and fails the picker's own predicate.
+    r = await fetchJson('POST', `/camps/${campCap}/repartner`, {
+      headers: { Authorization: `Bearer ${TEST.coordToken}` },
+      body: { partnered_blood_bank_id: hoSame },
+    });
+    assert(
+      r.status === 400 && r.body.error === 'blood_bank_not_available',
+      `a camp cannot be partnered to something that is not an active blood bank (${r.status})`,
+    );
+
+    // A blood bank cannot reassign a camp to itself. Collection responsibility
+    // is the NGO's call, which is the whole reason this is not part of PATCH.
+    r = await fetchJson('POST', `/camps/${campCap}/repartner`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { partnered_blood_bank_id: TEST.bbInst },
+    });
+    assert(r.status === 403, `a blood bank cannot re-partner a camp to itself (${r.status})`);
+
+    // ── auto-accept, opt-in, and only inside published capacity ─────────────
+    r = await fetchJson('PUT', '/camps/bb/settings', {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+      body: { auto_accept_within_capacity: true },
+    });
+    assert(
+      r.status === 200 && r.body.settings?.auto_accept_within_capacity === true,
+      `auto-accept is opt-in and can be turned on (${r.status})`,
+    );
+
+    r = await fetchJson('POST', '/camps/apply', {
+      body: {
+        ...applyBody(`Camp Smoke Auto ${RUN_TAG}`, CAP_AUTO),
+        requested_blood_bank_id: TEST.bbInst,
+      },
+    });
+    const campAuto = r.body.camp_id;
+    bbRow = await sql(
+      `SELECT status, bb_response, bb_response_by, partnered_blood_bank_id
+         FROM donation_camps WHERE id = $1`,
+      [campAuto],
+      'auto-accepted camp',
+    );
+    assert(
+      r.status === 201 &&
+        r.body.bb_response === 'AC' &&
+        bbRow.rows[0]?.status === 'PE' &&
+        bbRow.rows[0]?.bb_response_by === null &&
+        bbRow.rows[0]?.partnered_blood_bank_id === TEST.bbInst,
+      `inside published capacity the apply is auto-accepted, with no human attributed (${r.status}, ${String(r.body.bb_response)})`,
+    );
+
+    r = await fetchJson('POST', '/camps/apply', {
+      body: {
+        ...applyBody(`Camp Smoke AutoUnpub ${RUN_TAG}`, CAP_UNPUB),
+        requested_blood_bank_id: TEST.bbInst,
+      },
+    });
+    assert(
+      r.status === 201 && r.body.bb_response === null,
+      `auto-accept never fires on a day the BB has not published (${r.status}, ${String(r.body.bb_response)})`,
+    );
+
+    // ── the post-camp worklist: reachable without ever seeing a UUID ────────
+    r = await fetchJson('GET', `/camps/${TEST.camp1}/donations`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    const work = r.body.donations || [];
+    assert(
+      r.status === 200 && work.length >= 2 && work.every((d) => d.donation_id && d.full_name),
+      `the partnered BB reads its camp's donations with names decrypted (${r.status}, ${work.length} rows)`,
+    );
+    assert(
+      work.every((d) => !d.mobile) && work.every((d) => /^\+91XXXXX\d{4}$/.test(d.mobile_masked)),
+      'the tech matches a paper sheet on the last four digits — the raw mobile never leaves the DB',
+    );
+
+    r = await fetchJson('GET', `/camps/${TEST.camp1}/donations?pending=true`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    const pendingIds = (r.body.donations || []).map((d) => d.donor_id);
+    assert(
+      r.status === 200 && pendingIds.includes(DONORS.A.id) && !pendingIds.includes(DONORS.B.id),
+      `?pending=true is the worklist: unscreened donor stays, verified donor drops off (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/${TEST.camp1}/donations`, {
+      headers: { Authorization: `Bearer ${bb3Token}` },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'not_your_camp',
+      `a blood bank with no stake in the camp reads none of its donations (${r.status})`,
+    );
+
+    // ── the PII regression 315 left open ───────────────────────────────────
+    r = await fetchJson('GET', `/camps/${TEST.camp1}/registrations`, {
+      headers: { Authorization: `Bearer ${bb3Token}` },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'not_your_camp',
+      `an unrelated blood bank can no longer read ANY camp's donor roster (${r.status})`,
+    );
+    r = await fetchJson('GET', `/camps/${TEST.camp1}/registrations`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    assert(
+      r.status === 200 && Array.isArray(r.body.registrations),
+      `the camp's own blood bank still reads the roster it needs (${r.status})`,
+    );
+
   } catch (err) {
     console.error('FATAL:', err.message);
     console.error(err.stack);

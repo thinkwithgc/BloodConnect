@@ -6,6 +6,8 @@
  *   GET  /camps                    list — upcoming + (optional) district filter
  *   GET  /camps/mine               every camp I host, keyed on my mobile
  *   GET  /camps/collectable        camps a blood bank may record donations against
+ *   GET  /camps/blood-bank-options PUBLIC — blood banks in a district, for the
+ *                                  hosting form's "who will collect?" picker
  *   GET  /camps/:id                detail
  *   GET  /camps/:id/registrations  roster — coordinator/admin/BB
  *   POST /camps                    create direct — coordinator/admin (status=PL)
@@ -82,6 +84,8 @@ router.get('/', verifyJWT, async (req, res) => {
               c.attended_donor_count, c.deferred_donor_count, c.units_collected,
               c.status, c.partnered_blood_bank_id,
               i.display_name AS partnered_blood_bank_name,
+              c.requested_blood_bank_id,
+              rb.display_name AS requested_blood_bank_name,
               c.submitted_by_name, c.submitted_by_mobile,
               c.submitted_by_email, c.submitted_by_role,
               c.volunteer_training_requested, c.expected_volunteer_count,
@@ -92,6 +96,7 @@ router.get('/', verifyJWT, async (req, res) => {
          FROM donation_camps c
          JOIN districts d ON d.id = c.district_id
     LEFT JOIN institutions i ON i.id = c.partnered_blood_bank_id
+    LEFT JOIN institutions rb ON rb.id = c.requested_blood_bank_id
         WHERE ($1::int  IS NULL OR c.district_id = $1)
           AND ($2::text IS NULL OR c.status = $2)
           AND ($3::boolean IS TRUE
@@ -178,6 +183,12 @@ const applySchema = z.object({
   // Targets
   target_donor_count: z.number().int().positive().max(2000).optional(),
 
+  // Which blood bank the organiser would like to collect. A REQUEST, not an
+  // assignment - see migration 315. Optional on purpose: the organiser this
+  // field exists for is usually the one who has no idea, and "I don't know,
+  // please arrange one" must never block a camp application.
+  requested_blood_bank_id: z.string().uuid().optional(),
+
   // Public submitter contact (the ask: who's hosting?)
   submitted_by_name: z.string().min(2),
   submitted_by_mobile: z.string(),
@@ -214,6 +225,27 @@ router.post('/apply', async (req, res) => {
   const submitterMobile = normaliseIndianMobile(d.submitted_by_mobile);
   if (!submitterMobile) {
     return res.status(400).json({ error: 'invalid_mobile_format' });
+  }
+
+  // The picker is public, so the requested blood bank is validated here rather
+  // than trusted: it must be an ACTIVE blood bank in the camp's OWN district.
+  // A stale district selection would otherwise file a cross-district request
+  // the admin then has to untangle, and the whole point of this field is to
+  // save the admin work, not create it.
+  let requestedBbName = null;
+  if (d.requested_blood_bank_id) {
+    const bb = await withRlsContextRaw({ actor_role: 'onboarding' }, (c) =>
+      c.query(
+        `SELECT display_name FROM institutions
+          WHERE id = $1 AND kind = 'BB' AND onboarding_status = 'AC'
+            AND is_active = TRUE AND district_id = $2`,
+        [d.requested_blood_bank_id, d.district_id],
+      ),
+    );
+    if (bb.rowCount === 0) {
+      return res.status(400).json({ error: 'blood_bank_not_in_district' });
+    }
+    requestedBbName = bb.rows[0].display_name;
   }
 
   const slug = `${slugify(d.name)}-${Date.now().toString(36).slice(-5)}`;
@@ -260,7 +292,8 @@ router.post('/apply', async (req, res) => {
            submitted_by_name, submitted_by_mobile,
            submitted_by_email, submitted_by_role,
            volunteer_training_requested, expected_volunteer_count,
-           review_notes, created_by_user_id)
+           review_notes, created_by_user_id,
+           requested_blood_bank_id)
          VALUES (
            $1, $2, $3,
            $4, $5, $6,
@@ -271,7 +304,8 @@ router.post('/apply', async (req, res) => {
            $16, $17,
            $18, $19,
            $20, $21,
-           $22, $23)
+           $22, $23,
+           $24)
          RETURNING id, name, slug, scheduled_date, status`,
         [
           d.name,
@@ -297,6 +331,7 @@ router.post('/apply', async (req, res) => {
           d.expected_volunteer_count || null,
           d.notes || null,
           ownerUserId,
+          d.requested_blood_bank_id || null,
         ],
       );
       return r.rows[0];
@@ -319,6 +354,10 @@ router.post('/apply', async (req, res) => {
     // Tells the success screen which sentence to show: "this camp is now in
     // your profile" vs "sign in with this number to track it".
     tracked_in_profile: Boolean(ownerUserId),
+    // Echoed so the success screen can answer the organiser's real question —
+    // who is coming to collect — instead of leaving them to wonder. null means
+    // they answered "I don't know", and the NGO arranges it.
+    requested_blood_bank_name: requestedBbName,
     next_step:
       'Our NGO coordinator will contact you within 2 working days to verify details and arrange volunteer training.',
   });
@@ -447,6 +486,7 @@ router.get('/mine', verifyJWT, async (req, res) => {
                 d.name AS district_name,
                 s.name AS state_name,
                 i.display_name AS partnered_blood_bank_name,
+                rb.display_name AS requested_blood_bank_name,
                 c.scheduled_date >= CURRENT_DATE AS is_upcoming,
                 reg.registered, reg.donated, reg.deferred, reg.no_show, reg.cancelled,
                 don.recorded AS donations_recorded,
@@ -455,6 +495,7 @@ router.get('/mine', verifyJWT, async (req, res) => {
            JOIN districts d ON d.id = c.district_id
            JOIN states s    ON s.id = c.state_id
       LEFT JOIN institutions i ON i.id = c.partnered_blood_bank_id
+      LEFT JOIN institutions rb ON rb.id = c.requested_blood_bank_id
       LEFT JOIN LATERAL (
              SELECT COUNT(*) FILTER (WHERE r.status <> 'CN')::int AS registered,
                     COUNT(*) FILTER (WHERE r.status = 'AT')::int  AS donated,
@@ -557,15 +598,62 @@ router.get(
   },
 );
 
+// ── GET /camps/blood-bank-options (PUBLIC) ───────────────────────────────
+// Feeds the "which blood bank should collect?" picker on the public hosting
+// form, and the same picker on the admin's verify panel.
+//
+// Same shape as GET /requests/hospital-options (routes/requests.js) with one
+// deliberate divergence: NO verifyJWT. POST /camps/apply is public by design —
+// a sarpanch offering their hall is never pushed through a sign-in wall — so
+// its picker cannot require a token either.
+//
+// What that exposes is the NAME and DISTRICT of licensed blood banks that have
+// completed onboarding: public-record facts about establishments, already shown
+// on the public camp page. Explicitly NOT selected: primary_contact_mobile,
+// primary_contact_email, address_line (all column-encrypted PII) or
+// cdsco_licence_number. No inventory, no counts, no staff. RLS is inert at
+// runtime, so the WHERE clause below IS the boundary — keep it literal.
+//
+// Declared BEFORE GET /:id so Express doesn't bind 'blood-bank-options' to :id.
+router.get('/blood-bank-options', async (req, res) => {
+  const districtId = req.query.district_id ? Number(req.query.district_id) : null;
+  if (req.query.district_id && !Number.isInteger(districtId)) {
+    return res.status(400).json({ error: 'invalid_district_id' });
+  }
+  const q = String(req.query.q || '').trim();
+
+  const r = await withRlsContextRaw({ actor_role: 'onboarding' }, (c) =>
+    c.query(
+      `SELECT i.id, i.display_name, i.district_id, d.name AS district_name
+         FROM institutions i
+    LEFT JOIN districts d ON d.id = i.district_id
+        WHERE i.kind = 'BB'
+          AND i.onboarding_status = 'AC'
+          AND i.is_active = TRUE
+          AND ($1::int IS NULL OR i.district_id = $1)
+          AND ($2 = '' OR i.display_name ILIKE '%' || $2 || '%')
+     ORDER BY i.display_name
+        LIMIT 25`,
+      [districtId, q],
+    ),
+  );
+
+  // An empty list is a legitimate answer — most districts have no onboarded
+  // blood bank yet — and the UI must say so rather than render a dead select.
+  res.json({ blood_banks: r.rows, count: r.rowCount });
+});
+
 // ── GET /camps/:id ───────────────────────────────────────────────────────
 router.get('/:id', verifyJWT, async (req, res) => {
   const r = await withRlsContext(req, (c) =>
     c.query(
       `SELECT c.*, d.name AS district_name,
-              i.display_name AS partnered_blood_bank_name
+              i.display_name AS partnered_blood_bank_name,
+              rb.display_name AS requested_blood_bank_name
          FROM donation_camps c
          JOIN districts d ON d.id = c.district_id
     LEFT JOIN institutions i ON i.id = c.partnered_blood_bank_id
+    LEFT JOIN institutions rb ON rb.id = c.requested_blood_bank_id
         WHERE c.id = $1`,
       [req.params.id],
     ),
@@ -1112,7 +1200,13 @@ router.post(
                   verified_by_user_id = $2,
                   verified_at = clock_timestamp(),
                   review_notes = COALESCE($3, review_notes),
-                  partnered_blood_bank_id = COALESCE($4::uuid, partnered_blood_bank_id),
+                  -- The admin's explicit choice wins; failing that the
+                  -- organiser's request is promoted rather than dropped, so
+                  -- approving from an older client (or any path that omits the
+                  -- field) still honours what was asked for. requested_ is left
+                  -- untouched either way — it stays the record of the ask.
+                  partnered_blood_bank_id = COALESCE(
+                    $4::uuid, requested_blood_bank_id, partnered_blood_bank_id),
                   organising_coordinator_id = COALESCE($5::uuid, organising_coordinator_id)
             WHERE id = $1 AND status = 'PE'
         RETURNING id, status, verified_at,

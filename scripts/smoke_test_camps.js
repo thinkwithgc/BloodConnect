@@ -25,6 +25,10 @@
  * 12.  PATCH /camps/:id — non-owner 403, terminal 409, date move keeps PL,
  *      diff appended to review_notes, one notification per notified donor
  * 13.  a QR signup off the camp poster records QRC + registration_camp_id
+ * 14.  the organiser names a blood bank (migration 315): the public picker
+ *      leaks no PII and offers only ACTIVE onboarded BBs in the district, a
+ *      cross-district ask is refused, the request NEVER auto-partners, and
+ *      the admin's verify click is what promotes or overrides it
  */
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
@@ -301,6 +305,53 @@ function donationBody(donorId, dateIso, campId, barcodeSuffix) {
     isbt_barcode: `CMP-${RUN_TAG}-${barcodeSuffix}`,
     donation_camp_id: campId,
   };
+}
+
+// Minimal valid /camps/apply body. Section 14 files four applications that
+// differ only in the blood-bank field, so the rest is factored out here.
+function applyBody(name, dateIso) {
+  return {
+    name,
+    organiser_type: 'CO',
+    organiser_name: 'Camp Smoke Organisers',
+    state_id: TEST.state_id,
+    district_id: TEST.district_id,
+    venue: 'Community Hall',
+    address_line: '4 Hall Road, Camp Ward',
+    scheduled_date: dateIso,
+    start_time: '09:00',
+    end_time: '13:00',
+    submitted_by_name: 'Camp Host',
+    submitted_by_mobile: HOST_MOBILE,
+  };
+}
+
+// Section 14's institution fixtures. is_active is passed explicitly because it
+// defaults to FALSE, and an accidentally-inactive BB would fail the picker
+// assertions for the wrong reason.
+async function makeInst(tag, kind, status, active, districtId) {
+  const r = await sql(
+    `INSERT INTO institutions (kind, shortname, legal_name, display_name, state_id,
+                               district_id, address_line, pincode, primary_contact_name,
+                               primary_contact_mobile, cdsco_licence_number,
+                               cdsco_licence_expires, onboarding_status, is_active)
+     VALUES ($1, $2, $3, $3, $4, $5, '9 Camp Road', '444601', 'Contact',
+             $6, $7, (CURRENT_DATE + INTERVAL '1 year')::date, $8, $9)
+     RETURNING id`,
+    [
+      kind,
+      `cm${tag}${RUN_TAG}`,
+      `Camp Smoke ${tag.toUpperCase()} ${RUN_TAG}`,
+      TEST.state_id,
+      districtId,
+      `+9198${RUN_TAG}${tag.length}`,
+      `CDSCO-${tag}-${RUN_TAG}`,
+      status,
+      active,
+    ],
+    `fixture institution ${tag}`,
+  );
+  return r.rows[0].id;
 }
 
 async function main() {
@@ -754,6 +805,189 @@ async function main() {
       `the camp that recruited this donor is recorded (got ${qrRow.rows[0]?.registration_source}/${
         qrRow.rows[0]?.registration_camp_id === TEST.camp1 ? 'camp1' : 'null'
       })`,
+    );
+
+    console.log('── 14. the organiser asks for a blood bank; the NGO rules ───');
+    // institutions.is_active defaults to FALSE, so every fixture meant to be
+    // pickable says so explicitly — and the two that must not be pickable are
+    // the negative controls.
+    await sql(`UPDATE institutions SET is_active = TRUE WHERE id = $1`, [TEST.bbInst], 'bb active');
+
+    const otherDistrict = await sql(
+      `SELECT d.id FROM districts d JOIN states s ON s.id = d.state_id
+        WHERE d.is_active AND s.is_active AND d.id <> $1 ORDER BY d.id ASC LIMIT 1`,
+      [TEST.district_id],
+      'second district',
+    );
+    const OTHER_DISTRICT = otherDistrict.rows[0]?.id || null;
+
+    const bbSecond = await makeInst('bb2', 'BB', 'AC', true, TEST.district_id);
+    const bbPending = await makeInst('bbpe', 'BB', 'PE', true, TEST.district_id);
+    const bbInactive = await makeInst('bboff', 'BB', 'AC', false, TEST.district_id);
+    const hoSame = await makeInst('ho', 'HO', 'AC', true, TEST.district_id);
+    const bbElsewhere = OTHER_DISTRICT
+      ? await makeInst('bbfar', 'BB', 'AC', true, OTHER_DISTRICT)
+      : null;
+
+    // The picker is PUBLIC on purpose — camp hosting has no sign-in wall — so
+    // it is called here with no Authorization header at all.
+    r = await fetchJson('GET', `/camps/blood-bank-options?district_id=${TEST.district_id}`);
+    const optionIds = (r.body.blood_banks || []).map((b) => b.id);
+    assert(
+      r.status === 200 && optionIds.includes(TEST.bbInst) && optionIds.includes(bbSecond),
+      `the public picker needs NO token and lists active onboarded BBs (${r.status}, ${optionIds.length} rows)`,
+    );
+    assert(
+      !optionIds.includes(bbPending) &&
+        !optionIds.includes(bbInactive) &&
+        !optionIds.includes(hoSame),
+      'a pending BB, a deactivated BB and a hospital are never offered',
+    );
+    // A public read over the institutions table is exactly where PII leaks, so
+    // the response shape is asserted key-by-key rather than eyeballed.
+    const LEAK_KEYS = [
+      'primary_contact_mobile',
+      'primary_contact_email',
+      'address_line',
+      'cdsco_licence_number',
+    ];
+    const leaked = (r.body.blood_banks || []).flatMap((b) => LEAK_KEYS.filter((k) => k in b));
+    assert(
+      leaked.length === 0 && (r.body.blood_banks || []).every((b) => b.display_name),
+      `the public picker returns name + district and no PII (leaked: ${leaked.join(',') || 'none'})`,
+    );
+
+    if (OTHER_DISTRICT) {
+      r = await fetchJson('GET', `/camps/blood-bank-options?district_id=${OTHER_DISTRICT}`);
+      const farIds = (r.body.blood_banks || []).map((b) => b.id);
+      assert(
+        !farIds.includes(TEST.bbInst) && farIds.includes(bbElsewhere),
+        'the district filter is a real filter, not a sort',
+      );
+
+      r = await fetchJson('POST', '/camps/apply', {
+        body: {
+          ...applyBody(`Camp Smoke Cross ${RUN_TAG}`, isoDay(24)),
+          requested_blood_bank_id: bbElsewhere,
+        },
+      });
+      const crossRow = await sql(
+        `SELECT id FROM donation_camps WHERE name = $1`,
+        [`Camp Smoke Cross ${RUN_TAG}`],
+        'cross-district camp',
+      );
+      assert(
+        r.status === 400 &&
+          r.body.error === 'blood_bank_not_in_district' &&
+          crossRow.rowCount === 0,
+        `a BB from another district is refused and no camp is filed (${r.status} ${r.body.error || ''})`,
+      );
+    }
+
+    // THE ASSERTION THE WHOLE DESIGN RESTS ON: the organiser's ask lands in
+    // requested_blood_bank_id and partnered_blood_bank_id stays NULL. Writing
+    // it straight to partnered_ would put the camp in a blood bank's
+    // collectable list before anyone agreed to staff it.
+    r = await fetchJson('POST', '/camps/apply', {
+      body: {
+        ...applyBody(`Camp Smoke Ask ${RUN_TAG}`, isoDay(1)),
+        requested_blood_bank_id: TEST.bbInst,
+      },
+    });
+    const campAsk = r.body.camp_id;
+    let bbRow = await sql(
+      `SELECT requested_blood_bank_id, partnered_blood_bank_id FROM donation_camps WHERE id = $1`,
+      [campAsk],
+      'ask row',
+    );
+    assert(
+      r.status === 201 &&
+        bbRow.rows[0]?.requested_blood_bank_id === TEST.bbInst &&
+        bbRow.rows[0]?.partnered_blood_bank_id === null,
+      `the ask is filed as a REQUEST and partners nothing (${r.status})`,
+    );
+    assert(
+      typeof r.body.requested_blood_bank_name === 'string' &&
+        r.body.requested_blood_bank_name.length > 0,
+      `the success screen is told who was asked for, by name (${r.body.requested_blood_bank_name})`,
+    );
+
+    // Verify sends no blood bank at all — an older client, or an admin who
+    // never touched the dropdown. The COALESCE must promote the request rather
+    // than silently drop it.
+    r = await fetchJson('POST', `/camps/${campAsk}/verify`, {
+      headers: { Authorization: `Bearer ${TEST.coordToken}` },
+      body: { review_notes: 'verified without touching the blood-bank field' },
+    });
+    bbRow = await sql(
+      `SELECT partnered_blood_bank_id FROM donation_camps WHERE id = $1`,
+      [campAsk],
+      'promoted row',
+    );
+    assert(
+      r.status === 200 && bbRow.rows[0]?.partnered_blood_bank_id === TEST.bbInst,
+      `verify with no field promotes the organiser's request (${r.status})`,
+    );
+
+    // Now the override: the admin knows the requested BB cannot staff that
+    // date. Their choice wins, and requested_ survives as the record of the ask.
+    r = await fetchJson('POST', '/camps/apply', {
+      body: {
+        ...applyBody(`Camp Smoke Override ${RUN_TAG}`, isoDay(26)),
+        requested_blood_bank_id: TEST.bbInst,
+      },
+    });
+    r = await fetchJson('POST', `/camps/${r.body.camp_id}/verify`, {
+      headers: { Authorization: `Bearer ${TEST.coordToken}` },
+      body: { partnered_blood_bank_id: bbSecond },
+    });
+    bbRow = await sql(
+      `SELECT requested_blood_bank_id, partnered_blood_bank_id FROM donation_camps WHERE name = $1`,
+      [`Camp Smoke Override ${RUN_TAG}`],
+      'override row',
+    );
+    assert(
+      r.status === 200 &&
+        bbRow.rows[0]?.partnered_blood_bank_id === bbSecond &&
+        bbRow.rows[0]?.requested_blood_bank_id === TEST.bbInst,
+      `the admin overrides and the original ask is still on the record (${r.status})`,
+    );
+
+    // "I do not know" is a first-class answer: it must not block the
+    // application, and it must not block approval either.
+    r = await fetchJson('POST', '/camps/apply', {
+      body: applyBody(`Camp Smoke Dunno ${RUN_TAG}`, isoDay(27)),
+    });
+    const campDunno = r.body.camp_id;
+    assert(
+      r.status === 201 && !r.body.requested_blood_bank_name,
+      `"I do not know" files a camp and names nobody (${r.status})`,
+    );
+    r = await fetchJson('POST', `/camps/${campDunno}/verify`, {
+      headers: { Authorization: `Bearer ${TEST.coordToken}` },
+      body: {},
+    });
+    bbRow = await sql(
+      `SELECT partnered_blood_bank_id, status FROM donation_camps WHERE id = $1`,
+      [campDunno],
+      'dunno row',
+    );
+    assert(
+      r.status === 200 &&
+        bbRow.rows[0]?.status === 'PL' &&
+        bbRow.rows[0]?.partnered_blood_bank_id === null,
+      `no blood bank anywhere still goes PE → PL (${r.status}, ${bbRow.rows[0]?.status})`,
+    );
+
+    // End-to-end sanity that the promoted column is usable: the partnered BB
+    // sees the camp. (collectable also falls back to district, so this is a
+    // smoke check on the write, not a proof of ownership.)
+    r = await fetchJson('GET', '/camps/collectable', {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    assert(
+      r.status === 200 && (r.body.camps || []).some((c) => c.id === campAsk),
+      `the partnered blood bank sees the camp in its collectable list (${r.status})`,
     );
   } catch (err) {
     console.error('FATAL:', err.message);

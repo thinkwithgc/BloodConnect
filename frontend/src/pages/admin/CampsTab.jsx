@@ -405,11 +405,31 @@ function ReviewPanel({ camp, onClose, onActioned }) {
   const [showDecline, setShowDecline] = useState(false);
   const [verifyResult, setVerifyResult] = useState(null);
   const [copyState, setCopyState] = useState('');
+  // The organiser asked for a blood bank; this click is what makes it real.
+  // Prefilled with their request so accepting it is the default action and
+  // overriding is the deliberate one.
+  const [bloodBanks, setBloodBanks] = useState([]);
+  const [partneredBbId, setPartneredBbId] = useState(camp.requested_blood_bank_id || '');
+
+  useEffect(() => {
+    setPartneredBbId(camp.requested_blood_bank_id || '');
+    if (!camp.district_id) {
+      setBloodBanks([]);
+      return;
+    }
+    apiRequest('GET', `/camps/blood-bank-options?district_id=${camp.district_id}`)
+      .then((r) => setBloodBanks(r.blood_banks || []))
+      .catch(() => setBloodBanks([]));
+  }, [camp.id, camp.district_id, camp.requested_blood_bank_id]);
 
   const verify = useMutation({
     mutationFn: () =>
       apiRequest('POST', `/camps/${camp.id}/verify`, {
         review_notes: reviewNotes || undefined,
+        // Omitted rather than nulled when nothing is chosen: the backend
+        // COALESCEs down to requested_blood_bank_id, so an untouched dropdown
+        // still promotes what the organiser asked for.
+        partnered_blood_bank_id: partneredBbId || undefined,
       }),
     onSuccess: (r) => setVerifyResult(r),
   });
@@ -562,6 +582,18 @@ function ReviewPanel({ camp, onClose, onActioned }) {
             'Not requested'
           )}
         </dd>
+        <dt className="text-slate-500">Blood bank asked for</dt>
+        <dd className="sm:col-span-2">
+          {camp.requested_blood_bank_name ? (
+            <span className="font-semibold text-slate-900">
+              {camp.requested_blood_bank_name}
+            </span>
+          ) : (
+            <span className="text-slate-600">
+              Organiser did not know one — you are choosing for them
+            </span>
+          )}
+        </dd>
         {camp.review_notes ? (
           <>
             <dt className="text-slate-500">Host notes</dt>
@@ -608,6 +640,39 @@ function ReviewPanel({ camp, onClose, onActioned }) {
         </div>
       ) : (
         <div className="space-y-2">
+          {/* Approving is where the NGO takes ownership of the collection: this
+              select writes partnered_blood_bank_id, which is the column the
+              organiser dashboard, the public camp page and the blood bank's own
+              collectable list all read. Left blank, the organiser's request is
+              promoted by the backend COALESCE. */}
+          <label className="block text-sm">
+            <span className="rk-label">Blood bank that will collect</span>
+            {bloodBanks.length === 0 ? (
+              <span className="mt-1 block rounded-md border border-slate-200 bg-slate-50 p-2 text-xs text-slate-600">
+                No onboarded blood bank in {camp.district_name || 'this district'} yet —
+                approve now and arrange collection off-platform.
+              </span>
+            ) : (
+              <select
+                className="rk-input"
+                value={partneredBbId}
+                onChange={(e) => setPartneredBbId(e.target.value)}
+              >
+                <option value="">— decide later —</option>
+                {bloodBanks.map((b) => (
+                  <option key={b.id} value={b.id}>
+                    {b.display_name}
+                  </option>
+                ))}
+              </select>
+            )}
+            <span className="mt-1 block text-xs text-slate-500">
+              The organiser sees this name on their dashboard and on the public camp page.
+              {camp.requested_blood_bank_name
+                ? ` They asked for ${camp.requested_blood_bank_name}.`
+                : ' They had no preference.'}
+            </span>
+          </label>
           <label className="block text-sm">
             <span className="rk-label">Review notes (optional)</span>
             <textarea

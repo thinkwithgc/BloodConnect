@@ -30,6 +30,10 @@ const schema = z.object({
   start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   end_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
   target_donor_count: z.number().int().positive().max(2000).optional(),
+  // The organiser's preferred blood bank. A request, never an assignment -
+  // the NGO admin promotes it at verify. Optional on purpose: the organiser
+  // this field exists for is usually the one who has no idea.
+  requested_blood_bank_id: z.string().uuid().optional(),
   submitted_by_name: z.string().min(2),
   submitted_by_mobile: z
     .string()
@@ -63,6 +67,7 @@ export function HostCamp() {
     venue: '',
     address_line: '',
     pincode: '',
+    requested_blood_bank_id: '',
     scheduled_date: '',
     start_time: '09:00',
     end_time: '15:00',
@@ -78,6 +83,7 @@ export function HostCamp() {
   const [states, setStates] = useState([]);
   const [districts, setDistricts] = useState([]);
   const [talukas, setTalukas] = useState([]);
+  const [bloodBanks, setBloodBanks] = useState([]);
   const [errors, setErrors] = useState({});
   const [topError, setTopError] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -114,6 +120,21 @@ export function HostCamp() {
     update('taluka_id', 0);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [form.district_id]);
+  // Blood banks are scoped to the camp's own district - the backend rejects a
+  // cross-district request - so the list reloads and the pick clears whenever
+  // the district changes. A failed fetch leaves the list empty, which renders
+  // the honest "we'll arrange one" panel rather than an error.
+  useEffect(() => {
+    if (!form.district_id) {
+      setBloodBanks([]);
+      return;
+    }
+    apiRequest('GET', `/camps/blood-bank-options?district_id=${form.district_id}`)
+      .then((r) => setBloodBanks(r.blood_banks || []))
+      .catch(() => setBloodBanks([]));
+    update('requested_blood_bank_id', '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [form.district_id]);
 
   async function submit(e) {
     e.preventDefault();
@@ -130,6 +151,7 @@ export function HostCamp() {
         ? Number(form.expected_volunteer_count)
         : undefined,
       pincode: form.pincode || undefined,
+      requested_blood_bank_id: form.requested_blood_bank_id || undefined,
       submitted_by_email: form.submitted_by_email || undefined,
       submitted_by_role: form.submitted_by_role || undefined,
       notes: form.notes || undefined,
@@ -198,6 +220,22 @@ export function HostCamp() {
             <p className="text-xs text-slate-500">
               {submitted.next_step}
             </p>
+
+            {/* The organiser's real question is who is coming to collect. Answer
+                it here instead of leaving them to wonder - that is the whole
+                point of the picker on the form. */}
+            {submitted.requested_blood_bank_name ? (
+              <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                You asked for <strong>{submitted.requested_blood_bank_name}</strong> to
+                collect. We will confirm it with them and tell you - normally within 2-3
+                days.
+              </p>
+            ) : (
+              <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                <strong>We will arrange a blood bank</strong> and tell you which one is
+                coming. You do not have to find one yourself.
+              </p>
+            )}
 
             {/* Hosting stays open to anyone - no sign-in wall on this page.
                 But a principal hosting three camps should not be holding
@@ -421,6 +459,51 @@ export function HostCamp() {
                 maxLength={6}
               />
             </Field>
+          </section>
+
+          {/* Who collects. A REQUEST, not an assignment - the NGO admin
+              promotes it to partnered_blood_bank_id at verify (migration 315).
+              Scoped to the district picked above, which is why it lives after
+              the Location section. */}
+          <section className="rk-card space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Who will collect the blood?
+            </h2>
+            <p className="text-sm text-slate-600">
+              The blood bank sends the team, the beds and the cold-chain boxes. If you
+              already work with one, name it here. If you do not know one,{' '}
+              <strong>that is perfectly fine</strong> - Raktify will arrange it for you.
+            </p>
+            {!form.district_id ? (
+              <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                Choose the district above first, then pick a blood bank here.
+              </p>
+            ) : bloodBanks.length === 0 ? (
+              <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                No blood bank is on Raktify in this district yet -{' '}
+                <strong>we will arrange collection for you.</strong> Nothing to do on this
+                question.
+              </p>
+            ) : (
+              <Field
+                label="Preferred blood bank"
+                hint="Optional. Our NGO team confirms the blood bank when we review your application."
+                error={errors.requested_blood_bank_id}
+              >
+                <select
+                  className="rk-input"
+                  value={form.requested_blood_bank_id}
+                  onChange={(e) => update('requested_blood_bank_id', e.target.value)}
+                >
+                  <option value="">I do not know - please arrange one for us</option>
+                  {bloodBanks.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.display_name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
           </section>
 
           {/* Volunteer training */}

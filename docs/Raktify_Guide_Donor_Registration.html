@@ -1,0 +1,1150 @@
+<meta charset="utf-8" />
+<title>Donor Registration Wall Guide</title>
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap"
+/>
+
+<style>
+  /* ── Raktify locked design system ──────────────────────────────────────
+     Palette is the rk-50…900 scale + cream/sand. Accent is rk-700 #b8231a.
+     One family: Inter + Noto Sans Devanagari. Mono is a utility role only —
+     URLs and literal on-screen error codes, which are read character by
+     character rather than as prose. Amber/emerald appear as STATUS only,
+     mirroring the pills the real UI renders.
+     ──────────────────────────────────────────────────────────────────── */
+  :root {
+    --ink: #1c1917;
+    --ink-2: #44403c;
+    --ink-3: #78716c;
+    --accent: #b8231a;
+    --accent-9: #7c1d1b;
+    --accent-50: #fff5f3;
+    --accent-200: #ffccc0;
+    --cream: #fdf8f4;
+    --sand: #f5ece4;
+    --paper: #ffffff;
+    --line: #e7e0d8;
+    --warn: #b45309;
+    --warn-bg: #fffbeb;
+    --ok: #047857;
+    --ok-bg: #ecfdf5;
+    --slate-label: #44403c;
+    --slate-border: #cbd5e1;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", "Noto Sans Devanagari", system-ui, sans-serif;
+  }
+  /* This sheet is printed on a cheap laser printer and taped to a window.
+     It commits to one visual world — ink on paper — so there is no dark
+     variant, but every colour is painted explicitly so it holds on any host
+     ground rather than borrowing one. */
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 28px 30px 56px;
+    background: var(--paper);
+  }
+
+  /* ── Masthead ─────────────────────────────────────────────────────── */
+  .mast {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 26px;
+    align-items: start;
+    padding-bottom: 18px;
+    border-bottom: 3px solid var(--accent);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 14px;
+  }
+  .brand svg {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    display: block;
+  }
+  .wm {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .wm i {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .wm sup {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--ink-3);
+    vertical-align: super;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  .h1-en {
+    margin: 0 0 12px;
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .fact {
+    background: var(--accent-50);
+    border: 1px solid var(--accent-200);
+    color: var(--accent-9);
+    border-radius: 999px;
+    padding: 3px 11px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .qr-block {
+    text-align: center;
+    width: 186px;
+  }
+  .qr-block svg {
+    width: 158px;
+    height: 158px;
+    display: block;
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+  }
+  .qr-cap {
+    margin-top: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .qr-url {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--accent);
+    word-break: break-all;
+    margin-top: 3px;
+  }
+
+  /* ── Before you start ─────────────────────────────────────────────── */
+  .prep {
+    margin: 20px 0 4px;
+    background: var(--sand);
+    border-radius: 10px;
+    padding: 15px 18px;
+  }
+  .prep h2 {
+    margin: 0 0 9px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .prep h2 span {
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+  .prep ul {
+    margin: 0;
+    padding-left: 20px;
+    display: grid;
+    gap: 5px;
+    font-size: 14px;
+  }
+
+  /* ── Step rail ────────────────────────────────────────────────────── */
+  .step {
+    display: grid;
+    grid-template-columns: 1fr 250px;
+    gap: 24px;
+    align-items: start;
+    padding: 22px 0;
+    border-bottom: 1px solid var(--line);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .step.no-screen {
+    grid-template-columns: 1fr;
+  }
+  .step-head {
+    display: flex;
+    gap: 13px;
+    align-items: baseline;
+  }
+  /* Numbering encodes a real constraint: these steps only work in this
+     order. Step 2 must precede step 3 or the donor's WhatsApp alerts arrive
+     in the wrong language for good. */
+  .num {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 17px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .step h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  .step h3 small {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink-3);
+    letter-spacing: 0;
+    margin-top: 2px;
+  }
+  .step-body {
+    padding-left: 47px;
+  }
+  .step-body p {
+    margin: 10px 0 0;
+    font-size: 14.5px;
+  }
+  .step-body ol,
+  .step-body ul {
+    margin: 9px 0 0;
+    padding-left: 19px;
+    display: grid;
+    gap: 6px;
+    font-size: 14.5px;
+  }
+  .en {
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  code,
+  .lit {
+    font-family: var(--mono);
+    font-size: 0.9em;
+    background: var(--sand);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--ink);
+  }
+  .lit {
+    background: #fff;
+    border: 1px solid var(--slate-border);
+    font-weight: 600;
+  }
+  strong {
+    font-weight: 600;
+  }
+
+  .flag {
+    margin-top: 12px;
+    border-left: 4px solid var(--warn);
+    background: var(--warn-bg);
+    padding: 10px 13px;
+    border-radius: 0 7px 7px 0;
+    font-size: 13.5px;
+  }
+  .flag.ok {
+    border-left-color: var(--ok);
+    background: var(--ok-bg);
+  }
+  .flag b {
+    color: var(--warn);
+  }
+  .flag.ok b {
+    color: var(--ok);
+  }
+
+  /* ── Screen reconstruction ────────────────────────────────────────────
+     Rebuilt from frontend/src/pages/donor/DonorRegister.jsx with the real
+     .rk-input / .rk-label / .rk-button-primary token values. Every label is
+     the literal string the screen renders — that is the point, since the
+     reader is matching words on paper to words on glass.
+     ─────────────────────────────────────────────────────────────────── */
+  .phone {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--cream);
+    box-shadow: 0 1px 3px rgba(124, 29, 27, 0.08);
+  }
+  .phone-bar {
+    background: var(--sand);
+    border-bottom: 1px solid var(--line);
+    padding: 5px 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--ink-3);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .phone-bar b {
+    color: var(--ink-2);
+    font-weight: 400;
+  }
+  .phone-hdr {
+    background: #fff;
+    border-bottom: 1px solid var(--line);
+    padding: 6px 9px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  .phone-hdr .wm {
+    font-size: 12px;
+  }
+  .lang-sel {
+    border: 1px solid var(--slate-border);
+    border-radius: 5px;
+    background: #fff;
+    font-size: 9.5px;
+    padding: 2px 4px;
+    font-weight: 600;
+  }
+  .phone-body {
+    padding: 10px;
+  }
+  .stepper {
+    display: flex;
+    gap: 5px;
+    margin-bottom: 9px;
+  }
+  .pip {
+    flex: 1;
+    font-size: 8px;
+    font-weight: 600;
+    text-align: center;
+    padding: 3px 2px;
+    border-radius: 4px;
+    background: #fff;
+    border: 1px solid var(--line);
+    color: var(--ink-3);
+  }
+  .pip.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+  }
+  .sc-h {
+    font-size: 11.5px;
+    font-weight: 700;
+    margin: 0 0 8px;
+  }
+  .f {
+    margin-bottom: 7px;
+  }
+  .f > span {
+    display: block;
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--slate-label);
+    margin-bottom: 2px;
+  }
+  .inp {
+    border: 1px solid var(--slate-border);
+    border-radius: 6px;
+    background: #fff;
+    padding: 4px 6px;
+    font-size: 9.5px;
+    color: var(--ink-3);
+    min-height: 20px;
+  }
+  .inp.filled {
+    color: var(--ink);
+  }
+  .inp.sel::after {
+    content: "▾";
+    float: right;
+    color: var(--ink-3);
+  }
+  .hint {
+    font-size: 7.5px;
+    color: var(--ink-3);
+    margin-top: 2px;
+    line-height: 1.35;
+  }
+  .segs {
+    display: flex;
+    gap: 3px;
+  }
+  .seg {
+    flex: 1;
+    text-align: center;
+    font-size: 8.5px;
+    padding: 3px 0;
+    border: 1px solid var(--slate-border);
+    border-radius: 5px;
+    background: #fff;
+  }
+  .seg.on {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-weight: 600;
+  }
+  .chk {
+    display: flex;
+    gap: 4px;
+    font-size: 8.5px;
+    margin-bottom: 4px;
+    line-height: 1.35;
+  }
+  .box {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border: 1px solid var(--slate-border);
+    border-radius: 2px;
+    background: #fff;
+    margin-top: 1px;
+  }
+  .box.tick {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-size: 7px;
+    text-align: center;
+    line-height: 9px;
+  }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 5px;
+    margin-top: 8px;
+  }
+  .btn.sec {
+    background: #fff;
+    color: var(--ink);
+    border: 1px solid var(--slate-border);
+  }
+  .btn-row {
+    display: flex;
+    gap: 5px;
+  }
+  .btn-row .btn {
+    flex: 1;
+  }
+  .otp-box {
+    border: 1px solid var(--slate-border);
+    border-radius: 6px;
+    background: #fff;
+    text-align: center;
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 6px;
+    padding: 6px;
+    font-weight: 600;
+  }
+  .sc-p {
+    font-size: 8.5px;
+    color: var(--ink-2);
+    margin: 0 0 8px;
+    line-height: 1.45;
+  }
+  .cap {
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--ink-3);
+    margin-top: 6px;
+    font-style: italic;
+  }
+  .pill {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-size: 8px;
+    font-weight: 700;
+    background: var(--ok-bg);
+    color: var(--ok);
+  }
+
+  /* ── Tables ───────────────────────────────────────────────────────── */
+  .sec {
+    margin-top: 34px;
+    break-inside: avoid;
+  }
+  .sec > h2 {
+    margin: 0 0 3px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+  }
+  .sec > .lede {
+    margin: 0 0 13px;
+    font-size: 14px;
+    color: var(--ink-2);
+    max-width: 62ch;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    border-bottom: 2px solid var(--ink);
+    padding: 0 10px 6px 0;
+  }
+  td {
+    border-bottom: 1px solid var(--line);
+    padding: 9px 10px 9px 0;
+    vertical-align: top;
+  }
+  tr {
+    break-inside: avoid;
+  }
+  td:last-child,
+  th:last-child {
+    padding-right: 0;
+  }
+  .t-lit {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 12.5px;
+    white-space: nowrap;
+  }
+  .t-ex {
+    color: var(--ink-2);
+    font-size: 12.5px;
+  }
+  .req {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .opt {
+    color: var(--ink-3);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  /* ── Volunteer panel ──────────────────────────────────────────────── */
+  .desk {
+    margin-top: 34px;
+    border: 2px solid var(--ink);
+    border-radius: 11px;
+    padding: 18px 20px;
+    break-inside: avoid;
+  }
+  .desk h2 {
+    margin: 0 0 3px;
+    font-size: 19px;
+    font-weight: 700;
+  }
+  .desk .lede {
+    margin: 0 0 13px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .desk-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 24px;
+  }
+  .desk-grid h4 {
+    margin: 0 0 4px;
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+  .desk-grid p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
+  footer {
+    margin-top: 34px;
+    padding-top: 15px;
+    border-top: 3px solid var(--accent);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 20px;
+    align-items: end;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  footer p {
+    margin: 0 0 4px;
+    max-width: 66ch;
+  }
+  footer .rev {
+    text-align: right;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 720px) {
+    .mast,
+    .step,
+    .desk-grid,
+    footer {
+      grid-template-columns: 1fr;
+    }
+    .qr-block {
+      width: auto;
+    }
+    .step-body {
+      padding-left: 0;
+    }
+    .sheet {
+      padding: 20px 16px 40px;
+    }
+  }
+
+  /* ── Print: A4, white ground, ink economy ─────────────────────────── */
+  @media print {
+    @page {
+      size: A4;
+      margin: 11mm;
+    }
+    body {
+      background: #fff;
+      font-size: 10.5pt;
+    }
+    .sheet {
+      max-width: none;
+      padding: 0;
+    }
+    .prep,
+    .desk,
+    .phone,
+    .flag {
+      box-shadow: none;
+    }
+    h1 {
+      font-size: 23pt;
+    }
+    .sec > h2 {
+      font-size: 15pt;
+    }
+    .step h3 {
+      font-size: 13pt;
+    }
+    a {
+      color: var(--ink);
+      text-decoration: none;
+    }
+  }
+</style>
+
+<div class="sheet">
+  <header class="mast">
+    <div>
+      <div class="brand">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <rect width="512" height="512" rx="114" fill="#b8231a" />
+          <g transform="translate(62 66) scale(16.2)">
+            <path d="M12 2.5c4 4.8 7 8.3 7 11.5a7 7 0 0 1-14 0c0-3.2 3-6.7 7-11.5Z" fill="#fff" />
+          </g>
+          <circle cx="256" cy="312" r="48" fill="#b8231a" />
+        </svg>
+        <span class="wm"><i>Rakt</i>ify<sup>™</sup></span>
+      </div>
+      <h1>रक्तदाता म्हणून नोंदणी कशी करायची</h1>
+      <p class="h1-en">How to register as a blood donor — a complete guide for a first-time user</p>
+      <div class="facts">
+        <span class="fact">वेळ: २ मिनिटे</span>
+        <span class="fact">फी नाही</span>
+        <span class="fact">कागदपत्र नको</span>
+        <span class="fact">फक्त मोबाइल लागेल</span>
+      </div>
+    </div>
+    <div class="qr-block">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="qr-cap">हा QR मोबाइलच्या कॅमेऱ्याने स्कॅन करा<br /><span class="en">Scan this with your phone camera</span></div>
+      <div class="qr-url">raktify.choudhari.ngo/register</div>
+    </div>
+  </header>
+
+  <div class="prep">
+    <h2>सुरू करण्यापूर्वी हे तयार ठेवा <span>— Before you start</span></h2>
+    <ul>
+      <li><strong>तुमचा स्वतःचा मोबाइल</strong>, ज्यावर WhatsApp चालू आहे. OTP त्याच नंबरवर येईल, म्हणून दुसऱ्याचा फोन वापरू नका. <span class="en">Your own phone — the OTP comes to this number.</span></li>
+      <li><strong>तुमची जन्मतारीख</strong> (दिवस, महिना, वर्ष). वय <strong>१८ ते ६५</strong> या दरम्यान असावे. <span class="en">Your date of birth. Age must be 18–65.</span></li>
+      <li><strong>तुमच्या गावाचे किंवा भागाचे नाव.</strong> घराचा पत्ता <strong>विचारला जात नाही</strong>. <span class="en">Your village or area — we never ask for a street address.</span></li>
+      <li><strong>रक्तगट माहीत नसेल तरी चालेल.</strong> रक्तपेढी तुमच्या पहिल्या रक्तदानाच्या वेळी तपासून नोंदवेल. <span class="en">You do not need to know your blood group.</span></li>
+    </ul>
+  </div>
+
+  <!-- 1 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">1</div>
+        <h3>पान उघडा<small>Open the registration page</small></h3>
+      </div>
+      <div class="step-body">
+        <ol>
+          <li>फोनचा <strong>कॅमेरा</strong> उघडा आणि वरचा QR कोड त्यासमोर धरा. स्क्रीनवर एक लिंक दिसेल — त्यावर <strong>टॅप करा</strong>.</li>
+          <li>QR स्कॅन होत नसेल तर, फोनमधील <strong>Chrome</strong> उघडून वरचा पत्ता स्वतः टाइप करा: <code>raktify.choudhari.ngo/register</code></li>
+        </ol>
+        <p class="en">Open your camera, point it at the QR code, tap the link that appears. If the camera does not read it, type the address into Chrome by hand.</p>
+        <div class="flag">
+          <b>लक्षात ठेवा:</b> कोणतेही <strong>app डाउनलोड करायची गरज नाही</strong>. हे फक्त एक वेबपेज आहे. Play Store मध्ये "Raktify" शोधू नका.
+          <span class="en">There is nothing to install — this is a web page, not an app.</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>raktify.choudhari.ngo/register</b></div>
+        <div class="phone-hdr">
+          <span class="wm"><i>Rakt</i>ify</span>
+          <span class="lang-sel">MR ▾</span>
+        </div>
+        <div class="phone-body">
+          <div class="stepper">
+            <div class="pip on">Your details</div>
+            <div class="pip">Consent</div>
+          </div>
+          <div class="sc-h">Step 1 — Your details</div>
+          <div class="f"><span>Mobile</span><div class="inp">+91 9XXXXXXXXX</div></div>
+          <div class="f"><span>Full name</span><div class="inp"></div></div>
+          <div class="f"><span>Date of birth</span><div class="inp">dd-mm-yyyy</div></div>
+        </div>
+      </div>
+      <div class="cap">पान उघडल्यावर असे दिसेल</div>
+    </div>
+  </section>
+
+  <!-- 2 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">2</div>
+        <h3>सर्वात आधी भाषा निवडा<small>Set your language first — this one is not optional</small></h3>
+      </div>
+      <div class="step-body">
+        <p>पानाच्या <strong>वरच्या उजव्या कोपऱ्यात</strong> एक छोटी चौकट आहे, ज्यात <span class="lit">MR</span> / <span class="lit">HI</span> / <span class="lit">EN</span> असे लिहिले असते. त्यावर टॅप करून <strong><span class="lit">MR</span> (मराठी)</strong> निवडा.</p>
+        <div class="flag">
+          <b>हे का महत्त्वाचे आहे:</b> तुम्ही येथे जी भाषा निवडाल, <strong>तीच भाषा तुमच्या पुढच्या सर्व WhatsApp संदेशांसाठी कायमची नोंदली जाते</strong> — रक्ताची तातडीची मागणी, शिबिराची आठवण, सगळे. आत्ता <span class="lit">EN</span> राहिले तर पुढचे सर्व संदेश इंग्रजीत येतील.
+          <span class="en">The language you pick here is saved as your permanent WhatsApp language for every future alert. Pick it before you fill anything.</span>
+        </div>
+        <p><strong>एक प्रामाणिक सूचना:</strong> भाषा मराठी केल्यानंतरही खालच्या फॉर्ममधील <strong>खोक्यांची नावे इंग्रजीतच</strong> दिसतील (<span class="lit">Mobile</span>, <span class="lit">Full name</span>…). हे नक्की काय आहे ते समजण्यासाठी या कागदावरील <strong>तक्ता</strong> वापरा — प्रत्येक इंग्रजी शब्दाचा अर्थ त्यात दिला आहे.</p>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>raktify.choudhari.ngo/register</b></div>
+        <div class="phone-hdr">
+          <span class="wm"><i>Rakt</i>ify</span>
+          <span class="lang-sel">MR ▾</span>
+        </div>
+        <div class="phone-body">
+          <div class="f"><span>▲ इथे टॅप करा</span></div>
+          <div class="f">
+            <div class="inp filled">MR &nbsp;— मराठी</div>
+            <div class="inp">HI &nbsp;— हिंदी</div>
+            <div class="inp">EN &nbsp;— English</div>
+          </div>
+          <div class="hint">भाषा एकदा निवडली की ती लक्षात ठेवली जाते.</div>
+        </div>
+      </div>
+      <div class="cap">वरच्या उजव्या कोपऱ्यातील भाषा-चौकट</div>
+    </div>
+  </section>
+
+  <!-- 3 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">3</div>
+        <h3>माहिती भरा<small>Fill in “Step 1 — Your details”</small></h3>
+      </div>
+      <div class="step-body">
+        <p>प्रत्येक खोक्यात काय भरायचे आहे ते <strong>पुढच्या पानावरील तक्त्यात</strong> दिले आहे. वरून खाली क्रमाने भरा. भरून झाल्यावर सर्वात खालच्या <span class="lit">Continue</span> या लाल बटणावर टॅप करा.</p>
+        <ul>
+          <li>ज्या खोक्यापुढे <span class="opt">(optional)</span> असे लिहिले आहे ते <strong>रिकामे ठेवले तरी चालते</strong>.</li>
+          <li>काही खोक्यांमध्ये <strong>आधीच उत्तर भरलेले</strong> असते (उदा. <span class="lit">Max travel (km)</span> मध्ये <span class="lit">10</span>). ते बरोबर असेल तर बदलू नका.</li>
+          <li>चूक असेल तर <span class="lit">Continue</span> दाबल्यावर <strong>चुकीच्या खोक्याखाली लाल अक्षरात</strong> सूचना दिसेल. तेवढेच दुरुस्त करा.</li>
+        </ul>
+        <div class="flag ok">
+          <b>रक्तगट माहीत नसेल तर:</b> <span class="lit">Blood group (if known)</span> मध्ये <strong><span class="lit">I don't know</span> हाच पर्याय ठेवा</strong>. अंदाजाने लिहू नका. तुम्ही स्वतः सांगितलेला रक्तगट रुग्णाशी जुळवण्यासाठी <strong>कधीही वापरला जात नाही</strong> — रक्तपेढीने तपासलेला रक्तगटच वापरला जातो.
+          <span class="en">A self-reported blood group is never used for matching a patient — only a blood-bank-verified one is.</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>…/register</b></div>
+        <div class="phone-body">
+          <div class="sc-h">Step 1 — Your details</div>
+          <div class="f"><span>Mobile</span><div class="inp filled">+91 9876543210</div></div>
+          <div class="f"><span>Full name</span><div class="inp filled">Sunita Ramesh Deshmukh</div></div>
+          <div class="f"><span>Date of birth</span><div class="inp filled">14-03-1996</div></div>
+          <div class="f">
+            <span>Gender</span>
+            <div class="segs"><div class="seg on">Male</div><div class="seg">Female</div><div class="seg">Other</div></div>
+          </div>
+          <div class="f">
+            <span>Blood group (if known)</span>
+            <div class="inp sel">I don't know</div>
+            <div class="hint">Self-reported only — a blood bank will verify this on your first donation.</div>
+          </div>
+          <div class="f">
+            <span>Your village or area (optional)</span>
+            <div class="inp filled">Badnera</div>
+          </div>
+          <div class="f"><span>Max travel (km)</span><div class="inp filled">10</div></div>
+          <div class="f">
+            <span>Preferred contact</span>
+            <div class="segs"><div class="seg on">WhatsApp</div><div class="seg">SMS</div><div class="seg">Call</div></div>
+          </div>
+          <div class="chk"><span class="box tick">✓</span><span>I'm OK to receive WhatsApp messages about emergency requests</span></div>
+          <div class="chk"><span class="box tick">✓</span><span>I'm OK to receive SMS</span></div>
+          <div class="btn">Continue</div>
+        </div>
+      </div>
+      <div class="cap">भरलेला फॉर्म असा दिसतो</div>
+    </div>
+  </section>
+
+  <!-- 4 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">4</div>
+        <h3>संमती द्या<small>“Step 2 — Consent”</small></h3>
+      </div>
+      <div class="step-body">
+        <p>हे शेवटचे पान आहे. यावर तुमची माहिती कशासाठी वापरली जाईल ते लिहिले आहे. खालील <strong>एक चौकट टिक करा</strong> आणि <span class="lit">Register</span> दाबा.</p>
+        <p>टिक करायची ओळ: <span class="lit">I have read the Privacy Policy and consent to my details being used to match me with blood donation requests.</span></p>
+        <p class="en">Tick the single consent box, then press Register. Without the tick the button will show <code>consent_required</code>.</p>
+        <div class="flag">
+          <b>मागे जायचे असेल तर:</b> डावीकडील <span class="lit">Back</span> बटण दाबा — भरलेली माहिती <strong>पुसली जात नाही</strong>, ती तशीच राहते.
+          <span class="en">Back keeps everything you already typed.</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>…/register</b></div>
+        <div class="phone-body">
+          <div class="stepper">
+            <div class="pip">Your details</div>
+            <div class="pip on">Consent</div>
+          </div>
+          <div class="sc-h">Step 2 — Consent</div>
+          <p class="sc-p">
+            Your name, mobile number and area are stored to match you with nearby blood
+            requests. Your mobile number is never shown to a hospital. You can withdraw
+            consent at any time.
+          </p>
+          <p class="sc-p" style="color: #b8231a"><u>Privacy Policy</u> · <u>Delete my data</u></p>
+          <div class="chk">
+            <span class="box tick">✓</span>
+            <span>I have read the Privacy Policy and consent to my details being used to match me with blood donation requests.</span>
+          </div>
+          <div class="btn-row"><div class="btn sec">Back</div><div class="btn">Register</div></div>
+        </div>
+      </div>
+      <div class="cap">संमतीचे पान</div>
+    </div>
+  </section>
+
+  <!-- 5 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">5</div>
+        <h3>OTP टाकून नंबर पक्का करा<small>Verify your mobile with the 6-digit code</small></h3>
+      </div>
+      <div class="step-body">
+        <ol>
+          <li>तुमच्या <strong>WhatsApp वर ६ अंकी कोड</strong> येईल (WhatsApp नसेल तर SMS वर). तो उघडून पहा.</li>
+          <li>पानावरील मोठ्या रिकाम्या खोक्यात <strong>तेच ६ अंक</strong> टाका. मधे जागा (space) सोडू नका.</li>
+          <li><span class="lit">पुष्टी करा</span> / <span class="lit">Verify</span> बटण दाबा.</li>
+        </ol>
+        <div class="flag">
+          <b>OTP आला नाही तर:</b> <strong>६० सेकंद थांबा</strong>, आधी WhatsApp मध्ये पहा, नंतर SMS मध्ये पहा. <strong>पुन्हा पुन्हा मागवू नका</strong> — एका तासात एका नंबरवर <strong>फक्त ३ वेळाच</strong> OTP पाठवला जातो. ३ वेळा संपले तर पुढचा तास थांबावे लागेल.
+          <span class="en">Only 3 OTPs per hour per number. Do not keep resending.</span>
+        </div>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>…/register</b></div>
+        <div class="phone-body">
+          <div class="sc-h">Verify mobile</div>
+          <p class="sc-p">We sent a 6-digit code to +91 9876543210. Enter it to finish setting up your account.</p>
+          <div class="otp-box">4 8 2 9 1 7</div>
+          <div class="btn">पुष्टी करा</div>
+        </div>
+      </div>
+      <div class="cap">OTP चे पान</div>
+    </div>
+  </section>
+
+  <!-- 6 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">6</div>
+        <h3>नोंदणी पूर्ण — पुढे काय होते<small>Done. What happens next</small></h3>
+      </div>
+      <div class="step-body">
+        <p>OTP बरोबर असेल तर तुमचे <strong>डॅशबोर्ड</strong> उघडेल. त्यावर तुम्हाला दिसेल:</p>
+        <ul>
+          <li>एक मोठे <strong>चालू / बंद बटण</strong> — तुम्ही आज रक्तदानासाठी उपलब्ध आहात की नाही. बाहेरगावी असाल तर <strong>बंद करा</strong>; परत आल्यावर चालू करा.</li>
+          <li>तुमचा <strong>रक्तगट</strong>. रक्तपेढीने तपासला नसेल तोपर्यंत त्यावर <span class="lit">Unverified</span> असे लिहिलेले असेल — हे बरोबर आहे, काळजी करू नका.</li>
+          <li><strong>पुढची तारीख</strong> ज्या दिवशी तुम्ही पुन्हा रक्तदान करू शकता.</li>
+        </ul>
+        <div class="flag ok">
+          <b>यापुढे तुम्हाला काहीही करायचे नाही.</b> तुमच्या भागात तातडीने रक्त लागले, तर तुम्हाला <strong>WhatsApp वर संदेश</strong> येईल. जमत असेल तर <span class="lit">होय</span> म्हणा — नाहीतर दुर्लक्ष केले तरी चालेल. <strong>कोणतीही सक्ती नाही.</strong>
+          <span class="en">Nothing more to do. You will get a WhatsApp message when blood is needed near you. Saying no is always fine.</span>
+        </div>
+        <p><strong>पुन्हा लॉगिन कसे करायचे:</strong> <code>raktify.choudhari.ngo/login</code> उघडा, तोच मोबाइल नंबर टाका, आलेला OTP टाका. <strong>पासवर्ड नाही, लक्षात ठेवायचे काहीच नाही.</strong></p>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>…/donor</b></div>
+        <div class="phone-body">
+          <div class="sc-h">Sunita Ramesh Deshmukh</div>
+          <div class="f">
+            <span>Blood group</span>
+            <div class="inp filled">O+ &nbsp;<span class="pill" style="background: #fffbeb; color: #b45309">Unverified</span></div>
+          </div>
+          <div class="f">
+            <span>Available to donate</span>
+            <div class="segs"><div class="seg on">Yes</div><div class="seg">No</div></div>
+          </div>
+          <div class="f"><span>Next eligible</span><div class="inp filled">Today</div></div>
+          <div class="f"><span>Donations</span><div class="inp">No donations recorded yet</div></div>
+        </div>
+      </div>
+      <div class="cap">तुमचे डॅशबोर्ड</div>
+    </div>
+  </section>
+
+  <!-- FIELD KEY ─────────────────────────────────────────────────────── -->
+  <section class="sec">
+    <h2>तक्ता: प्रत्येक खोक्यात काय भरायचे</h2>
+    <p class="lede">
+      Field key — the form is in English, so match the word you see on the screen to this
+      table. डावीकडचा शब्द <strong>स्क्रीनवर जसाच्या तसा</strong> दिसतो. <span class="req">★</span> = भरणे आवश्यक.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 27%">स्क्रीनवर दिसणारा शब्द</th>
+          <th style="width: 45%">याचा अर्थ काय / काय भरायचे</th>
+          <th style="width: 28%">उदाहरण</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="t-lit">Mobile <span class="req">★</span></td>
+          <td>तुमचा <strong>१० अंकी</strong> मोबाइल नंबर, ज्यावर WhatsApp चालू आहे. नंबर <strong>6, 7, 8 किंवा 9</strong> ने सुरू व्हावा. OTP याच नंबरवर येईल.</td>
+          <td class="t-ex">9876543210</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Full name <span class="req">★</span></td>
+          <td>आधार कार्डावर आहे तसे <strong>पूर्ण नाव</strong> — नाव, वडिलांचे नाव, आडनाव. टोपणनाव लिहू नका.</td>
+          <td class="t-ex">Sunita Ramesh Deshmukh</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Date of birth <span class="req">★</span></td>
+          <td><strong>जन्मतारीख.</strong> खोक्यावर टॅप केल्यावर कॅलेंडर उघडते — त्यातून निवडा. वय <strong>१८ पेक्षा कमी किंवा ६५ पेक्षा जास्त</strong> असेल तर नोंदणी होणार नाही.</td>
+          <td class="t-ex">14-03-1996</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Gender <span class="req">★</span></td>
+          <td>तीन पर्यायांपैकी एक निवडा — <span class="lit">Male</span> = पुरुष, <span class="lit">Female</span> = स्त्री, <span class="lit">Other</span> = इतर.</td>
+          <td class="t-ex">Female</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Blood group (if known)</td>
+          <td><strong>माहीत असेल तरच</strong> निवडा. जरासाही संशय असेल तर <span class="lit">I don't know</span> हाच पर्याय ठेवा. हे फक्त दाखवण्यासाठी असते — रुग्णाशी जुळवण्यासाठी <strong>रक्तपेढीने तपासलेलाच</strong> रक्तगट वापरला जातो.</td>
+          <td class="t-ex">I don't know</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Your village or area <span class="opt">(optional)</span></td>
+          <td>तुमच्या <strong>गावाचे, शहराचे किंवा अमरावती शहरात प्रभागाचे</strong> नाव टाइप करा — यादीतून निवडा. हे फक्त जवळचे संदेश पाठवण्यासाठी. <strong>घराचा पत्ता कधीच विचारला जात नाही.</strong></td>
+          <td class="t-ex">Badnera<br />Amravati ward 12</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Max travel (km) <span class="req">★</span></td>
+          <td>रक्तदानासाठी तुम्ही <strong>किती किलोमीटरपर्यंत</strong> जाऊ शकता. आधीच <span class="lit">10</span> भरलेले असते. गावात राहत असाल तर <span class="lit">25</span> ठेवा.</td>
+          <td class="t-ex">10</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Preferred contact <span class="req">★</span></td>
+          <td>तुम्हाला कसे कळवावे — <span class="lit">WhatsApp</span> (सर्वोत्तम), <span class="lit">SMS</span>, किंवा <span class="lit">Call</span>.</td>
+          <td class="t-ex">WhatsApp</td>
+        </tr>
+        <tr>
+          <td class="t-lit">☑ …WhatsApp messages…</td>
+          <td>तातडीच्या रक्त-मागणीचे संदेश WhatsApp वर यावेत का. <strong>टिक तसेच ठेवा</strong> — नाहीतर संदेशच येणार नाहीत.</td>
+          <td class="t-ex">टिक ठेवा</td>
+        </tr>
+        <tr>
+          <td class="t-lit">☑ …receive SMS</td>
+          <td>WhatsApp बंद असताना SMS यावा का. <strong>टिक तसेच ठेवा.</strong></td>
+          <td class="t-ex">टिक ठेवा</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- TROUBLESHOOTING ───────────────────────────────────────────────── -->
+  <section class="sec">
+    <h2>अडचण आली तर</h2>
+    <p class="lede">
+      स्क्रीनवर लाल अक्षरात एखादा इंग्रजी शब्द दिसला तर त्याचा अर्थ इथे पहा. हे शब्द
+      जसे आहेत तसेच दिसतात.
+      <span class="en">If a red word appears on screen, find it here.</span>
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 30%">स्क्रीनवर दिसते</th>
+          <th style="width: 34%">याचा अर्थ</th>
+          <th style="width: 36%">काय करायचे</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="t-lit">This number is already registered</td>
+          <td>या नंबरची नोंदणी <strong>आधीच झाली आहे</strong>. पुन्हा करायची गरज नाही.</td>
+          <td><span class="lit">Log in with OTP →</span> या बटणावर टॅप करा. OTP टाकून थेट तुमचे डॅशबोर्ड उघडेल.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">invalid_mobile_format</td>
+          <td>मोबाइल नंबर <strong>चुकीच्या पद्धतीने</strong> लिहिला आहे.</td>
+          <td>बरोबर <strong>१० अंक</strong>, सुरुवात 6/7/8/9 ने. जागा, डॅश, <code>0</code> किंवा <code>+91</code> पुन्हा लिहू नका.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">invalid_details</td>
+          <td>कोणतेतरी <strong>एक खोके रिकामे किंवा चुकीचे</strong> आहे.</td>
+          <td>वरून खाली स्क्रोल करा — <strong>लाल अक्षरे</strong> ज्या खोक्याखाली दिसतील तेच दुरुस्त करा.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">invalid_date</td>
+          <td><strong>जन्मतारीख</strong> नीट भरली गेली नाही.</td>
+          <td>तारखेच्या खोक्यावर टॅप करा आणि <strong>कॅलेंडरमधून</strong> निवडा, हाताने टाइप करू नका.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">consent_required</td>
+          <td>शेवटच्या पानावरील <strong>टिक-चौकट राहिली</strong> आहे.</td>
+          <td>संमतीच्या ओळीपुढील चौकटीवर टॅप करा, मग <span class="lit">Register</span> दाबा.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">otp_must_be_6_digits</td>
+          <td>OTP च्या खोक्यात <strong>६ पेक्षा कमी किंवा जास्त</strong> अंक आहेत.</td>
+          <td>खोके पूर्ण पुसा आणि नेमके <strong>६ अंक</strong> टाका. जागा किंवा अक्षरे नको.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">verify_failed</td>
+          <td>OTP <strong>चुकीचा आहे किंवा त्याची मुदत संपली</strong>.</td>
+          <td>WhatsApp मधील <strong>सर्वात नवीन</strong> संदेश पहा (जुना वापरू नका). अजून जमत नसेल तर १० मिनिटांनी नव्याने सुरू करा.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">submit_failed</td>
+          <td>त्या क्षणी <strong>इंटरनेट पोहोचले नाही</strong>. तुमची चूक नाही.</td>
+          <td>नेटवर्क तपासा, <strong>अर्धा मिनिट थांबा</strong> आणि तेच बटण पुन्हा दाबा. भरलेली माहिती जागेवरच असते.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Too many requests / 429</td>
+          <td>एका तासात <strong>३ पेक्षा जास्त वेळा</strong> OTP मागवला गेला.</td>
+          <td><strong>पुढचा तास थांबा.</strong> दुसऱ्या नंबरने नोंदणी करू नका — तो नंबर त्या व्यक्तीचा असतो.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- DESK PANEL ────────────────────────────────────────────────────── -->
+  <section class="desk">
+    <h2>डेस्कवरील स्वयंसेवकांसाठी</h2>
+    <p class="lede">For the volunteer at the registration desk — the four situations that actually come up.</p>
+    <div class="desk-grid">
+      <div>
+        <h4>“माझ्याकडे स्मार्टफोन नाही”</h4>
+        <p>
+          <strong>तुमच्या फोनवरून नोंदणी करू नका.</strong> OTP त्यांच्या नंबरवर जातो आणि खाते
+          त्या नंबराशी कायमचे जोडले जाते. त्यांच्या साध्या फोनवर SMS येतो का पहा — मग
+          <span class="lit">Preferred contact</span> मध्ये <span class="lit">SMS</span> निवडा आणि
+          फॉर्म तुमच्या फोनवर भरून OTP <strong>त्यांच्या</strong> फोनवरचा वापरा.
+        </p>
+      </div>
+      <div>
+        <h4>“रक्तगट माहीत नाही”</h4>
+        <p>
+          हे पूर्णपणे ठीक आहे — <span class="lit">I don't know</span> ठेवा. रक्तपेढी पहिल्या
+          रक्तदानाच्या वेळी तपासून नोंदवते. <strong>कधीही अंदाजाने भरू नका.</strong>
+        </p>
+      </div>
+      <div>
+        <h4>“नंबर आधीच नोंदलेला आहे असे येते”</h4>
+        <p>
+          त्यांची नोंदणी झाली आहे — पुन्हा भरायची गरज नाही.
+          <span class="lit">Log in with OTP →</span> दाबून त्यांचे डॅशबोर्ड उघडून दाखवा.
+          <strong>दुसरा नंबर वापरून नवीन खाते काढू नका</strong> — त्यामुळे एकाच व्यक्तीच्या दोन नोंदी होतात.
+        </p>
+      </div>
+      <div>
+        <h4>शिबिरात QR स्कॅन करून आलेले लोक</h4>
+        <p>
+          शिबिराच्या QR वरून आलेल्यांना वर एक पट्टी दिसते —
+          <em>“You're registering at …”</em>. त्यांचे नाव नंबर पक्का होताच
+          <strong>शिबिराच्या यादीत आपोआप</strong> जाते. वेगळी यादी लिहायची गरज नाही.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>
+      <p>
+        <strong><i style="color: var(--accent); font-style: normal">Rakt</i>ify™</strong> — Choudhari EduHealth India Foundation ची
+        मोफत रक्तदान समन्वय प्रणाली. रक्तदात्यांसाठी आणि शिबिर आयोजकांसाठी <strong>कोणतेही शुल्क नाही</strong>.
+      </p>
+      <p>
+        तुमचा मोबाइल नंबर <strong>रुग्णालयाला कधीही दाखवला जात नाही</strong>. सर्व संपर्क
+        प्रणालीमार्फतच होतो. माहिती काढून टाकायची असेल तर
+        <code>raktify.choudhari.ngo/data-deletion</code>.
+      </p>
+      <p>मदतीसाठी: <code>contact@choudhari.ngo</code></p>
+    </div>
+    <div class="rev">
+      नोंदणी पान<br />
+      <code>raktify.choudhari.ngo/register</code><br /><br />
+      Rev. 27-Aug-2026
+    </div>
+  </footer>
+</div>

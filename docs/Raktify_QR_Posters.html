@@ -1,0 +1,749 @@
+<meta charset="utf-8" />
+<title>Scan-and-Go QR Sheets</title>
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap"
+/>
+
+<style>
+  /* ── Raktify locked design system ──────────────────────────────────────
+     Same tokens as the two wall guides. This sheet is different in kind:
+     it is read from three metres away by someone walking past a window,
+     so the type scale is roughly double and there is far less of it.
+     Everything here is sized in mm because every element gets cut with
+     scissors — the QR modules, the fold line, the card grid.
+     ──────────────────────────────────────────────────────────────────── */
+  :root {
+    --ink: #1c1917;
+    --ink-2: #44403c;
+    --ink-3: #78716c;
+    --accent: #b8231a;
+    --accent-9: #7c1d1b;
+    --accent-50: #fff5f3;
+    --accent-200: #ffccc0;
+    --cream: #fdf8f4;
+    --sand: #f5ece4;
+    --line: #e7e0d8;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", "Noto Sans Devanagari", system-ui, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Screen-only chrome. Vanishes on paper. */
+  .howto {
+    max-width: 760px;
+    margin: 0 auto;
+    padding: 26px 22px 4px;
+    font-size: 14px;
+    line-height: 1.6;
+    color: var(--ink-2);
+  }
+  .howto h1 {
+    margin: 0 0 4px;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--ink);
+    letter-spacing: -0.02em;
+  }
+  .howto p {
+    margin: 0 0 10px;
+  }
+  .howto ol {
+    margin: 0 0 4px;
+    padding-left: 20px;
+    display: grid;
+    gap: 6px;
+  }
+  .howto strong {
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .howto code {
+    font-family: var(--mono);
+    font-size: 0.9em;
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 4px;
+    padding: 1px 5px;
+  }
+  .printbtn {
+    display: inline-block;
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    border-radius: 8px;
+    padding: 9px 18px;
+    font: 600 14px/1 var(--sans);
+    cursor: pointer;
+    margin: 4px 0 8px;
+  }
+
+  /* ── A page is a real A4 sheet ─────────────────────────────────────── */
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 20px auto;
+    background: #fff;
+    padding: 12mm 12mm 10mm;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 3px 18px rgba(124, 29, 27, 0.13);
+    page-break-after: always;
+    break-after: page;
+  }
+  .page:last-child {
+    page-break-after: auto;
+    break-after: auto;
+  }
+
+  /* ── Half-sheet poster ────────────────────────────────────────────────
+     Two per A4, separated by a cut line: one goes on the blood-bank
+     window, the other on the notice board or camp desk. Each half must
+     stand completely alone once cut — its own mark, its own URL, its own
+     footer — because that is how it will actually be used.
+     ─────────────────────────────────────────────────────────────────── */
+  .half {
+    flex: 1 1 0;
+    display: flex;
+    flex-direction: column;
+    padding: 7mm 3mm;
+    text-align: center;
+    break-inside: avoid;
+  }
+  .cutline {
+    border-top: 1.2px dashed var(--ink-3);
+    position: relative;
+    height: 0;
+    margin: 0;
+  }
+  .cutline::after {
+    content: "✂  येथे कापा  ·  cut here";
+    position: absolute;
+    top: -7px;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #fff;
+    padding: 0 8px;
+    font-size: 8.5pt;
+    color: var(--ink-3);
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    margin-bottom: 3mm;
+  }
+  .brand svg {
+    width: 8mm;
+    height: 8mm;
+    border-radius: 1.8mm;
+    display: block;
+  }
+  .wm {
+    font-size: 16pt;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .wm i {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .wm sup {
+    font-size: 7pt;
+    font-weight: 600;
+    color: var(--ink-3);
+    vertical-align: super;
+  }
+
+  .half h2 {
+    margin: 0 0 1.5mm;
+    font-size: 27pt;
+    line-height: 1.06;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    color: var(--accent-9);
+    text-wrap: balance;
+  }
+  .half .h2en {
+    margin: 0 0 3mm;
+    font-size: 12.5pt;
+    font-weight: 600;
+    color: var(--ink-2);
+    letter-spacing: -0.01em;
+  }
+  .half .lede {
+    margin: 0 auto 4mm;
+    max-width: 145mm;
+    font-size: 11.5pt;
+    line-height: 1.45;
+    color: var(--ink-2);
+  }
+  .half .lede b {
+    color: var(--ink);
+    font-weight: 600;
+  }
+
+  .qr-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8mm;
+    margin: 0 0 4mm;
+  }
+  .qr-box svg {
+    width: 52mm;
+    height: 52mm;
+    display: block;
+    border: 1.2px solid var(--line);
+    border-radius: 2mm;
+    background: #fff;
+  }
+  .scan-how {
+    text-align: left;
+    max-width: 68mm;
+  }
+  .scan-how li {
+    font-size: 10.5pt;
+    line-height: 1.4;
+    margin-bottom: 2.4mm;
+  }
+  .scan-how ol {
+    margin: 0;
+    padding-left: 5.5mm;
+  }
+  .scan-how b {
+    font-weight: 600;
+  }
+
+  .url {
+    font-family: var(--mono);
+    font-size: 12pt;
+    font-weight: 600;
+    color: var(--accent);
+    letter-spacing: -0.01em;
+    margin-bottom: 2mm;
+    word-break: break-all;
+  }
+  .url span {
+    display: block;
+    font-family: var(--sans);
+    font-size: 8.5pt;
+    font-weight: 500;
+    color: var(--ink-3);
+    letter-spacing: 0;
+    margin-top: 0.6mm;
+  }
+
+  .pills {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 2mm;
+    margin-bottom: 3mm;
+  }
+  .pill {
+    background: var(--accent-50);
+    border: 0.8px solid var(--accent-200);
+    color: var(--accent-9);
+    border-radius: 999px;
+    padding: 1mm 3.5mm;
+    font-size: 9.5pt;
+    font-weight: 600;
+  }
+
+  .half footer {
+    margin-top: auto;
+    padding-top: 2.5mm;
+    border-top: 1.6px solid var(--accent);
+    font-size: 8.5pt;
+    color: var(--ink-3);
+    display: flex;
+    justify-content: space-between;
+    gap: 4mm;
+    text-align: left;
+  }
+  .half footer b {
+    color: var(--ink-2);
+    font-weight: 600;
+  }
+
+  /* ── Hand-out card grid ───────────────────────────────────────────────
+     8 per A4, cut on a guillotine. Trim tolerance is why the QR carries
+     level-H error correction and a 2-module quiet zone: a card sliced a
+     millimetre into its margin still scans.
+     ─────────────────────────────────────────────────────────────────── */
+  .cards-head {
+    margin-bottom: 5mm;
+    padding-bottom: 3mm;
+    border-bottom: 1.6px solid var(--accent);
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 6mm;
+  }
+  .cards-head h2 {
+    margin: 0;
+    font-size: 15pt;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .cards-head p {
+    margin: 0;
+    font-size: 9pt;
+    color: var(--ink-3);
+    text-align: right;
+    max-width: 95mm;
+    line-height: 1.4;
+  }
+  .cards {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+    flex: 1 1 auto;
+    align-content: start;
+  }
+  .card {
+    border: 0.8px dashed var(--ink-3);
+    padding: 5mm 5mm;
+    display: flex;
+    align-items: center;
+    gap: 5mm;
+    min-height: 42mm;
+    break-inside: avoid;
+  }
+  .card svg {
+    width: 30mm;
+    height: 30mm;
+    flex: 0 0 auto;
+    display: block;
+  }
+  .card-txt {
+    min-width: 0;
+  }
+  .card-txt .cwm {
+    font-size: 10pt;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    margin-bottom: 1mm;
+  }
+  .card-txt .cwm i {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .card-txt h3 {
+    margin: 0 0 1mm;
+    font-size: 13pt;
+    line-height: 1.15;
+    font-weight: 700;
+    color: var(--accent-9);
+    letter-spacing: -0.02em;
+  }
+  .card-txt .cen {
+    font-size: 8.5pt;
+    font-weight: 600;
+    color: var(--ink-2);
+    margin-bottom: 1.2mm;
+  }
+  .card-txt .curl {
+    font-family: var(--mono);
+    font-size: 8pt;
+    font-weight: 600;
+    color: var(--accent);
+    word-break: break-all;
+  }
+  .card-txt .cnote {
+    font-size: 7.5pt;
+    color: var(--ink-3);
+    margin-top: 1mm;
+    line-height: 1.35;
+  }
+
+  @media print {
+    @page {
+      size: A4;
+      margin: 0;
+    }
+    body {
+      background: #fff;
+    }
+    .howto {
+      display: none;
+    }
+    .page {
+      margin: 0;
+      box-shadow: none;
+      width: auto;
+      min-height: 0;
+      height: 297mm;
+      padding: 10mm 10mm 8mm;
+    }
+  }
+
+  @media screen and (max-width: 780px) {
+    .page {
+      width: auto;
+      min-height: 0;
+      padding: 8mm;
+    }
+    .qr-row {
+      flex-direction: column;
+      gap: 5mm;
+    }
+    .cards {
+      grid-template-columns: 1fr;
+    }
+  }
+</style>
+
+<div class="howto">
+  <h1>Print these and put them on the wall</h1>
+  <p>
+    Three A4 sheets. Everything is sized for a real printer — <strong>print at 100%, do not
+    tick “fit to page”</strong>, or the QR codes shrink and stop scanning reliably.
+  </p>
+  <ol>
+    <li>
+      <strong>Sheet 1 — two window posters.</strong> Print, then cut along the dashed line in the
+      middle. The top half (<em>Become a blood donor</em>) goes on the <strong>blood-bank
+      window and every registration desk</strong>. The bottom half (<em>Host a camp</em>) goes on
+      the <strong>notice board, OPD corridor, college and office reception</strong>.
+    </li>
+    <li>
+      <strong>Sheet 2 — eight donor cards.</strong> Cut into eight. Hand one to anyone who says
+      “I’ll do it later”, or keep a stack at the reception counter and in the OPD.
+    </li>
+    <li>
+      <strong>Sheet 3 — eight camp cards.</strong> Same, for principals, HR managers, sarpanches
+      and club secretaries. One card in the hand beats a phone number on a slip.
+    </li>
+  </ol>
+  <p>
+    Both codes point at <code>raktify.choudhari.ngo</code> — <strong>your own domain, no
+    third-party shortener</strong>, so nothing between the scanner and the page can log the scan,
+    change the destination, or expire. They keep working as long as the site is up.
+  </p>
+  <p>
+    Printed in <strong>black at the highest available error-correction level</strong>: a code can
+    lose up to <strong>30% of its surface</strong> — a tear, a tape mark, a sun-faded corner, a
+    trim a millimetre too deep — and still scan.
+  </p>
+  <button class="printbtn" onclick="window.print()">Print all three sheets</button>
+</div>
+
+<!-- ══ SHEET 1 — two window posters ═══════════════════════════════════ -->
+<div class="page">
+  <!-- ── Half 1: DONOR ── -->
+  <section class="half">
+    <div class="brand">
+      <svg viewBox="0 0 512 512" aria-hidden="true">
+        <rect width="512" height="512" rx="114" fill="#b8231a" />
+        <g transform="translate(62 66) scale(16.2)">
+          <path d="M12 2.5c4 4.8 7 8.3 7 11.5a7 7 0 0 1-14 0c0-3.2 3-6.7 7-11.5Z" fill="#fff" />
+        </g>
+        <circle cx="256" cy="312" r="48" fill="#b8231a" />
+      </svg>
+      <span class="wm"><i>Rakt</i>ify<sup>™</sup></span>
+    </div>
+
+    <h2>रक्तदाता म्हणून नोंदणी करा</h2>
+    <p class="h2en">Register as a blood donor — scan with your phone</p>
+
+    <p class="lede">
+      तुमच्या भागात <b>तातडीने रक्त हवे असेल</b> तेव्हाच तुम्हाला WhatsApp वर कळवले जाईल.
+      नोंदणीला <b>२ मिनिटे</b> लागतात. <b>कोणतेही कागदपत्र नको, कोणतेही शुल्क नाही.</b>
+    </p>
+
+    <div class="qr-row">
+      <div class="qr-box"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg></div>
+      <div class="scan-how">
+        <ol>
+          <li>फोनचा <b>कॅमेरा</b> उघडा</li>
+          <li>हा चौकोन <b>पडद्यावर</b> येईपर्यंत धरा</li>
+          <li>वर दिसणाऱ्या <b>लिंकवर टॅप</b> करा</li>
+          <li>नाव, जन्मतारीख भरा → <b>OTP</b> टाका</li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="url">
+      raktify.choudhari.ngo/register
+      <span>QR स्कॅन होत नसेल तर Chrome मध्ये हा पत्ता टाइप करा</span>
+    </div>
+
+    <div class="pills">
+      <span class="pill">वय १८–६५</span>
+      <span class="pill">रक्तगट माहीत नसला तरी चालेल</span>
+      <span class="pill">फक्त मोबाइल लागेल</span>
+      <span class="pill">कधीही नाही म्हणू शकता</span>
+    </div>
+
+    <footer>
+      <div>
+        <b>Choudhari EduHealth India Foundation</b> · रक्तदात्यांसाठी पूर्ण मोफत<br />
+        तुमचा मोबाइल नंबर <b>रुग्णालयाला कधीही दाखवला जात नाही</b>
+      </div>
+      <div style="text-align: right; white-space: nowrap">
+        contact@choudhari.ngo<br />Rev. 27-Aug-2026
+      </div>
+    </footer>
+  </section>
+
+  <div class="cutline"></div>
+
+  <!-- ── Half 2: CAMP ── -->
+  <section class="half">
+    <div class="brand">
+      <svg viewBox="0 0 512 512" aria-hidden="true">
+        <rect width="512" height="512" rx="114" fill="#b8231a" />
+        <g transform="translate(62 66) scale(16.2)">
+          <path d="M12 2.5c4 4.8 7 8.3 7 11.5a7 7 0 0 1-14 0c0-3.2 3-6.7 7-11.5Z" fill="#fff" />
+        </g>
+        <circle cx="256" cy="312" r="48" fill="#b8231a" />
+      </svg>
+      <span class="wm"><i>Rakt</i>ify<sup>™</sup></span>
+    </div>
+
+    <h2>रक्तदान शिबिर आयोजित करा</h2>
+    <p class="h2en">Host a blood donation camp — we do the rest</p>
+
+    <p class="lede">
+      शाळा, महाविद्यालय, कंपनी, गाव, मंडळ किंवा संस्था — कोणीही अर्ज करू शकतो.
+      <b>रक्तपेढी जोडणे, स्वयंसेवकांचे प्रशिक्षण आणि रक्तदात्यांना निमंत्रण आमचे काम.</b>
+      अर्जाला <b>३ मिनिटे</b>, आणि <b>खाते काढायची गरज नाही.</b>
+    </p>
+
+    <div class="qr-row">
+      <div class="qr-box"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg></div>
+      <div class="scan-how">
+        <ol>
+          <li>फोनचा <b>कॅमेरा</b> उघडा</li>
+          <li>हा चौकोन <b>पडद्यावर</b> येईपर्यंत धरा</li>
+          <li>वर दिसणाऱ्या <b>लिंकवर टॅप</b> करा</li>
+          <li>तारीख, जागा, तुमचा नंबर भरा → <b>पाठवा</b></li>
+        </ol>
+      </div>
+    </div>
+
+    <div class="url">
+      raktify.choudhari.ngo/camps/host
+      <span>QR स्कॅन होत नसेल तर Chrome मध्ये हा पत्ता टाइप करा</span>
+    </div>
+
+    <div class="pills">
+      <span class="pill">पूर्ण मोफत</span>
+      <span class="pill">लॉगिन लागत नाही</span>
+      <span class="pill">स्वयंसेवक प्रशिक्षण मिळते</span>
+      <span class="pill">समन्वयक फोन करतील</span>
+    </div>
+
+    <footer>
+      <div>
+        <b>Choudhari EduHealth India Foundation</b> · शिबिर आयोजकांसाठी पूर्ण मोफत<br />
+        अर्ज केल्यावर <b>२–३ दिवसांत समन्वयक तुम्हाला फोन करतील</b>
+      </div>
+      <div style="text-align: right; white-space: nowrap">
+        contact@choudhari.ngo<br />Rev. 27-Aug-2026
+      </div>
+    </footer>
+  </section>
+</div>
+
+<!-- ══ SHEET 2 — donor hand-out cards ════════════════════════════════ -->
+<div class="page">
+  <div class="cards-head">
+    <h2>रक्तदाता नोंदणी — वाटण्यासाठी कार्डे</h2>
+    <p>
+      Cut into eight. Keep a stack at the reception counter, the OPD window and the blood-bank
+      desk — hand one to anyone who says “later”.
+    </p>
+  </div>
+  <div class="cards">
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>रक्तदाता व्हा</h3>
+        <div class="cen">Register as a blood donor</div>
+        <div class="curl">raktify.choudhari.ngo/register</div>
+        <div class="cnote">२ मिनिटे · मोफत · कागदपत्र नको</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>रक्तदाता व्हा</h3>
+        <div class="cen">Register as a blood donor</div>
+        <div class="curl">raktify.choudhari.ngo/register</div>
+        <div class="cnote">२ मिनिटे · मोफत · कागदपत्र नको</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>रक्तदाता व्हा</h3>
+        <div class="cen">Register as a blood donor</div>
+        <div class="curl">raktify.choudhari.ngo/register</div>
+        <div class="cnote">२ मिनिटे · मोफत · कागदपत्र नको</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>रक्तदाता व्हा</h3>
+        <div class="cen">Register as a blood donor</div>
+        <div class="curl">raktify.choudhari.ngo/register</div>
+        <div class="cnote">२ मिनिटे · मोफत · कागदपत्र नको</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>रक्तदाता व्हा</h3>
+        <div class="cen">Register as a blood donor</div>
+        <div class="curl">raktify.choudhari.ngo/register</div>
+        <div class="cnote">२ मिनिटे · मोफत · कागदपत्र नको</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>रक्तदाता व्हा</h3>
+        <div class="cen">Register as a blood donor</div>
+        <div class="curl">raktify.choudhari.ngo/register</div>
+        <div class="cnote">२ मिनिटे · मोफत · कागदपत्र नको</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>रक्तदाता व्हा</h3>
+        <div class="cen">Register as a blood donor</div>
+        <div class="curl">raktify.choudhari.ngo/register</div>
+        <div class="cnote">२ मिनिटे · मोफत · कागदपत्र नको</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m1 0h2m2 0h1m1 0h2m1 0h2m1 0h2m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m5 0h2m5 0h1m1 0h2m2 0h2m3 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h2m3 0h3m3 0h1m1 0h1m1 0h2m1 0h2m2 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m2 0h2m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m3 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m1 0h2m4 0h1m1 0h1m2 0h7m4 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m6 0h7m1 0h1m3 0h2m1 0h1m1 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M10 9.5h1m1 0h3m3 0h1m5 0h1m2 0h1m1 0h2M7 10.5h2m3 0h4m1 0h1m2 0h1m1 0h1m5 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1M4 11.5h4m1 0h2m1 0h3m1 0h4m7 0h2m1 0h2m1 0h2M4 12.5h1m3 0h3m1 0h2m2 0h4m1 0h2m1 0h1m1 0h5m1 0h2m3 0h2M4 13.5h2m1 0h1m3 0h1m1 0h1m2 0h1m1 0h1m3 0h3m3 0h1m3 0h2m1 0h1m2 0h1M2 14.5h1m1 0h2m2 0h2m7 0h2m1 0h4m5 0h2m1 0h2m3 0h1M3 15.5h1m1 0h1m1 0h1m1 0h1m4 0h1m1 0h2m3 0h1m5 0h5m4 0h2M4 16.5h1m3 0h1m1 0h1m1 0h1m1 0h1m2 0h1m2 0h2m2 0h7m2 0h1m1 0h1m1 0h2M2 17.5h1m4 0h1m4 0h2m2 0h2m3 0h1m2 0h1m1 0h1m2 0h1m1 0h2m2 0h3M3 18.5h2m1 0h4m11 0h1m2 0h1m1 0h4m2 0h3m1 0h1M3 19.5h5m1 0h3m3 0h1m3 0h3m3 0h1m1 0h4m2 0h1m1 0h1M4 20.5h3m1 0h1m2 0h6m1 0h1m2 0h1m1 0h1m1 0h2m2 0h1m3 0h1m1 0h2m1 0h1M2 21.5h1m2 0h3m1 0h2m1 0h1m1 0h3m4 0h3m2 0h1m1 0h2m3 0h1m1 0h1M3 22.5h2m3 0h1m1 0h1m2 0h1m8 0h2m2 0h4m1 0h8M4 23.5h2m5 0h1m1 0h1m1 0h4m1 0h1m2 0h1m1 0h2m2 0h2m2 0h2m1 0h1M3 24.5h1m2 0h3m6 0h1m2 0h3m1 0h3m4 0h1m2 0h1m4 0h2M4 25.5h2m4 0h2m1 0h1m2 0h3m4 0h1m1 0h2m1 0h2m3 0h1m1 0h1m1 0h1M3 26.5h1m1 0h2m1 0h6m1 0h2m1 0h1m4 0h1m1 0h1m1 0h2m1 0h4m4 0h1M2 27.5h3m1 0h1m4 0h2m1 0h2m1 0h2m1 0h1m1 0h1m3 0h1m1 0h1m1 0h1m1 0h2M2 28.5h1m5 0h3m1 0h1m1 0h6m4 0h1m2 0h1m4 0h1m3 0h3M2 29.5h1m2 0h1m6 0h1m1 0h2m2 0h2m3 0h1m2 0h1m1 0h2m1 0h1m1 0h4m1 0h1M2 30.5h1m1 0h1m1 0h5m1 0h2m3 0h2m1 0h1m1 0h2m2 0h3m1 0h5m1 0h3M10 31.5h3m2 0h5m1 0h1m2 0h2m4 0h1m3 0h2M2 32.5h7m3 0h2m1 0h2m2 0h3m1 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m1 0h2m4 0h1m4 0h2m1 0h1m3 0h3m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m3 0h1m4 0h2m7 0h9m1 0h1m1 0h1M2 35.5h1m1 0h3m1 0h1m2 0h6m4 0h3m4 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m3 0h1m1 0h1m2 0h2m4 0h5m2 0h2m1 0h1m4 0h1M2 37.5h1m5 0h1m5 0h1m2 0h1m3 0h2m2 0h1m4 0h2m2 0h2m2 0h1M2 38.5h7m3 0h1m2 0h1m2 0h3m1 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>रक्तदाता व्हा</h3>
+        <div class="cen">Register as a blood donor</div>
+        <div class="curl">raktify.choudhari.ngo/register</div>
+        <div class="cnote">२ मिनिटे · मोफत · कागदपत्र नको</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ SHEET 3 — camp hand-out cards ═════════════════════════════════ -->
+<div class="page">
+  <div class="cards-head">
+    <h2>शिबिर आयोजन — वाटण्यासाठी कार्डे</h2>
+    <p>
+      Cut into eight. For principals, HR managers, sarpanches and club secretaries — one card in
+      the hand travels further than a number on a slip.
+    </p>
+  </div>
+  <div class="cards">
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>शिबिर आयोजित करा</h3>
+        <div class="cen">Host a donation camp</div>
+        <div class="curl">raktify.choudhari.ngo/camps/host</div>
+        <div class="cnote">मोफत · लॉगिन नको · समन्वयक फोन करतील</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>शिबिर आयोजित करा</h3>
+        <div class="cen">Host a donation camp</div>
+        <div class="curl">raktify.choudhari.ngo/camps/host</div>
+        <div class="cnote">मोफत · लॉगिन नको · समन्वयक फोन करतील</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>शिबिर आयोजित करा</h3>
+        <div class="cen">Host a donation camp</div>
+        <div class="curl">raktify.choudhari.ngo/camps/host</div>
+        <div class="cnote">मोफत · लॉगिन नको · समन्वयक फोन करतील</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>शिबिर आयोजित करा</h3>
+        <div class="cen">Host a donation camp</div>
+        <div class="curl">raktify.choudhari.ngo/camps/host</div>
+        <div class="cnote">मोफत · लॉगिन नको · समन्वयक फोन करतील</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>शिबिर आयोजित करा</h3>
+        <div class="cen">Host a donation camp</div>
+        <div class="curl">raktify.choudhari.ngo/camps/host</div>
+        <div class="cnote">मोफत · लॉगिन नको · समन्वयक फोन करतील</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>शिबिर आयोजित करा</h3>
+        <div class="cen">Host a donation camp</div>
+        <div class="curl">raktify.choudhari.ngo/camps/host</div>
+        <div class="cnote">मोफत · लॉगिन नको · समन्वयक फोन करतील</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>शिबिर आयोजित करा</h3>
+        <div class="cen">Host a donation camp</div>
+        <div class="curl">raktify.choudhari.ngo/camps/host</div>
+        <div class="cnote">मोफत · लॉगिन नको · समन्वयक फोन करतील</div>
+      </div>
+    </div>
+    <div class="card">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="card-txt">
+        <div class="cwm"><i>Rakt</i>ify™</div>
+        <h3>शिबिर आयोजित करा</h3>
+        <div class="cen">Host a donation camp</div>
+        <div class="curl">raktify.choudhari.ngo/camps/host</div>
+        <div class="cnote">मोफत · लॉगिन नको · समन्वयक फोन करतील</div>
+      </div>
+    </div>
+  </div>
+</div>

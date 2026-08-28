@@ -1,0 +1,1385 @@
+<meta charset="utf-8" />
+<title>Camp Hosting Wall Guide</title>
+<link
+  rel="stylesheet"
+  href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+Devanagari:wght@400;500;600;700&display=swap"
+/>
+
+<style>
+  /* ── Raktify locked design system ──────────────────────────────────────
+     Same token set as the donor guide, so the two sheets read as one pair
+     on a wall. Accent rk-700 #b8231a; rk-50/200 for tinted panels; cream
+     and sand as the two warm grounds. Amber and emerald appear ONLY where
+     the real UI renders a status pill in those colours, which is why the
+     lifecycle rail below can be read against the screen itself.
+     ──────────────────────────────────────────────────────────────────── */
+  :root {
+    --ink: #1c1917;
+    --ink-2: #44403c;
+    --ink-3: #78716c;
+    --accent: #b8231a;
+    --accent-9: #7c1d1b;
+    --accent-50: #fff5f3;
+    --accent-200: #ffccc0;
+    --cream: #fdf8f4;
+    --sand: #f5ece4;
+    --paper: #ffffff;
+    --line: #e7e0d8;
+    --warn: #b45309;
+    --warn-bg: #fffbeb;
+    --warn-line: #fde68a;
+    --ok: #047857;
+    --ok-bg: #ecfdf5;
+    --ok-line: #a7f3d0;
+    --sky: #075985;
+    --sky-bg: #f0f9ff;
+    --slate-label: #44403c;
+    --slate-border: #cbd5e1;
+    --mono: ui-monospace, "SF Mono", "Cascadia Mono", Menlo, Consolas, monospace;
+    --sans: "Inter", "Noto Sans Devanagari", system-ui, sans-serif;
+  }
+
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 15px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+  }
+  .sheet {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 28px 30px 56px;
+    background: var(--paper);
+  }
+
+  .mast {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 26px;
+    align-items: start;
+    padding-bottom: 18px;
+    border-bottom: 3px solid var(--accent);
+  }
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    margin-bottom: 14px;
+  }
+  .brand svg {
+    width: 30px;
+    height: 30px;
+    border-radius: 7px;
+    display: block;
+  }
+  .wm {
+    font-size: 21px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+  }
+  .wm i {
+    font-style: normal;
+    color: var(--accent);
+  }
+  .wm sup {
+    font-size: 9px;
+    font-weight: 600;
+    color: var(--ink-3);
+    vertical-align: super;
+  }
+  h1 {
+    margin: 0 0 4px;
+    font-size: 30px;
+    line-height: 1.15;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+  }
+  .h1-en {
+    margin: 0 0 12px;
+    font-size: 17px;
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+  .facts {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .fact {
+    background: var(--accent-50);
+    border: 1px solid var(--accent-200);
+    color: var(--accent-9);
+    border-radius: 999px;
+    padding: 3px 11px;
+    font-size: 12.5px;
+    font-weight: 600;
+  }
+
+  .qr-block {
+    text-align: center;
+    width: 186px;
+  }
+  .qr-block svg {
+    width: 158px;
+    height: 158px;
+    display: block;
+    margin: 0 auto;
+    border: 1px solid var(--line);
+    border-radius: 6px;
+    background: #fff;
+  }
+  .qr-cap {
+    margin-top: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.35;
+  }
+  .qr-url {
+    font-family: var(--mono);
+    font-size: 11.5px;
+    color: var(--accent);
+    word-break: break-all;
+    margin-top: 3px;
+  }
+
+  .prep {
+    margin: 20px 0 4px;
+    background: var(--sand);
+    border-radius: 10px;
+    padding: 15px 18px;
+  }
+  .prep h2 {
+    margin: 0 0 9px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .prep h2 span {
+    font-weight: 500;
+    color: var(--ink-2);
+  }
+  .prep ul {
+    margin: 0;
+    padding-left: 20px;
+    display: grid;
+    gap: 5px;
+    font-size: 14px;
+  }
+
+  .step {
+    display: grid;
+    grid-template-columns: 1fr 250px;
+    gap: 24px;
+    align-items: start;
+    padding: 22px 0;
+    border-bottom: 1px solid var(--line);
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .step.wide {
+    grid-template-columns: 1fr;
+  }
+  .step-head {
+    display: flex;
+    gap: 13px;
+    align-items: baseline;
+  }
+  .num {
+    flex: 0 0 auto;
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    font-size: 17px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-variant-numeric: tabular-nums;
+  }
+  .step h3 {
+    margin: 0;
+    font-size: 20px;
+    font-weight: 700;
+    line-height: 1.25;
+    letter-spacing: -0.01em;
+  }
+  .step h3 small {
+    display: block;
+    font-size: 13.5px;
+    font-weight: 500;
+    color: var(--ink-3);
+    letter-spacing: 0;
+    margin-top: 2px;
+  }
+  .step-body {
+    padding-left: 47px;
+  }
+  .step-body p {
+    margin: 10px 0 0;
+    font-size: 14.5px;
+  }
+  .step-body ol,
+  .step-body ul {
+    margin: 9px 0 0;
+    padding-left: 19px;
+    display: grid;
+    gap: 6px;
+    font-size: 14.5px;
+  }
+  .en {
+    color: var(--ink-2);
+    font-size: 13.5px;
+  }
+  code,
+  .lit {
+    font-family: var(--mono);
+    font-size: 0.9em;
+    background: var(--sand);
+    border-radius: 4px;
+    padding: 1px 5px;
+    color: var(--ink);
+  }
+  .lit {
+    background: #fff;
+    border: 1px solid var(--slate-border);
+    font-weight: 600;
+  }
+  strong {
+    font-weight: 600;
+  }
+
+  .flag {
+    margin-top: 12px;
+    border-left: 4px solid var(--warn);
+    background: var(--warn-bg);
+    padding: 10px 13px;
+    border-radius: 0 7px 7px 0;
+    font-size: 13.5px;
+  }
+  .flag.ok {
+    border-left-color: var(--ok);
+    background: var(--ok-bg);
+  }
+  .flag.sky {
+    border-left-color: var(--sky);
+    background: var(--sky-bg);
+  }
+  .flag b {
+    color: var(--warn);
+  }
+  .flag.ok b {
+    color: var(--ok);
+  }
+  .flag.sky b {
+    color: var(--sky);
+  }
+
+  /* ── Screen reconstruction (from HostCamp.jsx + the organiser surfaces) ── */
+  .phone {
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: var(--cream);
+    box-shadow: 0 1px 3px rgba(124, 29, 27, 0.08);
+  }
+  .phone-bar {
+    background: var(--sand);
+    border-bottom: 1px solid var(--line);
+    padding: 5px 8px;
+    font-family: var(--mono);
+    font-size: 9px;
+    color: var(--ink-3);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+  .phone-bar b {
+    color: var(--ink-2);
+    font-weight: 400;
+  }
+  .phone-body {
+    padding: 10px;
+  }
+  .sc-sec {
+    font-size: 11px;
+    font-weight: 700;
+    margin: 0 0 6px;
+    padding-bottom: 3px;
+    border-bottom: 1px solid var(--line);
+  }
+  .sc-h {
+    font-size: 11.5px;
+    font-weight: 700;
+    margin: 0 0 8px;
+  }
+  .f {
+    margin-bottom: 7px;
+  }
+  .f > span {
+    display: block;
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--slate-label);
+    margin-bottom: 2px;
+  }
+  .inp {
+    border: 1px solid var(--slate-border);
+    border-radius: 6px;
+    background: #fff;
+    padding: 4px 6px;
+    font-size: 9.5px;
+    color: var(--ink-3);
+    min-height: 20px;
+  }
+  .inp.filled {
+    color: var(--ink);
+  }
+  .inp.sel::after {
+    content: "▾";
+    float: right;
+    color: var(--ink-3);
+  }
+  .row2 {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 5px;
+  }
+  .hint {
+    font-size: 7.5px;
+    color: var(--ink-3);
+    margin-top: 2px;
+    line-height: 1.35;
+  }
+  .chk {
+    display: flex;
+    gap: 4px;
+    font-size: 8.5px;
+    margin-bottom: 4px;
+    line-height: 1.35;
+  }
+  .box {
+    flex: 0 0 auto;
+    width: 9px;
+    height: 9px;
+    border: 1px solid var(--slate-border);
+    border-radius: 2px;
+    background: #fff;
+    margin-top: 1px;
+  }
+  .box.tick {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+    font-size: 7px;
+    text-align: center;
+    line-height: 9px;
+  }
+  .btn {
+    background: var(--accent);
+    color: #fff;
+    border-radius: 6px;
+    text-align: center;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 5px;
+    margin-top: 8px;
+  }
+  .btn.sec {
+    background: #fff;
+    color: var(--ink);
+    border: 1px solid var(--slate-border);
+  }
+  .sc-p {
+    font-size: 8.5px;
+    color: var(--ink-2);
+    margin: 0 0 8px;
+    line-height: 1.45;
+  }
+  .cap {
+    text-align: center;
+    font-size: 10.5px;
+    color: var(--ink-3);
+    margin-top: 6px;
+    font-style: italic;
+  }
+  .dl {
+    font-size: 8.5px;
+  }
+  .dl div {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 3px 0;
+    border-bottom: 1px solid var(--line);
+  }
+  .dl dt {
+    color: var(--ink-3);
+    margin: 0;
+  }
+  .dl dd {
+    margin: 0;
+    font-weight: 600;
+    text-align: right;
+  }
+  .dl dd.mono {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 8px;
+  }
+  .pill {
+    display: inline-block;
+    border-radius: 999px;
+    padding: 1px 7px;
+    font-size: 8px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .p-pe {
+    background: #fef3c7;
+    color: #92400e;
+  }
+  .p-pl {
+    background: #e0f2fe;
+    color: #075985;
+  }
+  .p-lv {
+    background: #dcfce7;
+    color: #166534;
+  }
+  .p-co {
+    background: #e2e8f0;
+    color: #334155;
+  }
+  .p-ca {
+    background: var(--accent);
+    color: #fff;
+  }
+  .counts {
+    display: flex;
+    gap: 10px;
+    border-top: 1px solid var(--line);
+    padding-top: 5px;
+    margin-top: 5px;
+  }
+  .counts div {
+    text-align: left;
+  }
+  .counts b {
+    display: block;
+    font-size: 13px;
+    line-height: 1.1;
+  }
+  .counts span {
+    font-size: 6.5px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--ink-3);
+  }
+
+  .sec {
+    margin-top: 34px;
+    break-inside: avoid;
+  }
+  .sec > h2 {
+    margin: 0 0 3px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.015em;
+  }
+  .sec > .lede {
+    margin: 0 0 13px;
+    font-size: 14px;
+    color: var(--ink-2);
+    max-width: 64ch;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  th {
+    text-align: left;
+    font-size: 10.5px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ink-3);
+    border-bottom: 2px solid var(--ink);
+    padding: 0 10px 6px 0;
+  }
+  td {
+    border-bottom: 1px solid var(--line);
+    padding: 9px 10px 9px 0;
+    vertical-align: top;
+  }
+  tr {
+    break-inside: avoid;
+  }
+  td:last-child,
+  th:last-child {
+    padding-right: 0;
+  }
+  .t-lit {
+    font-family: var(--mono);
+    font-weight: 600;
+    font-size: 12.5px;
+  }
+  .t-ex {
+    color: var(--ink-2);
+    font-size: 12.5px;
+  }
+  .req {
+    color: var(--accent);
+    font-weight: 700;
+  }
+  .opt {
+    color: var(--ink-3);
+    font-size: 11px;
+    font-weight: 600;
+  }
+
+  /* ── Lifecycle rail ───────────────────────────────────────────────────
+     The status a host sees is a real state machine (PE → PL → LV → CO),
+     so this is drawn as a track rather than a list. The pill colours are
+     the actual ones the app renders, so the paper and the screen agree.
+     ─────────────────────────────────────────────────────────────────── */
+  .rail {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-top: 6px;
+  }
+  .rail-card {
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 11px 12px;
+    background: var(--cream);
+    break-inside: avoid;
+  }
+  .rail-card .pill {
+    margin-bottom: 6px;
+  }
+  .rail-card h4 {
+    margin: 0 0 3px;
+    font-size: 13px;
+    font-weight: 700;
+  }
+  .rail-card p {
+    margin: 0;
+    font-size: 12px;
+    color: var(--ink-2);
+    line-height: 1.45;
+  }
+  .rail-card .who {
+    display: block;
+    margin-top: 5px;
+    font-size: 10.5px;
+    color: var(--ink-3);
+    font-weight: 600;
+  }
+
+  .big-note {
+    margin-top: 34px;
+    border: 3px solid var(--accent);
+    border-radius: 12px;
+    padding: 20px 22px;
+    background: var(--accent-50);
+    break-inside: avoid;
+  }
+  .big-note h2 {
+    margin: 0 0 6px;
+    font-size: 21px;
+    font-weight: 700;
+    color: var(--accent-9);
+    letter-spacing: -0.015em;
+  }
+  .big-note p {
+    margin: 0 0 9px;
+    font-size: 14px;
+  }
+  .big-note p:last-child {
+    margin-bottom: 0;
+  }
+  .big-note ul {
+    margin: 0 0 9px;
+    padding-left: 20px;
+    display: grid;
+    gap: 5px;
+    font-size: 14px;
+  }
+
+  .desk {
+    margin-top: 34px;
+    border: 2px solid var(--ink);
+    border-radius: 11px;
+    padding: 18px 20px;
+    break-inside: avoid;
+  }
+  .desk h2 {
+    margin: 0 0 3px;
+    font-size: 19px;
+    font-weight: 700;
+  }
+  .desk .lede {
+    margin: 0 0 13px;
+    font-size: 13.5px;
+    color: var(--ink-2);
+  }
+  .desk-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 24px;
+  }
+  .desk-grid h4 {
+    margin: 0 0 4px;
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+  .desk-grid p {
+    margin: 0;
+    font-size: 13px;
+    color: var(--ink-2);
+  }
+
+  footer {
+    margin-top: 34px;
+    padding-top: 15px;
+    border-top: 3px solid var(--accent);
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 20px;
+    align-items: end;
+    font-size: 12px;
+    color: var(--ink-2);
+  }
+  footer p {
+    margin: 0 0 4px;
+    max-width: 66ch;
+  }
+  footer .rev {
+    text-align: right;
+    color: var(--ink-3);
+    white-space: nowrap;
+  }
+
+  @media (max-width: 760px) {
+    .mast,
+    .step,
+    .desk-grid,
+    footer {
+      grid-template-columns: 1fr;
+    }
+    .rail {
+      grid-template-columns: 1fr 1fr;
+    }
+    .qr-block {
+      width: auto;
+    }
+    .step-body {
+      padding-left: 0;
+    }
+    .sheet {
+      padding: 20px 16px 40px;
+    }
+  }
+
+  @media print {
+    @page {
+      size: A4;
+      margin: 11mm;
+    }
+    body {
+      background: #fff;
+      font-size: 10.5pt;
+    }
+    .sheet {
+      max-width: none;
+      padding: 0;
+    }
+    .prep,
+    .desk,
+    .phone,
+    .flag,
+    .big-note {
+      box-shadow: none;
+    }
+    h1 {
+      font-size: 23pt;
+    }
+    .sec > h2 {
+      font-size: 15pt;
+    }
+    .step h3 {
+      font-size: 13pt;
+    }
+    a {
+      color: var(--ink);
+      text-decoration: none;
+    }
+  }
+</style>
+
+<div class="sheet">
+  <header class="mast">
+    <div>
+      <div class="brand">
+        <svg viewBox="0 0 512 512" aria-hidden="true">
+          <rect width="512" height="512" rx="114" fill="#b8231a" />
+          <g transform="translate(62 66) scale(16.2)">
+            <path d="M12 2.5c4 4.8 7 8.3 7 11.5a7 7 0 0 1-14 0c0-3.2 3-6.7 7-11.5Z" fill="#fff" />
+          </g>
+          <circle cx="256" cy="312" r="48" fill="#b8231a" />
+        </svg>
+        <span class="wm"><i>Rakt</i>ify<sup>™</sup></span>
+      </div>
+      <h1>रक्तदान शिबिर कसे आयोजित करायचे</h1>
+      <p class="h1-en">How to host a blood donation camp — from applying to the day after</p>
+      <div class="facts">
+        <span class="fact">अर्ज: ३ मिनिटे</span>
+        <span class="fact">पूर्ण मोफत</span>
+        <span class="fact">लॉगिन लागत नाही</span>
+        <span class="fact">स्वयंसेवक प्रशिक्षण मिळते</span>
+      </div>
+    </div>
+    <div class="qr-block">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 41 41" shape-rendering="crispEdges"><path fill="#ffffff" d="M0 0h41v41H0z"/><path stroke="#1c1917" d="M2 2.5h7m4 0h5m1 0h1m1 0h3m1 0h1m2 0h1m3 0h7M2 3.5h1m5 0h1m3 0h2m1 0h1m5 0h1m10 0h1m5 0h1M2 4.5h1m1 0h3m1 0h1m1 0h1m4 0h9m1 0h6m1 0h1m1 0h3m1 0h1M2 5.5h1m1 0h3m1 0h1m1 0h7m5 0h1m1 0h1m1 0h5m1 0h1m1 0h3m1 0h1M2 6.5h1m1 0h3m1 0h1m2 0h1m1 0h1m3 0h1m1 0h3m1 0h1m2 0h3m3 0h1m1 0h3m1 0h1M2 7.5h1m5 0h1m3 0h1m1 0h2m2 0h1m1 0h2m5 0h2m3 0h1m5 0h1M2 8.5h7m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h1m1 0h7M12 9.5h4m1 0h1m3 0h2m1 0h1m3 0h3M5 10.5h2m1 0h2m3 0h2m5 0h4m2 0h3m1 0h1m4 0h2M6 11.5h2m1 0h6m10 0h4m1 0h1m2 0h2m1 0h1M4 12.5h3m1 0h2m2 0h1m2 0h1m1 0h5m1 0h1m1 0h1m1 0h1m1 0h1m1 0h2m1 0h2m2 0h1M2 13.5h3m2 0h1m3 0h1m3 0h2m2 0h2m1 0h1m1 0h1m3 0h1m2 0h2m1 0h5M2 14.5h1m5 0h5m1 0h2m1 0h2m1 0h5m1 0h1m2 0h2m1 0h2m3 0h1M3 15.5h4m3 0h1m1 0h6m3 0h1m7 0h3m1 0h2m1 0h2M3 16.5h1m4 0h2m5 0h1m1 0h3m5 0h2m1 0h2m5 0h4M2 17.5h1m2 0h3m1 0h1m1 0h1m2 0h1m1 0h2m4 0h1m1 0h2m3 0h1m1 0h2m2 0h3M3 18.5h1m3 0h2m1 0h2m1 0h2m1 0h1m2 0h2m1 0h1m1 0h4m1 0h1m1 0h3m2 0h2M3 19.5h3m6 0h1m1 0h1m3 0h3m1 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h3M4 20.5h3m1 0h3m5 0h1m1 0h1m2 0h6m2 0h1m3 0h1m1 0h2m1 0h1M4 21.5h2m3 0h1m1 0h1m1 0h1m1 0h2m4 0h1m1 0h2m1 0h2m1 0h1m4 0h2m2 0h1M4 22.5h2m2 0h2m2 0h4m2 0h4m4 0h1m1 0h5m1 0h2M3 23.5h1m3 0h1m3 0h1m4 0h1m1 0h1m2 0h3m1 0h2m1 0h3m2 0h2m1 0h2M3 24.5h1m2 0h1m1 0h2m5 0h1m1 0h1m2 0h3m1 0h1m1 0h1m1 0h2m4 0h1m3 0h1M3 25.5h2m1 0h2m1 0h1m1 0h2m1 0h3m2 0h1m1 0h4m3 0h3m2 0h1m1 0h2m1 0h1M3 26.5h1m2 0h1m1 0h6m1 0h1m7 0h3m1 0h2m3 0h2M2 27.5h2m1 0h1m3 0h4m1 0h1m5 0h2m2 0h1m1 0h2m1 0h3m2 0h1M2 28.5h4m1 0h2m1 0h1m3 0h4m1 0h3m1 0h1m5 0h1m2 0h1m1 0h1m2 0h2M2 29.5h1m1 0h1m1 0h1m7 0h1m1 0h1m2 0h2m2 0h1m2 0h1m1 0h4m1 0h1m2 0h1m1 0h1M2 30.5h1m2 0h2m1 0h4m4 0h2m2 0h1m3 0h4m1 0h8m1 0h1M10 31.5h4m1 0h1m2 0h1m1 0h1m1 0h1m7 0h1m3 0h4M2 32.5h7m1 0h1m2 0h6m4 0h3m1 0h1m2 0h1m1 0h1m1 0h3m1 0h1M2 33.5h1m5 0h1m2 0h1m3 0h1m1 0h2m3 0h1m1 0h1m1 0h2m1 0h2m3 0h2m1 0h2M2 34.5h1m1 0h3m1 0h1m1 0h2m1 0h3m1 0h1m1 0h1m1 0h1m2 0h1m1 0h1m1 0h7m3 0h1M2 35.5h1m1 0h3m1 0h1m1 0h1m1 0h1m1 0h3m2 0h2m7 0h1m3 0h1M2 36.5h1m1 0h3m1 0h1m2 0h2m4 0h3m1 0h3m2 0h3m1 0h1m2 0h2m2 0h2M2 37.5h1m5 0h1m5 0h2m1 0h3m1 0h1m2 0h1m3 0h1m5 0h5M2 38.5h7m6 0h1m3 0h1m2 0h2m2 0h1m3 0h2m1 0h3m2 0h1"/></svg>
+      <div class="qr-cap">
+        शिबिराचा अर्ज — हा QR स्कॅन करा<br /><span class="en">Scan to apply to host a camp</span>
+      </div>
+      <div class="qr-url">raktify.choudhari.ngo/camps/host</div>
+    </div>
+  </header>
+
+  <div class="prep">
+    <h2>अर्ज भरण्यापूर्वी हे ठरवून ठेवा <span>— Decide these before you start</span></h2>
+    <ul>
+      <li><strong>तारीख आणि वेळ.</strong> तारीख <strong>आजची किंवा पुढची</strong> असावी — मागची तारीख चालत नाही. वेळ आधीच <span class="lit">09:00</span> ते <span class="lit">15:00</span> भरलेली असते. <span class="en">Date must not be in the past.</span></li>
+      <li><strong>जागा आणि पूर्ण पत्ता</strong> — सभागृह/हॉलचे नाव, इमारत, रस्ता, पिनकोड. <span class="en">Venue, address and PIN code.</span></li>
+      <li><strong>जबाबदार व्यक्तीचा मोबाइल.</strong> समन्वयक <strong>याच नंबरवर फोन करतील</strong>, म्हणून ज्या व्यक्तीशी बोलायचे आहे तिचाच नंबर द्या.</li>
+      <li><strong>अंदाजे किती रक्तदाते</strong> येतील (अंदाज पुरेसा आहे) आणि <strong>किती स्वयंसेवकांना प्रशिक्षण</strong> हवे.</li>
+      <li><strong>रक्तपेढी शोधायची गरज नाही.</strong> ती जोडण्याचे काम आमचे समन्वयक करतात.</li>
+    </ul>
+  </div>
+
+  <!-- 1 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">1</div>
+        <h3>अर्जाचे पान उघडा<small>Open the camp application page</small></h3>
+      </div>
+      <div class="step-body">
+        <ol>
+          <li>फोनचा <strong>कॅमेरा</strong> उघडा, वरचा QR कोड समोर धरा, दिसणाऱ्या लिंकवर टॅप करा.</li>
+          <li>किंवा Chrome मध्ये स्वतः टाइप करा: <code>raktify.choudhari.ngo/camps/host</code></li>
+        </ol>
+        <div class="flag ok">
+          <b>लॉगिन लागत नाही.</b> शिबिराचा अर्ज करण्यासाठी <strong>खाते काढायची गरज नाही</strong> — सरपंच, प्राचार्य, HR कोणीही थेट अर्ज करू शकतात. पुढे तुम्ही त्याच नंबरने लॉगिन केले, तर हे शिबिर <strong>आपोआप तुमच्या नावावर जोडले जाते</strong>.
+          <span class="en">No sign-in needed. Sign in later with the same mobile and the camp attaches to you automatically.</span>
+        </div>
+        <p>पानावर <strong>सहा भाग</strong> आहेत, वरून खाली भरायचे. सर्व नावे <strong>इंग्रजीत</strong> आहेत — पुढच्या पानावरील तक्ता वापरा.</p>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>raktify.choudhari.ngo/camps/host</b></div>
+        <div class="phone-body">
+          <div class="sc-h">Host a blood donation camp</div>
+          <p class="sc-p">
+            Tell us about your camp. Our coordinator will call you to verify the details and
+            arrange volunteer training.
+          </p>
+          <div class="sc-sec">Who is hosting?</div>
+          <div class="sc-sec">Camp details</div>
+          <div class="sc-sec">Where will it be held?</div>
+          <div class="sc-sec">Who will collect the blood?</div>
+          <div class="sc-sec">Volunteer training</div>
+          <div class="sc-sec">Your contact details</div>
+          <div class="btn">Submit application</div>
+        </div>
+      </div>
+      <div class="cap">अर्जाचे सहा भाग</div>
+    </div>
+  </section>
+
+  <!-- 2 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">2</div>
+        <h3>भाग १ आणि २ भरा<small>“Who is hosting?” and “Camp details”</small></h3>
+      </div>
+      <div class="step-body">
+        <p><strong><span class="lit">Who is hosting?</span></strong> — तुमची संस्था कोणत्या प्रकारची आहे ते निवडा आणि संस्थेचे <strong>पूर्ण, अधिकृत नाव</strong> लिहा (पत्रावर जसे असते तसे). प्रकार निवडण्यासाठी खालचा तक्ता पहा.</p>
+        <p><strong><span class="lit">Camp details</span></strong> — शिबिराचे नाव, तारीख, सुरू होण्याची आणि संपण्याची वेळ, आणि अंदाजे किती रक्तदाते.</p>
+        <ul>
+          <li><strong>शिबिराचे नाव लोकांना दिसते</strong> — पोस्टरवर आणि WhatsApp संदेशात हेच नाव जाते. ओळखता येईल असे ठेवा: <em>“प्रजासत्ताक दिन रक्तदान शिबिर — बडनेरा”</em>.</li>
+          <li><span class="lit">Target donors</span> हा <strong>फक्त अंदाज</strong> आहे. रिकामा ठेवला तरी चालतो. कमी-जास्त झाल्याने काहीही अडत नाही.</li>
+          <li><strong>वेळ:</strong> <span class="lit">End time</span> ही <span class="lit">Start time</span> पेक्षा <strong>नंतरची</strong> असावी, नाहीतर अर्ज स्वीकारला जात नाही.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>…/camps/host</b></div>
+        <div class="phone-body">
+          <div class="sc-sec">Who is hosting?</div>
+          <div class="f"><span>Organisation type</span><div class="inp sel">NGO or external organisation</div></div>
+          <div class="f">
+            <span>Organisation name</span>
+            <div class="inp filled">Rotary Club of Amravati</div>
+          </div>
+          <div class="sc-sec" style="margin-top: 9px">Camp details</div>
+          <div class="f">
+            <span>Camp name</span>
+            <div class="inp filled">Republic Day Donation Drive</div>
+          </div>
+          <div class="f"><span>Date</span><div class="inp filled">26-01-2027</div></div>
+          <div class="row2">
+            <div class="f"><span>Start time</span><div class="inp filled">09:00</div></div>
+            <div class="f"><span>End time</span><div class="inp filled">15:00</div></div>
+          </div>
+          <div class="f">
+            <span>Target donors</span>
+            <div class="inp filled">50</div>
+            <div class="hint">Optional — roughly how many donors are you expecting?</div>
+          </div>
+        </div>
+      </div>
+      <div class="cap">भाग १ आणि २</div>
+    </div>
+  </section>
+
+  <!-- 3 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">3</div>
+        <h3>भाग ३ ते ६ भरा<small>Location, blood bank, volunteer training, and your contact</small></h3>
+      </div>
+      <div class="step-body">
+        <p><strong><span class="lit">Where will it be held?</span></strong> — <span class="lit">State</span> निवडल्यावरच <span class="lit">District</span> ची यादी भरते, आणि जिल्हा निवडल्यावरच <span class="lit">Taluka</span> ची. <strong>क्रमानेच निवडा</strong> — मधले वगळून पुढे जाता येत नाही. <span class="lit">Taluka</span> ऐच्छिक आहे.</p>
+        <p><strong><span class="lit">Who will collect the blood?</span></strong> — रक्तपेढी <strong>टीम, बेड आणि कोल्ड-चेन बॉक्स</strong> घेऊन येते. ओळखीची रक्तपेढी असेल तर यादीतून निवडा — यादीत <strong>तुमच्या जिल्ह्यातील</strong>च रक्तपेढ्या दिसतात. <strong>माहीत नसेल तर <span class="lit">I do not know — please arrange one for us</span> तसेच ठेवा</strong>; ते पूर्णपणे बरोबर आहे — <strong>रक्तपेढी NGO ठरवते आणि तुम्हाला कळवते</strong>. जिल्ह्यात एकही रक्तपेढी Raktify वर नसेल, तर हा भाग दिसणारच नाही आणि तेही चालते.</p>
+        <p><strong><span class="lit">Volunteer training</span></strong> — <em>“Yes — please train our volunteers on Raktify…”</em> ही चौकट <strong>आधीच टिक असते. तशीच ठेवा.</strong></p>
+        <div class="flag ok">
+          <b>प्रशिक्षण का घ्यावे:</b> प्रशिक्षित स्वयंसेवक शिबिरात <strong>प्रत्येक रक्तदात्याची नोंद</strong> करू शकतात आणि <strong>प्रत्येक पिशवी कुठे गेली</strong> ते ट्रेस करता येते. हे <strong>पूर्ण मोफत</strong> आहे. यालाच <span class="lit">How many volunteers will need training?</span> मध्ये संख्या लिहा (उदा. <span class="lit">6</span>).
+        </div>
+        <p><strong><span class="lit">Your contact details</span></strong> — तुमचे नाव, संस्थेतील पद, <strong>१० अंकी मोबाइल</strong>, आणि ई-मेल (ऐच्छिक). शेवटच्या मोठ्या खोक्यात रक्तपेढीशी ओळख, दिव्यांगांसाठी सुविधा वगैरे काही सांगायचे असेल तर लिहा.</p>
+        <p>सर्व भरून झाल्यावर <span class="lit">Submit application</span> दाबा.</p>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>…/camps/host</b></div>
+        <div class="phone-body">
+          <div class="sc-sec">Where will it be held?</div>
+          <div class="f"><span>State</span><div class="inp sel">Maharashtra</div></div>
+          <div class="f"><span>District</span><div class="inp sel">Amravati</div></div>
+          <div class="f">
+            <span>Taluka</span><div class="inp sel">Amravati</div>
+            <div class="hint">Optional</div>
+          </div>
+          <div class="f">
+            <span>Venue</span>
+            <div class="inp filled">Auditorium, Sant Gadge Baba University</div>
+          </div>
+          <div class="f"><span>Address</span><div class="inp filled">Camp Road, Badnera</div></div>
+          <div class="f"><span>Pincode</span><div class="inp filled">444602</div></div>
+          <div class="sc-sec" style="margin-top: 9px">Who will collect the blood?</div>
+          <div class="f">
+            <span>Preferred blood bank</span>
+            <div class="inp sel">I do not know — please arrange one for us</div>
+            <div class="hint">Optional — our NGO team confirms the blood bank</div>
+          </div>
+          <div class="sc-sec" style="margin-top: 9px">Volunteer training</div>
+          <div class="chk">
+            <span class="box tick">✓</span>
+            <span>Yes — please train our volunteers on Raktify so we can register every donor and trace every unit during the camp.</span>
+          </div>
+          <div class="f"><span>How many volunteers will need training?</span><div class="inp filled">6</div></div>
+          <div class="sc-sec" style="margin-top: 9px">Your contact details</div>
+          <div class="f"><span>Full name</span><div class="inp filled">Ashish Tayde</div></div>
+          <div class="f">
+            <span>Your role</span><div class="inp filled">President</div>
+            <div class="hint">e.g. President, Headmistress, HR Manager</div>
+          </div>
+          <div class="f"><span>Mobile (10-digit)</span><div class="inp filled">9876543210</div></div>
+          <div class="btn">Submit application</div>
+        </div>
+      </div>
+      <div class="cap">भाग ३, ४, ५, ६</div>
+    </div>
+  </section>
+
+  <!-- 4 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">4</div>
+        <h3>अर्ज क्रमांक लिहून ठेवा<small>Write down the Application ID</small></h3>
+      </div>
+      <div class="step-body">
+        <p>अर्ज गेल्यावर <strong><span class="lit">Application received</span></strong> असे पान दिसेल. त्यावर एक लांब <strong>अर्ज क्रमांक</strong> (<span class="lit">Application ID</span>) असतो.</p>
+        <div class="flag">
+          <b>हे आत्ताच करा:</b> या पानाचा <strong>स्क्रीनशॉट काढा</strong> (आवाज कमी करायची कळ + चालू/बंद कळ एकत्र दाबा) किंवा अर्ज क्रमांक <strong>कागदावर लिहून ठेवा</strong>. समन्वयकाशी बोलताना हा क्रमांक सांगितला की काम पटकन होते. हे पान <strong>बंद केल्यावर पुन्हा उघडत नाही.</strong>
+          <span class="en">Screenshot this page or copy the Application ID down. It does not come back.</span>
+        </div>
+        <p>पानावर <span class="lit">Status</span> पुढे पिवळी पट्टी दिसेल — <span class="pill p-pe">Pending review</span>. याचा अर्थ <strong>“अर्ज आमच्याकडे पोहोचला, तपासणी चालू आहे”</strong>. हे बरोबर आहे, काळजी करू नका.</p>
+        <ul>
+          <li>तुम्ही <strong>लॉगिन करून</strong> अर्ज केला असेल तर हिरवी सूचना दिसते — <em>“This camp is now in your profile.”</em> — आणि <span class="lit">Go to my camps</span> हे बटण असते.</li>
+          <li>लॉगिन न करता अर्ज केला असेल तर निळी सूचना दिसते — <strong>त्याच मोबाइल नंबरने</strong> लॉगिन केल्यावर हे शिबिर आपोआप तुमच्या यादीत येते.</li>
+        </ul>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>…/camps/host</b></div>
+        <div class="phone-body">
+          <div class="sc-h">Application received</div>
+          <p class="sc-p">
+            Thank you for offering to host a donation camp. Our NGO coordinator will contact you
+            on the mobile number you provided to verify details and arrange
+            <strong>volunteer training</strong> on how to use Raktify during the camp.
+          </p>
+          <div class="dl">
+            <div><dt>Application ID</dt><dd class="mono">a3f9…c210</dd></div>
+            <div><dt>Camp name</dt><dd>Republic Day Donation Drive</dd></div>
+            <div><dt>Scheduled</dt><dd>26 Jan 2027, 09:00</dd></div>
+            <div><dt>Status</dt><dd><span class="pill p-pe">Pending review</span></dd></div>
+          </div>
+          <p class="sc-p" style="margin-top: 8px">
+            <strong>Sign in with this mobile number</strong> to track this camp — and any other
+            you host — from one place.
+          </p>
+          <div class="btn">Sign in to track it</div>
+          <div class="btn sec">Back to home</div>
+        </div>
+      </div>
+      <div class="cap">← हे पान जपून ठेवा</div>
+    </div>
+  </section>
+
+  <!-- 5 ───────────────────────────────────────────────────────────── -->
+  <section class="step wide">
+    <div>
+      <div class="step-head">
+        <div class="num">5</div>
+        <h3>पुढे काय होते — शिबिराचे चार टप्पे<small>What happens next: the four states your camp moves through</small></h3>
+      </div>
+      <div class="step-body">
+        <p>तुमच्या शिबिराच्या नावापुढे <strong>एक रंगीत पट्टी</strong> दिसते. ती शिबिर कोणत्या टप्प्यावर आहे ते सांगते. स्क्रीनवर हेच रंग दिसतात.</p>
+        <div class="rail">
+          <div class="rail-card">
+            <span class="pill p-pe">Pending review</span>
+            <h4>तपासणी चालू</h4>
+            <p>अर्ज पोहोचला. समन्वयक <strong>तुमच्या नंबरवर फोन करून</strong> तपशील तपासतील आणि प्रशिक्षणाची वेळ ठरवतील.</p>
+            <span class="who">फोनची वाट पहा</span>
+          </div>
+          <div class="rail-card">
+            <span class="pill p-pl">Planned</span>
+            <h4>मंजूर + जाहीर</h4>
+            <p>शिबिर मंजूर. आता त्याचे <strong>स्वतःचे पान + QR</strong> तयार होते आणि जवळच्या रक्तदात्यांना WhatsApp वर कळवले जाते.</p>
+            <span class="who">पोस्टर छापायला सुरुवात करा</span>
+          </div>
+          <div class="rail-card">
+            <span class="pill p-lv">Live</span>
+            <h4>शिबिराचा दिवस</h4>
+            <p>रक्तदाते येत आहेत. आयोजक-पानावर <strong>नावे आणि आकडे तात्काळ</strong> दिसतात.</p>
+            <span class="who">डेस्कवर QR ठेवा</span>
+          </div>
+          <div class="rail-card">
+            <span class="pill p-co">Completed</span>
+            <h4>शिबिर पूर्ण</h4>
+            <p>अंतिम आकडे नोंदले. रक्तदात्यांना <strong>दुसऱ्या दिवशी आभाराचा संदेश</strong> जातो.</p>
+            <span class="who">काही करायचे नाही</span>
+          </div>
+        </div>
+        <div class="flag">
+          <b>नाकारले गेले तर:</b> पट्टी <span class="pill p-ca">Declined</span> होते आणि <strong>कारण त्याच जागी लिहिलेले</strong> दिसते (उदा. त्या दिवशी रक्तपेढीचे पथक उपलब्ध नाही). ते वाचून <strong>दुसऱ्या तारखेला नवा अर्ज</strong> करा — तेच शिबिर परत चालू करता येत नाही.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 6 ───────────────────────────────────────────────────────────── -->
+  <section class="step">
+    <div>
+      <div class="step-head">
+        <div class="num">6</div>
+        <h3>मंजुरीनंतर मिळणाऱ्या तीन गोष्टी<small>What you get once the camp is verified</small></h3>
+      </div>
+      <div class="step-body">
+        <ol>
+          <li>
+            <strong>आयोजक पान (Organiser dashboard)</strong> — WhatsApp वर एक <strong>खास लिंक</strong> येते. ती उघडायला <strong>पासवर्ड लागत नाही</strong> — लिंक हीच किल्ली आहे. त्यावर नोंदणी केलेल्यांची यादी, आकडे, आणि प्रचारासाठी लागणारे साहित्य असते.
+            <br /><span class="en">A magic link — no password. Treat it like a key.</span>
+          </li>
+          <li>
+            <strong>शिबिराचे स्वतःचे पान + QR</strong> — <code>raktify.choudhari.ngo/c/…</code>. हा QR <strong>पोस्टरवर छापा</strong>. स्कॅन करणारा माणूस नोंदणी करतो आणि <strong>आपोआप तुमच्या शिबिराच्या यादीत</strong> जातो. वेगळी यादी लिहायची गरज नाही.
+          </li>
+          <li>
+            <strong>“My camps” यादी</strong> — <strong>तोच मोबाइल नंबर</strong> वापरून लॉगिन केल्यावर तुमची सर्व शिबिरे एकाच ठिकाणी दिसतात. तीन शिबिरे असतील तर तीन WhatsApp संदेश शोधत बसायची गरज नाही.
+          </li>
+        </ol>
+        <div class="flag">
+          <b>लिंक कोणाला पाठवू नका:</b> आयोजक-लिंक ज्याच्याकडे आहे तो रक्तदात्यांची यादी पाहू शकतो. ती <strong>फक्त तुमच्या जबाबदार स्वयंसेवकांनाच</strong> द्या. सार्वजनिक ग्रुपवर पाठवू नका — पोस्टरवर <strong>शिबिराच्या पानाचा</strong> QR छापा, आयोजक-लिंकचा नाही.
+        </div>
+        <p><strong>तपशील बदलायचा असेल तर:</strong> <span class="lit">Edit details</span> दाबा. तारीख, वेळ किंवा जागा बदलली तर <strong>नोंदणी केलेल्या सर्वांना WhatsApp वर आपोआप कळवले जाते</strong> — save करण्यापूर्वी <em>“N registered donors will be told…”</em> अशी सूचना दिसते. रिकामे ठेवलेले खोके <strong>जुनीच माहिती ठेवतात</strong>.</p>
+      </div>
+    </div>
+    <div>
+      <div class="phone">
+        <div class="phone-bar">🔒 <b>…/donor</b></div>
+        <div class="phone-body">
+          <div class="sc-h">Camps I host (1)</div>
+          <div style="border: 1px solid var(--line); border-radius: 7px; background: #fff; padding: 7px">
+            <div style="display: flex; justify-content: space-between; gap: 6px">
+              <div>
+                <div style="font-size: 9.5px; font-weight: 600">Republic Day Donation Drive</div>
+                <div style="font-size: 7.5px; color: var(--ink-3)">26 Jan 2027 · 09:00–15:00</div>
+                <div style="font-size: 7.5px; color: var(--ink-3)">Amravati · PDMMC Blood Bank</div>
+              </div>
+              <span class="pill p-pl">Planned</span>
+            </div>
+            <div class="counts">
+              <div><b>34</b><span>registered</span></div>
+              <div><b style="color: var(--ok)">0</b><span>donated</span></div>
+            </div>
+            <div style="margin-top: 5px; font-size: 7.5px; color: var(--accent); font-weight: 600">
+              Open organiser dashboard →
+            </div>
+            <div style="margin-top: 3px; font-size: 7.5px; color: var(--ink-3)">
+              Public camp page &nbsp;·&nbsp; Edit details
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="cap">“My camps” — तुमची सर्व शिबिरे</div>
+    </div>
+  </section>
+
+  <!-- BIG NOTE ──────────────────────────────────────────────────────── -->
+  <section class="big-note">
+    <h2>हजेरी आपोआप लागते — यादीत टिक करायची गरज नाही</h2>
+    <p>
+      <strong>शिबिरात कोणीही रक्तदात्यांची हजेरी हाताने लावायची नाही.</strong> रक्तपेढी जेव्हा
+      एखाद्या रक्तदात्याचे रक्तदान नोंदवते, तेव्हा त्याच क्षणी तो माणूस तुमच्या शिबिराच्या यादीत
+      <strong>“donated”</strong> म्हणून लागतो. हे प्रणाली स्वतः करते.
+    </p>
+    <ul>
+      <li>
+        <strong>“हजेरी” किंवा “Mark attendance” असे बटण शोधू नका</strong> — ते मुद्दाम ठेवलेले नाही.
+        जुन्या पद्धतीने टिक करायचा प्रयत्न केला तर स्क्रीनवर
+        <span class="lit">attendance_is_derived</span> असा संदेश येतो. <strong>ही चूक नाही</strong> — “हे
+        रक्तदानाच्या नोंदीवरून ठरते” असे ते सांगत आहे.
+      </li>
+      <li>
+        <strong>आकडे लगेच न दिसले तर घाबरू नका.</strong> रक्तपेढी अनेक वेळा <strong>दुसऱ्या दिवशी
+        सकाळी</strong> सगळ्या नोंदी एकत्र भरते. त्यामुळे शिबिराच्या रात्री <span class="lit">donated</span>
+        <strong>0</strong> दिसू शकतो. आकडे नंतर आपोआप भरतात, आणि गैरहजेरी ठरवण्यापूर्वी प्रणाली
+        <strong>दोन दिवस थांबते</strong>. उशिरा भरलेली नोंदही मागे जाऊन दुरुस्त होते.
+      </li>
+      <li>
+        <strong>तुमच्याकडे फक्त एकच नोंद करायची असते:</strong> जो आला पण <strong>तपासणीत नाकारला
+        गेला</strong>. त्याच्यासमोरील <span class="lit">Came, couldn't donate</span> दाबा — तो
+        <strong>गैरहजर मोजला जाणार नाही</strong> हे महत्त्वाचे. (शिबिरात १०–१५% लोक असे नाकारले जातात, हे
+        सामान्य आहे.) यामुळे त्या व्यक्तीच्या <strong>वैद्यकीय नोंदीत काहीही बदल होत नाही</strong> —
+        ती फक्त हजेरीची नोंद आहे.
+      </li>
+    </ul>
+    <p>
+      <strong>यातून तुमचा काय फायदा:</strong> कागदी यादी सांभाळायची नाही, ती नंतर भरायची नाही, आणि
+      शिबिर संपल्यावर <strong>किती पिशव्या जमल्या याचा आकडा हातानेच जुळवायची</strong> गरज नाही.
+    </p>
+  </section>
+
+  <!-- ORGANISER TYPE TABLE ──────────────────────────────────────────── -->
+  <section class="sec">
+    <h2>तक्ता: संस्थेचा प्रकार कोणता निवडायचा</h2>
+    <p class="lede">
+      <span class="lit">Organisation type</span> मध्ये कोणता पर्याय निवडायचा — डावीकडचे शब्द
+      स्क्रीनवर जसेच तसे दिसतात.
+      <span class="en">Which “Organisation type” to pick.</span>
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 38%">स्क्रीनवर दिसणारा पर्याय</th>
+          <th style="width: 62%">कोणी निवडावा</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="t-lit">Corporate / company</td>
+          <td>कंपनी, कारखाना, बँक, खाजगी कार्यालय — HR किंवा CSR विभागाकडून होणारे शिबिर.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Educational institution / college</td>
+          <td>शाळा, कनिष्ठ महाविद्यालय, पदवी महाविद्यालय, विद्यापीठ, NSS किंवा NCC युनिट.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">NGO or external organisation</td>
+          <td>सामाजिक संस्था, ट्रस्ट, Rotary / Lions / Jaycees, धार्मिक संस्था, मंडळ. <strong>बहुतेक वेळा हाच पर्याय बरोबर असतो</strong> — तो आधीच निवडलेला असतो.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Medical college / hospital</td>
+          <td>रुग्णालय, वैद्यकीय महाविद्यालय, नर्सिंग कॉलेज, दवाखाना.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Community / neighbourhood group</td>
+          <td>गाव, ग्रामपंचायत, वॉर्ड, गृहनिर्माण संस्था, तरुण मंडळ, बचत गट.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Other</td>
+          <td>वरील कशातही बसत नसेल तरच. संस्थेचे नाव नीट लिहा — समन्वयक फोनवर विचारून घेतील.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- FIELD KEY ─────────────────────────────────────────────────────── -->
+  <section class="sec">
+    <h2>तक्ता: प्रत्येक खोक्यात काय भरायचे</h2>
+    <p class="lede">
+      Field key for the camp application. <span class="req">★</span> = भरणे आवश्यक.
+      <span class="opt">(optional)</span> = रिकामे ठेवले तरी चालते.
+    </p>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 27%">स्क्रीनवर दिसणारा शब्द</th>
+          <th style="width: 45%">याचा अर्थ काय / काय भरायचे</th>
+          <th style="width: 28%">उदाहरण</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="t-lit">Organisation name <span class="req">★</span></td>
+          <td>संस्थेचे <strong>पूर्ण अधिकृत नाव</strong>, पत्रावर किंवा शिक्क्यावर जसे असते तसे. संक्षेप टाळा.</td>
+          <td class="t-ex">Rotary Club of Amravati</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Camp name <span class="req">★</span></td>
+          <td>शिबिराचे नाव. <strong>हे लोकांना पोस्टरवर आणि WhatsApp वर दिसते</strong> — प्रसंग आणि भाग दोन्ही येईल असे ठेवा.</td>
+          <td class="t-ex">Republic Day Donation Drive</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Date <span class="req">★</span></td>
+          <td>शिबिराची तारीख. खोक्यावर टॅप केल्यावर <strong>कॅलेंडर</strong> उघडते. <strong>मागची तारीख चालत नाही.</strong></td>
+          <td class="t-ex">26-01-2027</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Start time / End time <span class="req">★</span></td>
+          <td>सुरू आणि संपण्याची वेळ. आधीच <span class="lit">09:00</span>–<span class="lit">15:00</span> भरलेली असते. <strong>End नेहमी Start नंतर.</strong></td>
+          <td class="t-ex">09:00 → 15:00</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Target donors <span class="opt">(optional)</span></td>
+          <td>अंदाजे किती रक्तदाते येतील. <strong>फक्त नियोजनासाठी</strong> — चुकले तरी काहीच अडत नाही.</td>
+          <td class="t-ex">50</td>
+        </tr>
+        <tr>
+          <td class="t-lit">State → District → Taluka <span class="req">★</span></td>
+          <td><strong>याच क्रमाने</strong> निवडा — राज्य निवडल्यावरच जिल्ह्यांची यादी भरते. <span class="lit">Taluka</span> ऐच्छिक.</td>
+          <td class="t-ex">Maharashtra → Amravati</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Venue <span class="req">★</span></td>
+          <td>प्रत्यक्ष <strong>जागेचे नाव</strong> — हॉल, सभागृह, मैदान. रक्तदाता हे वाचून जागा शोधतो.</td>
+          <td class="t-ex">Auditorium, Sant Gadge Baba University</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Address <span class="req">★</span></td>
+          <td>इमारत / रस्ता / परिसर, म्हणजे नकाशाशिवायही जागा सापडेल.</td>
+          <td class="t-ex">Camp Road, Badnera</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Pincode <span class="req">★</span></td>
+          <td><strong>६ अंकी</strong> पिनकोड.</td>
+          <td class="t-ex">444602</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Preferred blood bank <span class="opt">(optional)</span></td>
+          <td>कोणती <strong>रक्तपेढी</strong> रक्त गोळा करणार. यादीत <strong>तुमच्या जिल्ह्यातील</strong>च रक्तपेढ्या येतात. <strong>माहीत नसेल तर <span class="lit">I do not know</span> तसेच ठेवा</strong> — NGO रक्तपेढी ठरवून तुम्हाला कळवते.</td>
+          <td class="t-ex">माहीत नसेल तर तसेच ठेवा</td>
+        </tr>
+        <tr>
+          <td class="t-lit">☑ …train our volunteers…</td>
+          <td><strong>टिक तसेच ठेवा.</strong> मोफत प्रशिक्षण — यामुळे शिबिरात प्रत्येक नोंद आणि प्रत्येक पिशवी ट्रेस होते.</td>
+          <td class="t-ex">टिक ठेवा</td>
+        </tr>
+        <tr>
+          <td class="t-lit">How many volunteers…</td>
+          <td>प्रशिक्षण द्यायचे स्वयंसेवक किती. <strong>२ ते ८</strong> पुरेसे असतात.</td>
+          <td class="t-ex">6</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Full name <span class="req">★</span></td>
+          <td>ज्या व्यक्तीशी समन्वयकाने बोलावे तिचे <strong>पूर्ण नाव</strong>.</td>
+          <td class="t-ex">Ashish Tayde</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Your role <span class="req">★</span></td>
+          <td>संस्थेतील तुमचे <strong>पद</strong>.</td>
+          <td class="t-ex">President · Headmistress · HR Manager</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Mobile (10-digit) <span class="req">★</span></td>
+          <td><strong>१० अंकी</strong> नंबर, 6/7/8/9 ने सुरू. <strong>समन्वयक याच नंबरवर फोन करतील</strong> आणि आयोजक-लिंकही येथेच येईल — म्हणून <strong>चुकीचा नंबर देऊ नका</strong>.</td>
+          <td class="t-ex">9876543210</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Email <span class="opt">(optional)</span></td>
+          <td>असेल तर द्या. रिकामा ठेवला तरी अर्ज जातो.</td>
+          <td class="t-ex">office@rotaryamt.org</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Anything else… <span class="opt">(optional)</span></td>
+          <td>रक्तपेढीशी आधीची ओळख, दिव्यांगांसाठी सुविधा, पार्किंग, वीज/जनरेटर — काही सांगायचे असल्यास.</td>
+          <td class="t-ex">SRPF ground, generator available</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- TROUBLESHOOTING ───────────────────────────────────────────────── -->
+  <section class="sec">
+    <h2>अडचण आली तर</h2>
+    <table>
+      <thead>
+        <tr>
+          <th style="width: 32%">काय होते</th>
+          <th style="width: 30%">याचा अर्थ</th>
+          <th style="width: 38%">काय करायचे</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="t-lit">District ची यादी रिकामी</td>
+          <td>अजून <span class="lit">State</span> निवडलेला नाही.</td>
+          <td>आधी <span class="lit">State</span> निवडा — मग जिल्हे भरतात. मग जिल्हा निवडा — मग तालुके.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">scheduled_date_in_past</td>
+          <td>तारीख <strong>आधीच निघून गेली</strong> आहे.</td>
+          <td>कॅलेंडरमधून आजची किंवा पुढची तारीख निवडा. <strong>वर्ष बरोबर आहे का</strong> ते तपासा.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">End time has to be later</td>
+          <td>संपण्याची वेळ सुरू होण्याच्या वेळेपेक्षा आधीची आहे.</td>
+          <td>दोन्ही वेळा तपासा. दुपारच्या वेळेसाठी <span class="lit">15:00</span> असे लिहा, <span class="lit">3:00</span> नाही.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">invalid_mobile_format</td>
+          <td>मोबाइल नंबर चुकीच्या पद्धतीने.</td>
+          <td>बरोबर <strong>१० अंक</strong>, 6/7/8/9 ने सुरू. जागा, डॅश, <code>0</code> किंवा <code>+91</code> पुन्हा नको.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">invalid_input</td>
+          <td>कोणतेतरी <strong>एक खोके रिकामे किंवा चुकीचे</strong>.</td>
+          <td>वरून खाली स्क्रोल करा — <strong>लाल अक्षरे</strong> ज्या खोक्याखाली दिसतील तेच दुरुस्त करा.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">Could not submit</td>
+          <td>त्या क्षणी <strong>इंटरनेट पोहोचले नाही</strong>. तुमची चूक नाही.</td>
+          <td>अर्धा मिनिट थांबा, तेच बटण पुन्हा दाबा. <strong>भरलेली माहिती जागेवरच असते</strong> — पुन्हा भरू नका.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">attendance_is_derived</td>
+          <td><strong>हजेरी हाताने लावायचा</strong> प्रयत्न झाला.</td>
+          <td>हे बरोबर आहे — हजेरी रक्तदानाच्या नोंदीवरून <strong>आपोआप</strong> लागते. वरची लाल चौकट वाचा.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">आयोजक-लिंक उघडत नाही</td>
+          <td>लिंकची <strong>मुदत संपली</strong> किंवा ती रद्द झाली.</td>
+          <td>समन्वयकाला फोन करून <strong>नवी लिंक</strong> मागा. किंवा त्याच मोबाइलने लॉगिन करून <span class="lit">My camps</span> मधून उघडा.</td>
+        </tr>
+        <tr>
+          <td class="t-lit">३ दिवस झाले, फोन नाही</td>
+          <td>तपासणी अजून पूर्ण झाली नाही.</td>
+          <td><code>contact@choudhari.ngo</code> वर <strong>अर्ज क्रमांक</strong> लिहून कळवा. नवा अर्ज करू नका — दोन नोंदी होतात.</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <!-- DESK PANEL ────────────────────────────────────────────────────── -->
+  <section class="desk">
+    <h2>शिबिराच्या दिवशी — डेस्कवरील स्वयंसेवकांसाठी</h2>
+    <p class="lede">On the day — the five things that actually matter at the desk.</p>
+    <div class="desk-grid">
+      <div>
+        <h4>१. शिबिराचा QR छापून डेस्कवर ठेवा</h4>
+        <p>
+          येणारा माणूस <strong>स्वतःच्या फोनवरून</strong> स्कॅन करून नोंदणी करतो — २ मिनिटांत, आणि
+          तो <strong>आपोआप यादीत</strong> येतो. QR आयोजक-पानावरील
+          <span class="lit">Share toolkit</span> मध्ये मिळतो.
+        </p>
+      </div>
+      <div>
+        <h4>२. दुसऱ्याच्या फोनवरून नोंदणी करू नका</h4>
+        <p>
+          OTP <strong>त्या व्यक्तीच्याच</strong> नंबरवर जातो आणि खाते त्या नंबराशी कायमचे जोडले
+          जाते. एका फोनवरून सगळ्यांची नोंदणी केली तर <strong>पुढे कोणालाच</strong> संदेश पोहोचणार
+          नाही.
+        </p>
+      </div>
+      <div>
+        <h4>३. आधीच नोंदणी असेल तर पुन्हा करू नका</h4>
+        <p>
+          <em>“already registered”</em> दिसले तर <span class="lit">Log in with OTP</span> दाबा.
+          <strong>दुसरा नंबर वापरून नवे खाते काढू नका</strong> — एकाच व्यक्तीच्या दोन नोंदी होतात.
+        </p>
+      </div>
+      <div>
+        <h4>४. फक्त “नाकारले गेले” तेवढेच नोंदवा</h4>
+        <p>
+          आला पण तपासणीत नाकारला गेला → <span class="lit">Came, couldn't donate</span>.
+          <strong>हजेरी किंवा गैरहजेरी हाताने लावायची नाही.</strong>
+        </p>
+      </div>
+      <div>
+        <h4>५. आयोजक-लिंक जपून ठेवा</h4>
+        <p>
+          ती <strong>पासवर्डसारखी</strong> आहे — जवळचे दोन-तीन स्वयंसेवक पुरेसे. सार्वजनिक
+          WhatsApp ग्रुपवर पाठवू नका.
+        </p>
+      </div>
+      <div>
+        <h4>इंटरनेट गेले तर</h4>
+        <p>
+          रक्तदान चालू ठेवा. नोंदणी नंतरही होऊ शकते, आणि रक्तपेढी रक्तदानाच्या नोंदी
+          <strong>नंतर भरल्या तरी</strong> हजेरी मागे जाऊन आपोआप दुरुस्त होते.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div>
+      <p>
+        <strong><i style="color: var(--accent); font-style: normal">Rakt</i>ify™</strong> — Choudhari EduHealth India Foundation ची
+        मोफत रक्तदान समन्वय प्रणाली. <strong>शिबिर आयोजकांसाठी आणि रक्तदात्यांसाठी कोणतेही शुल्क नाही.</strong>
+      </p>
+      <p>
+        रक्तदात्यांचे मोबाइल नंबर <strong>रुग्णालयाला कधीही दाखवले जात नाहीत.</strong> सर्व संपर्क
+        प्रणालीमार्फतच होतो.
+      </p>
+      <p>मदतीसाठी: <code>contact@choudhari.ngo</code></p>
+    </div>
+    <div class="rev">
+      शिबिर अर्ज<br />
+      <code>raktify.choudhari.ngo/camps/host</code><br /><br />
+      Rev. 28-Aug-2026
+    </div>
+  </footer>
+</div>

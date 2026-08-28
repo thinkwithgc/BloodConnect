@@ -625,18 +625,19 @@ WHATSAPP_TEMPLATE_DONOR_ALERT_COMMUNITY=donor_alert_community_first
 
 > Notifies the receiving blood bank when a donor has accepted an alert and
 > is coming to donate. Populates the "Incoming donors" tab in the BB
-> dashboard. English-only for now — BB staff are English-comfortable and
-> we don't spend Meta approval budget on lower-priority translations.
+> dashboard. Marathi and Hindi added Aug 2026: a BB tech in Amravati reads
+> Marathi, and the on-screen tab label stays English inside all three bodies
+> because that is the label they are looking at.
 
 | Field | Value |
 |---|---|
 | **Name** | `bb_donor_incoming` |
 | **Category** | **Utility** |
-| **Languages** | English |
+| **Languages** | English, Marathi, Hindi |
 | **Header** | None |
 | **Footer** | `Raktify · Blood bank alert · choudhari.ngo` |
 
-### Body
+### Body (English)
 
 ```
 A donor has accepted an alert and is coming to your bank.
@@ -646,6 +647,30 @@ For: *{{3}}*
 Expected arrival: *{{4}}*
 
 Open the Incoming Donors tab to review, mark arrived, or defer.
+```
+
+### Body (Marathi)
+
+```
+एका दात्याने अलर्ट स्वीकारला आहे आणि तो तुमच्या रक्तपेढीत येत आहे.
+
+दाता: *{{1}}* ({{2}})
+कारण: *{{3}}*
+अपेक्षित आगमन: *{{4}}*
+
+तपासणी, आगमन नोंद किंवा स्थगिती यासाठी Incoming Donors टॅब उघडा.
+```
+
+### Body (Hindi)
+
+```
+एक दाता ने अलर्ट स्वीकार किया है और वह आपके ब्लड बैंक आ रहा है.
+
+दाता: *{{1}}* ({{2}})
+के लिए: *{{3}}*
+अपेक्षित आगमन: *{{4}}*
+
+समीक्षा, आगमन दर्ज करने या स्थगित करने के लिए Incoming Donors टैब खोलें.
 ```
 
 ### Variables
@@ -688,17 +713,17 @@ WHATSAPP_TEMPLATE_BB_DONOR_INCOMING=bb_donor_incoming
 ## Template 12 · `coord_prefire_warning`
 
 > Fires 15 min before a scheduled donor-alert burst so the coordinator can
-> hold, cancel, or let it proceed. English-only.
+> hold, cancel, or let it proceed. EN/MR/HI.
 
 | Field | Value |
 |---|---|
 | **Name** | `coord_prefire_warning` |
 | **Category** | **Utility** |
-| **Languages** | English |
+| **Languages** | English, Marathi, Hindi |
 | **Header** | None |
 | **Footer** | `Raktify · Coordinator alert · choudhari.ngo` |
 
-### Body
+### Body (English)
 
 ```
 Alerts for request *{{1}}* ({{2}}) will fire to donors in *{{3}}*.
@@ -706,6 +731,26 @@ Alerts for request *{{1}}* ({{2}}) will fire to donors in *{{3}}*.
 If a BB has quietly committed inventory, hold the alert. Otherwise let it fire.
 
 Tap below to review or hold.
+```
+
+### Body (Marathi)
+
+```
+विनंती *{{1}}* ({{2}}) साठी दात्यांना अलर्ट *{{3}}* मध्ये जाणार आहेत.
+
+एखाद्या रक्तपेढीने न सांगता साठा राखून ठेवला असेल तर अलर्ट थांबवा. अन्यथा जाऊ द्या.
+
+तपासण्यासाठी किंवा थांबवण्यासाठी खाली टॅप करा.
+```
+
+### Body (Hindi)
+
+```
+अनुरोध *{{1}}* ({{2}}) के लिए दाताओं को अलर्ट *{{3}}* में भेजे जाएंगे.
+
+यदि किसी ब्लड बैंक ने बिना बताए स्टॉक आरक्षित कर लिया है तो अलर्ट रोकें. अन्यथा जाने दें.
+
+समीक्षा करने या रोकने के लिए नीचे टैप करें.
 ```
 
 ### Variables
@@ -740,17 +785,17 @@ WHATSAPP_TEMPLATE_COORD_PREFIRE_WARN=coord_prefire_warning
 > Wakes a district coordinator when a new critical request lands in their
 > district — before the matcher has completed. Time-sensitive because the
 > coordinator can hand-place the request against inventory they know exists
-> that Raktify doesn't. English-only.
+> that Raktify doesn't. EN/MR/HI.
 
 | Field | Value |
 |---|---|
 | **Name** | `coord_critical_new` |
 | **Category** | **Utility** |
-| **Languages** | English |
+| **Languages** | English, Marathi, Hindi |
 | **Header** | None |
 | **Footer** | `Raktify · Coordinator alert · choudhari.ngo` |
 
-### Body
+### Body (English)
 
 ```
 New critical request in *{{1}}*.
@@ -759,6 +804,28 @@ Needs: *{{2}}* by *{{3}}*
 From: *{{4}}*
 
 Tap to review. Matching engine is running — you can override, cancel, or hand-place inventory now.
+```
+
+### Body (Marathi)
+
+```
+*{{1}}* मध्ये नवीन क्रिटिकल विनंती.
+
+गरज: *{{2}}* — *{{3}}* पर्यंत
+कडून: *{{4}}*
+
+तपासण्यासाठी टॅप करा. मॅचिंग सुरू आहे — तुम्ही ओव्हरराइड करू शकता, रद्द करू शकता किंवा साठा स्वतः नेमू शकता.
+```
+
+### Body (Hindi)
+
+```
+*{{1}}* में नया क्रिटिकल अनुरोध.
+
+आवश्यकता: *{{2}}* — *{{3}}* तक
+से: *{{4}}*
+
+समीक्षा के लिए टैप करें. मैचिंग इंजन चल रहा है — आप ओवरराइड कर सकते हैं, रद्द कर सकते हैं या स्टॉक स्वयं निर्धारित कर सकते हैं.
 ```
 
 ### Variables
@@ -883,3 +950,681 @@ templates in a second batch once the EN ones are approved.
   wire-ups (scheduler ticks or override buttons on the coord panel) that
   are follow-up tasks — the notification chokepoint + provider are ready
   the moment those wire-ups land.
+
+---
+
+# V3 batch — camp lifecycle, blood-bank partnering, vendor consent
+
+> **Why this batch exists, bluntly:** six of these eight templates back code
+> that is **already deployed and firing**. The three camp reminder jobs from
+> commit `5d5d5aa` (`camp_precheck_2d`, `camp_day_of`, `camp_donor_thankyou`),
+> the two organiser broadcast call sites (`camp_announcement`) and the vendor
+> webhook's consent invite (`donor_consent_invite`) all run on schedule, all
+> log a `notification_log` row, and all **send nothing** — the chokepoint
+> cannot find a template name, returns `success:false` cleanly, and files the
+> row as `FA`. Nothing crashes, which is exactly why it went unnoticed. The
+> remaining two (`camp_bb_request`, `camp_bb_accepted`/`camp_bb_changed`) back
+> the blood-bank capacity + accept/decline feature (migrations 316–318).
+>
+> Same discipline as V2: **every template here is Utility.** Bodies are
+> anchored to a specific transaction the recipient took part in, name concrete
+> data, and end in one concrete action. Every URL button carries a
+> **per-recipient** variable — a token or a camp slug, never a constant path.
+> `camp_donor_thankyou` is deliberately **body-only** for that reason: its only
+> plausible CTA was the constant `/donor` dashboard, which is precisely the
+> shape that got `community_leader_welcome` re-classified MARKETING.
+>
+> **The public camp URL is `/c/<slug>`, not `/camp/<token>`.** `/camp/:token`
+> is the organiser's magic-link dashboard. A donor-facing button pointed there
+> is an approved, undetectable dead link.
+
+## Template 15 · `camp_precheck_2d`
+
+> Fires two days out, when a donor can still act on it. Pre-donation
+> preparation is the single largest cause of on-the-day deferral: a donor who
+> skipped breakfast or drank the night before is turned away at the chair,
+> which wastes their trip and the blood bank's slot.
+
+| Field | Value |
+|---|---|
+| **Name** | `camp_precheck_2d` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · An initiative of Choudhari Foundation` |
+
+### Body (English)
+
+```
+Hi *{{1}}*, your blood donation slot at *{{2}}* is on *{{3}}*.
+
+Two things before you come: eat a proper meal and drink extra water, and avoid alcohol for 24 hours. Carry a photo ID.
+
+If you cannot make it, tap below to update your registration.
+```
+
+### Body (Marathi)
+
+```
+नमस्कार *{{1}}*, *{{2}}* येथे तुमची रक्तदानाची वेळ *{{3}}* अशी आहे.
+
+येण्यापूर्वी दोन गोष्टी: व्यवस्थित जेवण करा आणि जास्त पाणी प्या, आणि २४ तास मद्यपान टाळा. ओळखपत्र सोबत आणा.
+
+तुम्हाला येणे शक्य नसेल, तर नोंदणी बदलण्यासाठी खाली टॅप करा.
+```
+
+### Body (Hindi)
+
+```
+नमस्ते *{{1}}*, *{{2}}* में आपके रक्तदान का समय *{{3}}* है।
+
+आने से पहले दो बातें: भरपेट भोजन करें और अधिक पानी पिएँ, और 24 घंटे शराब से बचें। पहचान पत्र साथ लाएँ।
+
+यदि आप नहीं आ सकते, तो अपना पंजीकरण बदलने के लिए नीचे टैप करें।
+```
+
+### Variables
+
+- `{{1}}` — Donor first name (e.g. `Ramesh`)
+- `{{2}}` — Camp name (e.g. `Shivaji College Blood Donation Camp`)
+- `{{3}}` — Camp date + start time, one line (e.g. `Sat 12 Sep, 9:00 AM`)
+
+### Buttons
+
+- **One button: View camp details**
+  - Type: `URL` (dynamic)
+  - URL: `https://raktify.choudhari.ngo/c/{{1}}`
+  - Sample: `https://raktify.choudhari.ngo/c/shivaji-college-camp-k2x9f`
+
+### Fires when
+
+Scheduler job `camp_precheck_reminder_2d`
+(`services/scheduler/jobs/camp-precheck-reminder-2d.js`) at 09:10 IST, for
+every `RG` roster row on a camp two days out. Backend
+`templateType: 'CAMP_PRECHECK_2D'`; handler variable order is
+`donor_first_name, camp_name, camp_date_time`, then `camp_slug` in the button.
+Language follows `donors.preferred_language`, defaulting to `mr`.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_CAMP_PRECHECK_2D=camp_precheck_2d
+```
+
+---
+
+## Template 16 · `camp_day_of`
+
+> The morning-of nudge. Registration-to-turnout is where camps are won or
+> lost; this carries the two facts a donor actually needs on the day — when
+> the doors open and where the hall is.
+
+| Field | Value |
+|---|---|
+| **Name** | `camp_day_of` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · An initiative of Choudhari Foundation` |
+
+### Body (English)
+
+```
+*{{1}}*, today is your donation day at *{{2}}*.
+
+Doors open: *{{3}}*
+Venue: *{{4}}*
+
+Eat before you come, carry a photo ID, and allow about 45 minutes. Tap below for directions and your registration.
+```
+
+### Body (Marathi)
+
+```
+*{{1}}*, आज *{{2}}* येथे तुमचा रक्तदानाचा दिवस आहे.
+
+सुरुवात: *{{3}}*
+ठिकाण: *{{4}}*
+
+येण्यापूर्वी जेवण करा, ओळखपत्र सोबत आणा आणि सुमारे ४५ मिनिटे वेळ ठेवा. मार्ग व तुमची नोंदणी पाहण्यासाठी खाली टॅप करा.
+```
+
+### Body (Hindi)
+
+```
+*{{1}}*, आज *{{2}}* में आपके रक्तदान का दिन है।
+
+शुरुआत: *{{3}}*
+स्थान: *{{4}}*
+
+आने से पहले भोजन करें, पहचान पत्र साथ लाएँ और लगभग 45 मिनट का समय रखें। रास्ता और अपना पंजीकरण देखने के लिए नीचे टैप करें।
+```
+
+### Variables
+
+- `{{1}}` — Donor first name (e.g. `Ramesh`)
+- `{{2}}` — Camp name (e.g. `Shivaji College Blood Donation Camp`)
+- `{{3}}` — Start time, `HH:MM` (e.g. `09:00`)
+- `{{4}}` — Venue, one line (e.g. `Shivaji College Main Hall, Amravati`)
+
+### Buttons
+
+- **One button: Get directions**
+  - Type: `URL` (dynamic)
+  - URL: `https://raktify.choudhari.ngo/c/{{1}}`
+  - Sample: `https://raktify.choudhari.ngo/c/shivaji-college-camp-k2x9f`
+
+### Fires when
+
+Scheduler job `camp_day_of_reminder`
+(`services/scheduler/jobs/camp-day-of-reminder.js`) at 06:40 IST on the camp
+date. Backend `templateType: 'CAMP_DAY_OF'`; handler variable order is
+`donor_first_name, camp_name, start_time, venue`, then `camp_slug` in the
+button.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of
+```
+
+---
+
+## Template 17 · `camp_donor_thankyou`
+
+> A donation receipt, not a thank-you card. It tells the donor three
+> transactional facts: the donation is on their passport, results follow after
+> screening, and when they are eligible again.
+>
+> **Deliberately body-only — no button.** The handler's original button
+> parameter was the constant `donor` dashboard path, i.e. a static URL in a
+> dynamic slot. `env.js:98-107` records how that ends: Meta re-classified
+> `community_leader_welcome` as MARKETING for exactly this pattern, and a
+> thank-you body with a generic app CTA is the most promotional-looking
+> combination available. The `CAMP_DONOR_THANKYOU` handler was corrected to
+> match — a handler that sends a component the approved template lacks is
+> rejected as a silent `FA` row, which reads as a delivery failure rather than
+> a bug.
+
+| Field | Value |
+|---|---|
+| **Name** | `camp_donor_thankyou` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · An initiative of Choudhari Foundation` |
+| **Buttons** | **None** — see rationale above |
+
+### Body (English)
+
+```
+Thank you, *{{1}}*. Your donation at *{{2}}* has been recorded on your donor passport.
+
+Your test results will be added once the blood bank completes screening. You can donate again after 90 days — we will remind you.
+
+Rest today, drink extra fluids, and avoid heavy lifting for a few hours.
+```
+
+### Body (Marathi)
+
+```
+धन्यवाद *{{1}}*. *{{2}}* येथे केलेले तुमचे रक्तदान तुमच्या डोनर पासपोर्टमध्ये नोंदवले आहे.
+
+रक्तपेढीची तपासणी पूर्ण झाल्यावर तुमचे अहवाल त्यात जोडले जातील. पुढील रक्तदान ९० दिवसांनंतर करता येईल — आम्ही आठवण करून देऊ.
+
+आज विश्रांती घ्या, जास्त पाणी प्या आणि काही तास जड वजन उचलणे टाळा.
+```
+
+### Body (Hindi)
+
+```
+धन्यवाद *{{1}}*। *{{2}}* में किया गया आपका रक्तदान आपके डोनर पासपोर्ट में दर्ज कर लिया गया है।
+
+ब्लड बैंक की जाँच पूरी होने पर आपकी रिपोर्ट उसमें जोड़ दी जाएगी। अगला रक्तदान 90 दिनों के बाद कर सकेंगे — हम याद दिला देंगे।
+
+आज आराम करें, अधिक पानी पिएँ और कुछ घंटे भारी वजन उठाने से बचें।
+```
+
+### Variables
+
+- `{{1}}` — Donor first name (e.g. `Ramesh`)
+- `{{2}}` — Camp name (e.g. `Shivaji College Blood Donation Camp`)
+
+### Fires when
+
+Scheduler job `camp_donor_thankyou`
+(`services/scheduler/jobs/camp-donor-thankyou.js`) the day after the camp, for
+every roster row the attendance trigger (migration 314) marked `'AT'`. Backend
+`templateType: 'CAMP_DONOR_THANKYOU'`; handler variable order is
+`donor_first_name, camp_name`.
+
+Note the 90-day figure is donor-facing copy, not a clinical gate. The binding
+interval stays in `donors.next_eligible_date` and the donation-gap trigger.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_CAMP_DONOR_THANKYOU=camp_donor_thankyou
+```
+
+---
+
+## Template 18 · `camp_announcement`
+
+> The organiser's own broadcast to their registered donors — a venue change, a
+> revised start time, a parking note — and the reschedule notice
+> `PATCH /camps/:id` sends when a date moves. The organiser's text goes in
+> `{{3}}` verbatim.
+>
+> `oneLine()` in the provider collapses newlines, tabs and runs of spaces
+> before the value is sent: Meta rejects any parameter containing a newline, a
+> tab, or more than four consecutive spaces, and an organiser typing into a
+> textarea will produce all three. The value is also truncated at 900
+> characters.
+
+| Field | Value |
+|---|---|
+| **Name** | `camp_announcement` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · An initiative of Choudhari Foundation` |
+| **Buttons** | **None** — the announcement is the payload |
+
+### Body (English)
+
+```
+Update about *{{1}}*, scheduled on *{{2}}*:
+
+{{3}}
+
+You are receiving this because you registered for this camp.
+```
+
+### Body (Marathi)
+
+```
+शिबिराबाबत सूचना — *{{1}}*, दिनांक *{{2}}*:
+
+{{3}}
+
+तुम्ही या शिबिरासाठी नोंदणी केली असल्याने हा संदेश मिळाला आहे.
+```
+
+### Body (Hindi)
+
+```
+शिविर से जुड़ी सूचना — *{{1}}*, दिनांक *{{2}}*:
+
+{{3}}
+
+आपने इस शिविर के लिए पंजीकरण किया है, इसलिए यह संदेश भेजा गया है।
+```
+
+### Variables
+
+- `{{1}}` — Camp name (e.g. `Shivaji College Blood Donation Camp`)
+- `{{2}}` — Camp date (e.g. `Sat 12 Sep`)
+- `{{3}}` — The organiser's message, collapsed to one line, max 900 chars
+
+### Fires when
+
+Two live call sites in `routes/camps.js`: the organiser's broadcast action on
+the magic-link dashboard, and the reschedule notice when `PATCH /camps/:id`
+moves `scheduled_date`. Backend `templateType: 'CAMP_ANNC'`; handler variable
+order is `camp_name, camp_date, message`. Recipients are the camp's `RG`
+roster rows.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_CAMP_ANNC=camp_announcement
+```
+
+---
+
+## Template 19 · `donor_consent_invite`
+
+> A blood bank running its own vendor software posts a donation to Raktify
+> through the partner webhook. That creates a donor row the person has never
+> consented to — so the very next thing that happens is this message, which is
+> the consent ask. Until they tap it the row is inert: it is never matched, never
+> alerted, never counted in a donor pool.
+>
+> The button carries the single-use `consent_token`, so the URL is
+> per-recipient by construction.
+
+| Field | Value |
+|---|---|
+| **Name** | `donor_consent_invite` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · An initiative of Choudhari Foundation` |
+
+### Body (English)
+
+```
+Hi *{{1}}*, *{{2}}* has recorded your blood donation on Raktify.
+
+To see your donor passport, your test results and your next eligible date, confirm your consent using the link below. It takes under a minute and the link is only for you.
+
+If you did not donate at *{{2}}*, ignore this message.
+```
+
+### Body (Marathi)
+
+```
+नमस्कार *{{1}}*, *{{2}}* यांनी तुमचे रक्तदान Raktify वर नोंदवले आहे.
+
+तुमचा डोनर पासपोर्ट, तपासणी अहवाल आणि पुढील रक्तदानाची तारीख पाहण्यासाठी खालील लिंकवरून संमती द्या. एक मिनिटही लागणार नाही आणि ही लिंक फक्त तुमच्यासाठी आहे.
+
+तुम्ही *{{2}}* येथे रक्तदान केले नसेल, तर हा संदेश दुर्लक्षित करा.
+```
+
+### Body (Hindi)
+
+```
+नमस्ते *{{1}}*, *{{2}}* ने आपका रक्तदान Raktify पर दर्ज किया है।
+
+अपना डोनर पासपोर्ट, जाँच रिपोर्ट और अगली रक्तदान तिथि देखने के लिए नीचे दी गई लिंक से सहमति दें। इसमें एक मिनट से कम लगेगा और यह लिंक केवल आपके लिए है।
+
+यदि आपने *{{2}}* में रक्तदान नहीं किया है, तो इस संदेश को नज़रअंदाज़ करें।
+```
+
+### Variables
+
+- `{{1}}` — Donor first name (e.g. `Ramesh`)
+- `{{2}}` — Source blood bank display name (e.g. `Dr. PDMMC Blood Centre`)
+
+### Buttons
+
+- **One button: Confirm consent**
+  - Type: `URL` (dynamic)
+  - URL: `https://raktify.choudhari.ngo/consent/{{1}}`
+  - Sample: `https://raktify.choudhari.ngo/consent/cst-7f3a91b2c4`
+
+### Fires when
+
+`POST /webhooks/vendor/donations` (`routes/vendor-webhooks.js`) immediately
+after creating the donor row. Backend `templateType: 'DONOR_CONSENT_INVITE'`;
+handler variable order is
+`donor_first_name, source_institution_display_name`, then `consent_token` in
+the button. The send is wrapped in its own `try/catch` — a failed invite must
+not roll back the donation the blood bank just filed.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_DONOR_CONSENT_INVITE=donor_consent_invite
+```
+
+---
+
+## Template 20 · `camp_bb_request`
+
+> The blood bank is told, once, in writing, that a camp has been assigned to it
+> for collection — with the three facts it needs to answer: date, venue, and
+> how many donors the organiser expects. Today that conversation is a phone
+> call the platform never sees, which is the whole reason migrations 316–318
+> exist.
+>
+> **No button, deliberately.** The answer is two clicks in the portal's Camps
+> tab (Accept / Decline with a reason), and the tab also carries the live
+> registration count, the day's occupancy and the derived kit maths. A URL
+> button pointed at a login-gated staff portal adds a step rather than removing
+> one.
+
+| Field | Value |
+|---|---|
+| **Name** | `camp_bb_request` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · Blood bank alert · choudhari.ngo` |
+| **Buttons** | **None** — see rationale above |
+
+### Body (English)
+
+```
+*{{1}}*, a blood donation camp has been assigned to your blood bank for collection.
+
+Date: *{{2}}*
+Venue: *{{3}}*
+Expected donors: *{{4}}*
+
+Open the Camps tab in your Raktify portal to accept or decline, and to see the live registration count before the day.
+```
+
+### Body (Marathi)
+
+```
+*{{1}}*, रक्तसंकलनासाठी तुमच्या रक्तपेढीला एक रक्तदान शिबिर देण्यात आले आहे.
+
+दिनांक: *{{2}}*
+ठिकाण: *{{3}}*
+अपेक्षित रक्तदाते: *{{4}}*
+
+स्वीकारण्यासाठी किंवा नाकारण्यासाठी, आणि दिवसापूर्वी नोंदणीची संख्या पाहण्यासाठी Raktify पोर्टलमधील Camps टॅब उघडा.
+```
+
+### Body (Hindi)
+
+```
+*{{1}}*, रक्त संग्रह के लिए आपके ब्लड बैंक को एक रक्तदान शिविर सौंपा गया है।
+
+दिनांक: *{{2}}*
+स्थान: *{{3}}*
+अपेक्षित रक्तदाता: *{{4}}*
+
+स्वीकार या अस्वीकार करने और शिविर से पहले पंजीकरण की संख्या देखने के लिए Raktify पोर्टल में Camps टैब खोलें।
+```
+
+### Variables
+
+- `{{1}}` — Blood bank name (e.g. `Dr. PDMMC Blood Centre`)
+- `{{2}}` — Camp date (e.g. `Sat 12 Sep`)
+- `{{3}}` — Venue, one line (e.g. `Shivaji College Main Hall, Amravati`)
+- `{{4}}` — Organiser's expected donor count (e.g. `50`)
+
+### Fires when
+
+`POST /camps/:id/verify` and `POST /camps/:id/repartner`
+(`routes/camps.js`) at the moment a partner is written and `bb_response` is set
+to `'PE'`. Backend `templateType: 'CAMP_BB_REQUEST'`; handler variable order is
+`bb_name, camp_date, venue, expected_donors`. Recipient is the **institution
+UUID** — `resolveRecipient()` looks up `institutions.primary_contact_mobile`
+itself and stamps `recipient_institution_id` on the log row.
+
+Not sent when the BB has `auto_accept_within_capacity=TRUE` and the day is
+inside published capacity: that path stamps `'AC'` at apply time, so there is
+nothing to answer.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_CAMP_BB_REQUEST=camp_bb_request
+```
+
+---
+
+## Template 21 · `camp_bb_accepted`
+
+> The organiser hears the good news, and — more usefully — hears exactly what
+> they no longer have to arrange. A first-time host does not know whether they
+> are expected to supply beds, tables or staff; being told plainly is what stops
+> the next three phone calls.
+
+| Field | Value |
+|---|---|
+| **Name** | `camp_bb_accepted` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · Camp organizer alert · choudhari.ngo` |
+| **Buttons** | **None** — the organiser already holds their magic-link dashboard from `camp_organizer_link_v2` |
+
+### Body (English)
+
+```
+*{{1}}*, the blood bank for *{{2}}* on *{{3}}* is confirmed.
+
+Their team will bring the staff, beds and all collection supplies. Nothing further is needed from you on this — keep sharing your registration link so they can plan supplies from the numbers.
+```
+
+### Body (Marathi)
+
+```
+*{{1}}*, *{{2}}* (दिनांक *{{3}}*) साठी रक्तपेढी निश्चित झाली आहे.
+
+त्यांची टीम कर्मचारी, बेड आणि संकलनाचे सर्व साहित्य घेऊन येईल. यासाठी तुम्हाला आणखी काही करायचे नाही — नोंदणीची लिंक शेअर करत राहा, म्हणजे संख्येनुसार ते साहित्याची तयारी करू शकतील.
+```
+
+### Body (Hindi)
+
+```
+*{{1}}*, *{{2}}* (दिनांक *{{3}}*) के लिए ब्लड बैंक तय हो गया है।
+
+उनकी टीम स्टाफ, बेड और संग्रह की सभी सामग्री साथ लाएगी। इसके लिए आपको और कुछ नहीं करना है — पंजीकरण लिंक साझा करते रहें, जिससे वे संख्या के अनुसार सामग्री की तैयारी कर सकें।
+```
+
+### Variables
+
+- `{{1}}` — Organiser name (e.g. `Ashish Tayde`)
+- `{{2}}` — Camp name (e.g. `Shivaji College Blood Donation Camp`)
+- `{{3}}` — Camp date (e.g. `Sat 12 Sep`)
+
+### Fires when
+
+`POST /camps/:id/bb-response` with `response: 'AC'`. Backend
+`templateType: 'CAMP_BB_ACCEPTED'`; handler variable order is
+`organiser_name, camp_name, scheduled_date`. Recipient is
+`submitted_by_mobile`.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_CAMP_BB_ACCEPTED=camp_bb_accepted
+```
+
+---
+
+## Template 22 · `camp_bb_changed`
+
+> A blood bank has declined, and the founder's decision was to **tell the
+> organiser immediately** rather than let the NGO reassign in silence. So this
+> message exists to do one job: reassure. The camp is happening, the
+> registrations are untouched, and someone else is being arranged.
+>
+> **⚠ The decline reason is NEVER in this message, and never in any organiser
+> surface.** `bb_decline_reason` (`NC` no capacity · `ND` staff not on duty ·
+> `DT` date clash · `VE` venue not workable · `OT` other) goes to the NGO admin
+> only. An organiser told "no capacity" starts phoning blood banks — which is
+> the exact behaviour migrations 316–318 exist to remove. There is deliberately
+> no fourth variable in the handler to carry it.
+
+| Field | Value |
+|---|---|
+| **Name** | `camp_bb_changed` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · Camp organizer alert · choudhari.ngo` |
+| **Buttons** | **None** |
+
+### Body (English)
+
+```
+*{{1}}*, we are arranging a different blood bank to collect at *{{2}}* on *{{3}}*.
+
+Your camp is going ahead as planned and your registrations are unaffected. We will confirm the new blood bank shortly — you do not need to do anything.
+```
+
+### Body (Marathi)
+
+```
+*{{1}}*, *{{2}}* (दिनांक *{{3}}*) येथे रक्तसंकलनासाठी आम्ही दुसरी रक्तपेढी नियुक्त करत आहोत.
+
+तुमचे शिबिर ठरल्याप्रमाणे होणार आहे आणि नोंदणीवर कोणताही परिणाम होणार नाही. नवीन रक्तपेढी लवकरच कळवू — तुम्हाला काहीही करण्याची गरज नाही.
+```
+
+### Body (Hindi)
+
+```
+*{{1}}*, *{{2}}* (दिनांक *{{3}}*) में रक्त संग्रह के लिए हम दूसरा ब्लड बैंक तय कर रहे हैं।
+
+आपका शिविर योजना के अनुसार ही होगा और पंजीकरण पर कोई असर नहीं पड़ेगा। नया ब्लड बैंक शीघ्र ही बता देंगे — आपको कुछ करने की आवश्यकता नहीं है।
+```
+
+### Variables
+
+- `{{1}}` — Organiser name (e.g. `Ashish Tayde`)
+- `{{2}}` — Camp name (e.g. `Shivaji College Blood Donation Camp`)
+- `{{3}}` — Camp date (e.g. `Sat 12 Sep`)
+
+### Fires when
+
+`POST /camps/:id/bb-response` with `response: 'DC'`. Backend
+`templateType: 'CAMP_BB_CHANGED'`; handler variable order is
+`organiser_name, camp_name, scheduled_date` — three, never four. Recipient is
+`submitted_by_mobile`. `PublicCampPage` is deliberately left alone: 200 RSVP'd
+donors do not need to watch the arrangements wobble.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_CAMP_BB_CHANGED=camp_bb_changed
+```
+
+---
+
+## V3 batch — submission order (recommended)
+
+**Submit EN first for every template, let it clear, then submit MR + HI from
+the approved copy.** Each language is a separate Meta review at 1–3 days, so a
+rejection caught on the EN record is caught once instead of three times.
+`scripts/submit_whatsapp_templates_v2.js --lang en` does exactly this;
+`--only name1,name2` narrows further, and `--dry-run` prints the payloads.
+
+Ordered by what is broken hardest today — the first four back code that is
+already deployed and silently sending nothing:
+
+1. `camp_precheck_2d` (EN, MR, HI) — job live since `5d5d5aa`, cannot send
+2. `camp_day_of` (EN, MR, HI) — same
+3. `camp_donor_thankyou` (EN, MR, HI) — same
+4. `camp_announcement` (EN, MR, HI) — two live call sites, cannot send
+5. `donor_consent_invite` (EN, MR, HI) — vendor webhook consent ask, cannot send
+6. `camp_bb_request` (EN, MR, HI) — blood-bank partnering (316–318)
+7. `camp_bb_accepted` (EN, MR, HI) — organiser confirmation
+8. `camp_bb_changed` (EN, MR, HI) — organiser reassurance on a decline
+
+**Total new submissions:** 8 templates × 3 languages = **24 template records**.
+
+Riding along in the same script run: **MR + HI for the three V2 staff-facing
+templates** submitted EN-only — `bb_donor_incoming`, `coord_prefire_warning`,
+`coord_critical_new` — **6 more records**. A blood-bank technician or a
+coordinator in Amravati reads Marathi; there was never a reason for these to be
+English-only beyond submission speed.
+
+## V3 batch — wiring status
+
+- **Handlers + env keys: all 8 are already in code** and the gate
+  `node scripts/check_whatsapp_templates.js` exits 0. Nothing in `backend/`
+  needs to change for these to start delivering — setting each
+  `WHATSAPP_TEMPLATE_*` in **Azure Key Vault (`raktify-kv`)** flips them on.
+- **`camp_organizer_link_v2` needs no Meta work.** It is already approved in
+  EN + MR + HI as UTILITY with **two** body variables (`organiser_name`,
+  `camp_name`) and a `/camp/{{1}}` button taking the **raw token**, not an
+  assembled URL. The `CAMP_LINK` handler matches it. Because it is already
+  approved, it is the **first send to verify on production** — if it delivers,
+  the chokepoint, the provider and the WABA are all healthy and every remaining
+  failure is a template-approval fact rather than a code fact.
+- **Verify each button URL through the Graph API after creation, not the
+  Business Manager UI.** A template can be registered carrying both a
+  URL-encoded and a literal `{{1}}`, which silently breaks substitution and
+  renders correctly in the UI preview.
+- **Still not a template, still broken:** `BOT_REPLY` (6 call sites in
+  `services/whatsapp/bot.js`) needs a **free-form session-message** path in the
+  provider — legal inside Meta's 24-hour customer-service window, since the bot
+  only ever replies to an incoming message. Different fix, different risk;
+  tracked separately.

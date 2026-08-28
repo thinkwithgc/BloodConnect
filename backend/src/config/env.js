@@ -129,6 +129,23 @@ const env = {
       camp_precheck_2d: optional('WHATSAPP_TEMPLATE_CAMP_PRECHECK_2D', null),
       camp_day_of: optional('WHATSAPP_TEMPLATE_CAMP_DAY_OF', null),
       camp_donor_thankyou: optional('WHATSAPP_TEMPLATE_CAMP_DONOR_THANKYOU', null),
+      // camp_organizer_link_v2 — the organiser's magic dashboard link, sent by
+      // POST /camps/:id/verify. The _v2 record is the live one: the original
+      // camp_organizer_link was reworked into a two-variable body across EN +
+      // MR + HI by scripts/reword_marketing_templates.js after Meta's Marathi
+      // classifier read the three-variable version as MARKETING.
+      camp_link: optional('WHATSAPP_TEMPLATE_CAMP_LINK', null),
+      // camp_announcement — the organiser's broadcast to donors who RSVP'd,
+      // and the automatic notice when a verified camp's date/time/venue is
+      // edited. Two call sites in routes/camps.js.
+      camp_annc: optional('WHATSAPP_TEMPLATE_CAMP_ANNC', null),
+      // Camp ↔ blood-bank coordination (migrations 316/317). camp_bb_request
+      // goes to the BB when a camp is waiting on its answer; the other two go
+      // to the ORGANISER once the BB has answered. camp_bb_changed carries the
+      // neutral reassignment line only — never bb_decline_reason.
+      camp_bb_request: optional('WHATSAPP_TEMPLATE_CAMP_BB_REQUEST', null),
+      camp_bb_accepted: optional('WHATSAPP_TEMPLATE_CAMP_BB_ACCEPTED', null),
+      camp_bb_changed: optional('WHATSAPP_TEMPLATE_CAMP_BB_CHANGED', null),
     },
   },
 

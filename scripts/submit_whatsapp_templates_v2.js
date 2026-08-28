@@ -70,6 +70,7 @@ const FOOTER_RAKTIFY = 'Raktify · An initiative of Choudhari Foundation';
 const FOOTER_LEADER = 'Raktify · Community leader alert · choudhari.ngo';
 const FOOTER_COORD = 'Raktify · Coordinator alert · choudhari.ngo';
 const FOOTER_BB = 'Raktify · Blood bank alert · choudhari.ngo';
+const FOOTER_ORGANIZER = 'Raktify · Camp organizer alert · choudhari.ngo';
 const ACTIVATION_BASE = 'https://raktify.choudhari.ngo';
 
 // One entry per template + language variant. Meta submits each language as
@@ -121,7 +122,9 @@ const TEMPLATES = [
     footer: FOOTER_RAKTIFY,
     button_url: `${ACTIVATION_BASE}/alert/{{1}}`,
     button_example: `${ACTIVATION_BASE}/alert/sample-repl-token`,
-    button_text: 'Confirm replacement donation',
+    // 19 chars. Meta caps URL-button text at 25 and the original
+    // 'Confirm replacement donation' was 28 - a silent rejection cause.
+    button_text: 'Confirm replacement',
   },
   {
     name: 'donor_alert_replacement',
@@ -181,7 +184,7 @@ const TEMPLATES = [
     button_text: 'रक्तदान करें',
   },
 
-  // ── 11. bb_donor_incoming (EN only) ────────────────────────────────────
+  // ── 11. bb_donor_incoming (EN/MR/HI) ─────────────────────────────────
   {
     name: 'bb_donor_incoming',
     category: 'UTILITY',
@@ -193,8 +196,42 @@ const TEMPLATES = [
     button_example: `${ACTIVATION_BASE}/bb?tab=incoming&donor=sample-donor-id`,
     button_text: 'Open Incoming Donors',
   },
+  {
+    name: 'bb_donor_incoming',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `एका दात्याने अलर्ट स्वीकारला आहे आणि तो तुमच्या रक्तपेढीत येत आहे.
 
-  // ── 12. coord_prefire_warning (EN only) ────────────────────────────────
+दाता: *{{1}}* ({{2}})
+कारण: *{{3}}*
+अपेक्षित आगमन: *{{4}}*
+
+तपासणी, आगमन नोंद किंवा स्थगिती यासाठी Incoming Donors टॅब उघडा.`,
+    body_example: ['रमेश पाटील', 'B-', 'REQ-A7X9', '२ तासांत'],
+    footer: FOOTER_BB,
+    button_url: `${ACTIVATION_BASE}/bb?tab=incoming&donor={{1}}`,
+    button_example: `${ACTIVATION_BASE}/bb?tab=incoming&donor=sample-donor-id`,
+    button_text: 'येणारे दाते',
+  },
+  {
+    name: 'bb_donor_incoming',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `एक दाता ने अलर्ट स्वीकार किया है और वह आपके ब्लड बैंक आ रहा है.
+
+दाता: *{{1}}* ({{2}})
+के लिए: *{{3}}*
+अपेक्षित आगमन: *{{4}}*
+
+समीक्षा, आगमन दर्ज करने या स्थगित करने के लिए Incoming Donors टैब खोलें.`,
+    body_example: ['रमेश पाटील', 'B-', 'REQ-A7X9', '२ घंटे में'],
+    footer: FOOTER_BB,
+    button_url: `${ACTIVATION_BASE}/bb?tab=incoming&donor={{1}}`,
+    button_example: `${ACTIVATION_BASE}/bb?tab=incoming&donor=sample-donor-id`,
+    button_text: 'आने वाले दाता',
+  },
+
+  // ── 12. coord_prefire_warning (EN/MR/HI) ─────────────────────────────
   {
     name: 'coord_prefire_warning',
     category: 'UTILITY',
@@ -206,8 +243,38 @@ const TEMPLATES = [
     button_example: `${ACTIVATION_BASE}/coordinator/requests/sample-request-id`,
     button_text: 'Review request',
   },
+  {
+    name: 'coord_prefire_warning',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `विनंती *{{1}}* ({{2}}) साठी दात्यांना अलर्ट *{{3}}* मध्ये जाणार आहेत.
 
-  // ── 13. coord_critical_new (EN only) ───────────────────────────────────
+एखाद्या रक्तपेढीने न सांगता साठा राखून ठेवला असेल तर अलर्ट थांबवा. अन्यथा जाऊ द्या.
+
+तपासण्यासाठी किंवा थांबवण्यासाठी खाली टॅप करा.`,
+    body_example: ['REQ-A7X9', 'O- PRBC २ युनिट', '१५ मिनिटे'],
+    footer: FOOTER_COORD,
+    button_url: `${ACTIVATION_BASE}/coordinator/requests/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/coordinator/requests/sample-request-id`,
+    button_text: 'विनंती पहा',
+  },
+  {
+    name: 'coord_prefire_warning',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `अनुरोध *{{1}}* ({{2}}) के लिए दाताओं को अलर्ट *{{3}}* में भेजे जाएंगे.
+
+यदि किसी ब्लड बैंक ने बिना बताए स्टॉक आरक्षित कर लिया है तो अलर्ट रोकें. अन्यथा जाने दें.
+
+समीक्षा करने या रोकने के लिए नीचे टैप करें.`,
+    body_example: ['REQ-A7X9', 'O- PRBC २ यूनिट', '१५ मिनट'],
+    footer: FOOTER_COORD,
+    button_url: `${ACTIVATION_BASE}/coordinator/requests/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/coordinator/requests/sample-request-id`,
+    button_text: 'अनुरोध देखें',
+  },
+
+  // ── 13. coord_critical_new (EN/MR/HI) ────────────────────────────────
   {
     name: 'coord_critical_new',
     category: 'UTILITY',
@@ -218,6 +285,38 @@ const TEMPLATES = [
     button_url: `${ACTIVATION_BASE}/coordinator/requests/{{1}}`,
     button_example: `${ACTIVATION_BASE}/coordinator/requests/sample-request-id`,
     button_text: 'Review request',
+  },
+  {
+    name: 'coord_critical_new',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `*{{1}}* मध्ये नवीन क्रिटिकल विनंती.
+
+गरज: *{{2}}* — *{{3}}* पर्यंत
+कडून: *{{4}}*
+
+तपासण्यासाठी टॅप करा. मॅचिंग सुरू आहे — तुम्ही ओव्हरराइड करू शकता, रद्द करू शकता किंवा साठा स्वतः नेमू शकता.`,
+    body_example: ['अमरावती', 'B- PRBC ३ युनिट', 'आज १८:००', 'शासकीय सर्वोपचार रुग्णालय, अमरावती'],
+    footer: FOOTER_COORD,
+    button_url: `${ACTIVATION_BASE}/coordinator/requests/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/coordinator/requests/sample-request-id`,
+    button_text: 'विनंती पहा',
+  },
+  {
+    name: 'coord_critical_new',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `*{{1}}* में नया क्रिटिकल अनुरोध.
+
+आवश्यकता: *{{2}}* — *{{3}}* तक
+से: *{{4}}*
+
+समीक्षा के लिए टैप करें. मैचिंग इंजन चल रहा है — आप ओवरराइड कर सकते हैं, रद्द कर सकते हैं या स्टॉक स्वयं निर्धारित कर सकते हैं.`,
+    body_example: ['अमरावती', 'B- PRBC ३ यूनिट', 'आज १८:००', 'शासकीय सर्वोपचार अस्पताल, अमरावती'],
+    footer: FOOTER_COORD,
+    button_url: `${ACTIVATION_BASE}/coordinator/requests/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/coordinator/requests/sample-request-id`,
+    button_text: 'अनुरोध देखें',
   },
 
   // ── 14. community_leader_mobilise (EN/MR/HI) ───────────────────────────
@@ -254,6 +353,335 @@ const TEMPLATES = [
     button_example: `${ACTIVATION_BASE}/community-leader/mobilise/sample-token`,
     button_text: 'शेयर टूलकिट',
   },
+
+  // ── 15. camp_precheck_2d - job live since 5d5d5aa, could not send (EN/MR/HI) ───
+  {
+    name: 'camp_precheck_2d',
+    category: 'UTILITY',
+    language: 'en',
+    body: `Hi *{{1}}*, your blood donation slot at *{{2}}* is on *{{3}}*.
+
+Two things before you come: eat a proper meal and drink extra water, and avoid alcohol for 24 hours. Carry a photo ID.
+
+If you cannot make it, tap below to update your registration.`,
+    body_example: ['Ramesh', 'Shivaji College Blood Donation Camp', 'Sat 12 Sep, 9:00 AM'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'View camp details',
+  },
+  {
+    name: 'camp_precheck_2d',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `नमस्कार *{{1}}*, *{{2}}* येथे तुमची रक्तदानाची वेळ *{{3}}* अशी आहे.
+
+येण्यापूर्वी दोन गोष्टी: व्यवस्थित जेवण करा आणि जास्त पाणी प्या, आणि २४ तास मद्यपान टाळा. ओळखपत्र सोबत आणा.
+
+तुम्हाला येणे शक्य नसेल, तर नोंदणी बदलण्यासाठी खाली टॅप करा.`,
+    body_example: ['रमेश', 'शिवाजी कॉलेज रक्तदान शिबिर', 'शनिवार १२ सप्टेंबर, सकाळी ९:००'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'शिबिराची माहिती',
+  },
+  {
+    name: 'camp_precheck_2d',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `नमस्ते *{{1}}*, *{{2}}* में आपके रक्तदान का समय *{{3}}* है।
+
+आने से पहले दो बातें: भरपेट भोजन करें और अधिक पानी पिएँ, और 24 घंटे शराब से बचें। पहचान पत्र साथ लाएँ।
+
+यदि आप नहीं आ सकते, तो अपना पंजीकरण बदलने के लिए नीचे टैप करें।`,
+    body_example: ['रमेश', 'शिवाजी कॉलेज रक्तदान शिविर', 'शनिवार १२ सितंबर, सुबह ९:००'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'शिविर की जानकारी',
+  },
+
+  // ── 16. camp_day_of - job live since 5d5d5aa, could not send (EN/MR/HI) ───────
+  {
+    name: 'camp_day_of',
+    category: 'UTILITY',
+    language: 'en',
+    body: `*{{1}}*, today is your donation day at *{{2}}*.
+
+Doors open: *{{3}}*
+Venue: *{{4}}*
+
+Eat before you come, carry a photo ID, and allow about 45 minutes. Tap below for directions and your registration.`,
+    body_example: ['Ramesh', 'Shivaji College Blood Donation Camp', '09:00', 'Shivaji College Main Hall, Amravati'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'Get directions',
+  },
+  {
+    name: 'camp_day_of',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `*{{1}}*, आज *{{2}}* येथे तुमचा रक्तदानाचा दिवस आहे.
+
+सुरुवात: *{{3}}*
+ठिकाण: *{{4}}*
+
+येण्यापूर्वी जेवण करा, ओळखपत्र सोबत आणा आणि सुमारे ४५ मिनिटे वेळ ठेवा. मार्ग व तुमची नोंदणी पाहण्यासाठी खाली टॅप करा.`,
+    body_example: ['रमेश', 'शिवाजी कॉलेज रक्तदान शिबिर', '09:00', 'शिवाजी कॉलेज मुख्य सभागृह, अमरावती'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'दिशा आणि नोंदणी',
+  },
+  {
+    name: 'camp_day_of',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `*{{1}}*, आज *{{2}}* में आपके रक्तदान का दिन है।
+
+शुरुआत: *{{3}}*
+स्थान: *{{4}}*
+
+आने से पहले भोजन करें, पहचान पत्र साथ लाएँ और लगभग 45 मिनट का समय रखें। रास्ता और अपना पंजीकरण देखने के लिए नीचे टैप करें।`,
+    body_example: ['रमेश', 'शिवाजी कॉलेज रक्तदान शिविर', '09:00', 'शिवाजी कॉलेज मुख्य सभागृह, अमरावती'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'दिशा और पंजीकरण',
+  },
+
+  // ── 17. camp_donor_thankyou - body only, no button (EN/MR/HI) ─────────────────
+  {
+    name: 'camp_donor_thankyou',
+    category: 'UTILITY',
+    language: 'en',
+    body: `Thank you, *{{1}}*. Your donation at *{{2}}* has been recorded on your donor passport.
+
+Your test results will be added once the blood bank completes screening. You can donate again after 90 days — we will remind you.
+
+Rest today, drink extra fluids, and avoid heavy lifting for a few hours.`,
+    body_example: ['Ramesh', 'Shivaji College Blood Donation Camp'],
+    footer: FOOTER_RAKTIFY,
+  },
+  {
+    name: 'camp_donor_thankyou',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `धन्यवाद *{{1}}*. *{{2}}* येथे केलेले तुमचे रक्तदान तुमच्या डोनर पासपोर्टमध्ये नोंदवले आहे.
+
+रक्तपेढीची तपासणी पूर्ण झाल्यावर तुमचे अहवाल त्यात जोडले जातील. पुढील रक्तदान ९० दिवसांनंतर करता येईल — आम्ही आठवण करून देऊ.
+
+आज विश्रांती घ्या, जास्त पाणी प्या आणि काही तास जड वजन उचलणे टाळा.`,
+    body_example: ['रमेश', 'शिवाजी कॉलेज रक्तदान शिबिर'],
+    footer: FOOTER_RAKTIFY,
+  },
+  {
+    name: 'camp_donor_thankyou',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `धन्यवाद *{{1}}*। *{{2}}* में किया गया आपका रक्तदान आपके डोनर पासपोर्ट में दर्ज कर लिया गया है।
+
+ब्लड बैंक की जाँच पूरी होने पर आपकी रिपोर्ट उसमें जोड़ दी जाएगी। अगला रक्तदान 90 दिनों के बाद कर सकेंगे — हम याद दिला देंगे।
+
+आज आराम करें, अधिक पानी पिएँ और कुछ घंटे भारी वजन उठाने से बचें।`,
+    body_example: ['रमेश', 'शिवाजी कॉलेज रक्तदान शिविर'],
+    footer: FOOTER_RAKTIFY,
+  },
+
+  // ── 18. camp_announcement - two live call sites in camps.js (EN/MR/HI) ────────
+  {
+    name: 'camp_announcement',
+    category: 'UTILITY',
+    language: 'en',
+    body: `Update about *{{1}}*, scheduled on *{{2}}*:
+
+{{3}}
+
+You are receiving this because you registered for this camp.`,
+    body_example: ['Shivaji College Blood Donation Camp', 'Sat 12 Sep', 'The hall is on the ground floor next to the library. Please carry a photo ID and eat a full breakfast before you come.'],
+    footer: FOOTER_RAKTIFY,
+  },
+  {
+    name: 'camp_announcement',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `शिबिराबाबत सूचना — *{{1}}*, दिनांक *{{2}}*:
+
+{{3}}
+
+तुम्ही या शिबिरासाठी नोंदणी केली असल्याने हा संदेश मिळाला आहे.`,
+    body_example: ['शिवाजी कॉलेज रक्तदान शिबिर', 'शनिवार १२ सप्टेंबर', 'सभागृह तळमजल्यावर, ग्रंथालयाच्या शेजारी आहे. ओळखपत्र सोबत आणा आणि येण्यापूर्वी पोटभर नाश्ता करा.'],
+    footer: FOOTER_RAKTIFY,
+  },
+  {
+    name: 'camp_announcement',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `शिविर से जुड़ी सूचना — *{{1}}*, दिनांक *{{2}}*:
+
+{{3}}
+
+आपने इस शिविर के लिए पंजीकरण किया है, इसलिए यह संदेश भेजा गया है।`,
+    body_example: ['शिवाजी कॉलेज रक्तदान शिविर', 'शनिवार १२ सितंबर', 'हॉल भूतल पर, पुस्तकालय के पास है. पहचान पत्र साथ लाएं और आने से पहले भरपूर नाश्ता करें.'],
+    footer: FOOTER_RAKTIFY,
+  },
+
+  // ── 19. donor_consent_invite - vendor webhook, after donor row (EN/MR/HI) ─────
+  {
+    name: 'donor_consent_invite',
+    category: 'UTILITY',
+    language: 'en',
+    body: `Hi *{{1}}*, *{{2}}* has recorded your blood donation on Raktify.
+
+To see your donor passport, your test results and your next eligible date, confirm your consent using the link below. It takes under a minute and the link is only for you.
+
+If you did not donate at *{{2}}*, ignore this message.`,
+    body_example: ['Ramesh', 'Dr. PDMMC Blood Centre'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/consent/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/consent/cst-7f3a91b2c4`,
+    button_text: 'Confirm consent',
+  },
+  {
+    name: 'donor_consent_invite',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `नमस्कार *{{1}}*, *{{2}}* यांनी तुमचे रक्तदान Raktify वर नोंदवले आहे.
+
+तुमचा डोनर पासपोर्ट, तपासणी अहवाल आणि पुढील रक्तदानाची तारीख पाहण्यासाठी खालील लिंकवरून संमती द्या. एक मिनिटही लागणार नाही आणि ही लिंक फक्त तुमच्यासाठी आहे.
+
+तुम्ही *{{2}}* येथे रक्तदान केले नसेल, तर हा संदेश दुर्लक्षित करा.`,
+    body_example: ['रमेश', 'डॉ. पीडीएमएमसी रक्तपेढी'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/consent/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/consent/cst-7f3a91b2c4`,
+    button_text: 'संमती द्या',
+  },
+  {
+    name: 'donor_consent_invite',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `नमस्ते *{{1}}*, *{{2}}* ने आपका रक्तदान Raktify पर दर्ज किया है।
+
+अपना डोनर पासपोर्ट, जाँच रिपोर्ट और अगली रक्तदान तिथि देखने के लिए नीचे दी गई लिंक से सहमति दें। इसमें एक मिनट से कम लगेगा और यह लिंक केवल आपके लिए है।
+
+यदि आपने *{{2}}* में रक्तदान नहीं किया है, तो इस संदेश को नज़रअंदाज़ करें।`,
+    body_example: ['रमेश', 'डॉ. पीडीएमएमसी ब्लड सेंटर'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/consent/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/consent/cst-7f3a91b2c4`,
+    button_text: 'सहमति दें',
+  },
+
+  // ── 20. camp_bb_request - migration 317, BB answers a camp (EN/MR/HI) ─────────
+  {
+    name: 'camp_bb_request',
+    category: 'UTILITY',
+    language: 'en',
+    body: `*{{1}}*, a blood donation camp has been assigned to your blood bank for collection.
+
+Date: *{{2}}*
+Venue: *{{3}}*
+Expected donors: *{{4}}*
+
+Open the Camps tab in your Raktify portal to accept or decline, and to see the live registration count before the day.`,
+    body_example: ['Dr. PDMMC Blood Centre', 'Sat 12 Sep', 'Shivaji College Main Hall, Amravati', '50'],
+    footer: FOOTER_BB,
+  },
+  {
+    name: 'camp_bb_request',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `*{{1}}*, रक्तसंकलनासाठी तुमच्या रक्तपेढीला एक रक्तदान शिबिर देण्यात आले आहे.
+
+दिनांक: *{{2}}*
+ठिकाण: *{{3}}*
+अपेक्षित रक्तदाते: *{{4}}*
+
+स्वीकारण्यासाठी किंवा नाकारण्यासाठी, आणि दिवसापूर्वी नोंदणीची संख्या पाहण्यासाठी Raktify पोर्टलमधील Camps टॅब उघडा.`,
+    body_example: ['डॉ. पीडीएमएमसी रक्तपेढी', 'शनिवार १२ सप्टेंबर', 'शिवाजी कॉलेज मुख्य सभागृह, अमरावती', '50'],
+    footer: FOOTER_BB,
+  },
+  {
+    name: 'camp_bb_request',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `*{{1}}*, रक्त संग्रह के लिए आपके ब्लड बैंक को एक रक्तदान शिविर सौंपा गया है।
+
+दिनांक: *{{2}}*
+स्थान: *{{3}}*
+अपेक्षित रक्तदाता: *{{4}}*
+
+स्वीकार या अस्वीकार करने और शिविर से पहले पंजीकरण की संख्या देखने के लिए Raktify पोर्टल में Camps टैब खोलें।`,
+    body_example: ['डॉ. पीडीएमएमसी ब्लड सेंटर', 'शनिवार १२ सितंबर', 'शिवाजी कॉलेज मुख्य सभागृह, अमरावती', '50'],
+    footer: FOOTER_BB,
+  },
+
+  // ── 21. camp_bb_accepted - organiser hears the good news (EN/MR/HI) ───────────
+  {
+    name: 'camp_bb_accepted',
+    category: 'UTILITY',
+    language: 'en',
+    body: `*{{1}}*, the blood bank for *{{2}}* on *{{3}}* is confirmed.
+
+Their team will bring the staff, beds and all collection supplies. Nothing further is needed from you on this — keep sharing your registration link so they can plan supplies from the numbers.`,
+    body_example: ['Ashish Tayde', 'Shivaji College Blood Donation Camp', 'Sat 12 Sep'],
+    footer: FOOTER_ORGANIZER,
+  },
+  {
+    name: 'camp_bb_accepted',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `*{{1}}*, *{{2}}* (दिनांक *{{3}}*) साठी रक्तपेढी निश्चित झाली आहे.
+
+त्यांची टीम कर्मचारी, बेड आणि संकलनाचे सर्व साहित्य घेऊन येईल. यासाठी तुम्हाला आणखी काही करायचे नाही — नोंदणीची लिंक शेअर करत राहा, म्हणजे संख्येनुसार ते साहित्याची तयारी करू शकतील.`,
+    body_example: ['आशिष तायडे', 'शिवाजी कॉलेज रक्तदान शिबिर', 'शनिवार १२ सप्टेंबर'],
+    footer: FOOTER_ORGANIZER,
+  },
+  {
+    name: 'camp_bb_accepted',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `*{{1}}*, *{{2}}* (दिनांक *{{3}}*) के लिए ब्लड बैंक तय हो गया है।
+
+उनकी टीम स्टाफ, बेड और संग्रह की सभी सामग्री साथ लाएगी। इसके लिए आपको और कुछ नहीं करना है — पंजीकरण लिंक साझा करते रहें, जिससे वे संख्या के अनुसार सामग्री की तैयारी कर सकें।`,
+    body_example: ['आशिष तायडे', 'शिवाजी कॉलेज रक्तदान शिविर', 'शनिवार १२ सितंबर'],
+    footer: FOOTER_ORGANIZER,
+  },
+
+  // ── 22. camp_bb_changed - never carries the decline reason (EN/MR/HI) ─────────
+  {
+    name: 'camp_bb_changed',
+    category: 'UTILITY',
+    language: 'en',
+    body: `*{{1}}*, we are arranging a different blood bank to collect at *{{2}}* on *{{3}}*.
+
+Your camp is going ahead as planned and your registrations are unaffected. We will confirm the new blood bank shortly — you do not need to do anything.`,
+    body_example: ['Ashish Tayde', 'Shivaji College Blood Donation Camp', 'Sat 12 Sep'],
+    footer: FOOTER_ORGANIZER,
+  },
+  {
+    name: 'camp_bb_changed',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `*{{1}}*, *{{2}}* (दिनांक *{{3}}*) येथे रक्तसंकलनासाठी आम्ही दुसरी रक्तपेढी नियुक्त करत आहोत.
+
+तुमचे शिबिर ठरल्याप्रमाणे होणार आहे आणि नोंदणीवर कोणताही परिणाम होणार नाही. नवीन रक्तपेढी लवकरच कळवू — तुम्हाला काहीही करण्याची गरज नाही.`,
+    body_example: ['आशिष तायडे', 'शिवाजी कॉलेज रक्तदान शिबिर', 'शनिवार १२ सप्टेंबर'],
+    footer: FOOTER_ORGANIZER,
+  },
+  {
+    name: 'camp_bb_changed',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `*{{1}}*, *{{2}}* (दिनांक *{{3}}*) में रक्त संग्रह के लिए हम दूसरा ब्लड बैंक तय कर रहे हैं।
+
+आपका शिविर योजना के अनुसार ही होगा और पंजीकरण पर कोई असर नहीं पड़ेगा। नया ब्लड बैंक शीघ्र ही बता देंगे — आपको कुछ करने की आवश्यकता नहीं है।`,
+    body_example: ['आशिष तायडे', 'शिवाजी कॉलेज रक्तदान शिविर', 'शनिवार १२ सितंबर'],
+    footer: FOOTER_ORGANIZER,
+  },
+
 ];
 
 function buildPayload(t) {

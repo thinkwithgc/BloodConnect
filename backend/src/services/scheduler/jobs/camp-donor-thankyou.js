@@ -84,7 +84,8 @@ async function run() {
                 camp_id: camp.id,
                 donor_first_name: firstName(open(dr.full_name)),
                 camp_name: camp.name,
-                donor_dashboard_path: 'donor',
+                // No donor_dashboard_path: camp_donor_thankyou is body-only.
+                // A constant-valued URL button reads as MARKETING to Meta.
               },
               channel: 'WA',
               language: dr.preferred_language || 'mr',

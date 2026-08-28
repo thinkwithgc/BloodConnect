@@ -104,11 +104,44 @@ WHATSAPP_WABA_ID=@Microsoft.KeyVault(.../secrets/wa-waba-id/)
 WHATSAPP_WEBHOOK_VERIFY_TOKEN=@Microsoft.KeyVault(.../secrets/wa-webhook-verify/)
 WHATSAPP_APP_SECRET=@Microsoft.KeyVault(.../secrets/wa-app-secret/)   # verifies X-Hub-Signature-256 on inbound webhooks
 WHATSAPP_API_VERSION=v21.0
+# Template names, one env var per templateType. The full keyed map lives in
+# backend/src/config/env.js (env.whatsapp.templates) and the approved copy in
+# docs/Raktify_WhatsApp_Templates.md. An UNSET var is not a crash: the provider
+# logs a warning, returns success:false and still files the notification_log row
+# as FA -- so a missing key looks exactly like a delivery failure. Set every one
+# a deployed code path can reach.
 WHATSAPP_TEMPLATE_OTP=donor_otp
 WHATSAPP_TEMPLATE_EMERGENCY=donor_alert_critical
 WHATSAPP_TEMPLATE_REMINDER=camp_reminder
-WHATSAPP_TEMPLATE_THANKYOU=camp_organizer_link
-WHATSAPP_TEMPLATE_CRED=mou_esign_link
+WHATSAPP_TEMPLATE_SETUP_LINK=institution_activation_link
+WHATSAPP_TEMPLATE_COMMUNITY_LEADER_SIGNIN=community_leader_signin
+WHATSAPP_TEMPLATE_CAMP_LINK=camp_organizer_link_v2
+# V2 donor-alert-gate batch. Submitted; check approval through the Graph API,
+# not the Business Manager UI.
+WHATSAPP_TEMPLATE_DONOR_ALERT_BB=donor_alert_bb_routed
+WHATSAPP_TEMPLATE_DONOR_ALERT_COMMUNITY=donor_alert_community_first
+WHATSAPP_TEMPLATE_DONOR_ALERT_REPLACE=donor_alert_replacement
+WHATSAPP_TEMPLATE_BB_DONOR_INCOMING=bb_donor_incoming
+WHATSAPP_TEMPLATE_COORD_PREFIRE_WARN=coord_prefire_warning
+WHATSAPP_TEMPLATE_COORD_CRITICAL_NEW=coord_critical_new
+WHATSAPP_TEMPLATE_COMMUNITY_LEADER_MOBILISE=community_leader_mobilise
+# V3 batch -- camp lifecycle + blood-bank coordination. The first four back
+# scheduler jobs that are ALREADY DEPLOYED and silently sending nothing until
+# these are set.
+WHATSAPP_TEMPLATE_CAMP_PRECHECK_2D=camp_precheck_2d
+WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of
+WHATSAPP_TEMPLATE_CAMP_DONOR_THANKYOU=camp_donor_thankyou
+WHATSAPP_TEMPLATE_CAMP_ANNC=camp_announcement
+WHATSAPP_TEMPLATE_DONOR_CONSENT_INVITE=donor_consent_invite
+WHATSAPP_TEMPLATE_CAMP_BB_REQUEST=camp_bb_request
+WHATSAPP_TEMPLATE_CAMP_BB_ACCEPTED=camp_bb_accepted
+WHATSAPP_TEMPLATE_CAMP_BB_CHANGED=camp_bb_changed
+# Legacy / dormant, nothing in the running app reaches these. Leave unset.
+#   WHATSAPP_TEMPLATE_THANKYOU            no such approved template; camp thank-you
+#                                         is CAMP_DONOR_THANKYOU above
+#   WHATSAPP_TEMPLATE_CRED=mou_esign_link eSign removed from onboarding Aug 2026
+#   WHATSAPP_TEMPLATE_COMMUNITY_LEADER_WELCOME   re-classified MARKETING by Meta;
+#                                         superseded by COMMUNITY_LEADER_SIGNIN
 ```
 > **Note:** `server.js` reads `env.port` from `PORT`. App Service Linux injects
 > `PORT` (commonly 8080) — the app already honours it.

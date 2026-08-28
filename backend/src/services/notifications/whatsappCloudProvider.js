@@ -47,6 +47,22 @@ function toWhatsAppNumber(raw) {
  * {{2}}, … positional params are filled from `variables` in insertion order —
  * so the order the caller passes variables MUST match the approved template.
  */
+/**
+ * Squash operator-typed free text onto one line.
+ *
+ * Meta rejects any template parameter containing a newline, a tab, or more than
+ * four consecutive spaces, with a 132000-class error the send surfaces as a
+ * plain 'FA' row. An organiser typing a two-line notice into the broadcast box
+ * is the normal case, so scrubbing beats rejecting: the donor reads the message
+ * on one line rather than not at all.
+ */
+function oneLine(value) {
+  return String(value || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/ {2,}/g, ' ')
+    .trim();
+}
+
 // Per-template component builders. Templates with dynamic URL buttons MUST
 // have an explicit handler here — otherwise the URL variable goes missing
 // and Meta rejects with "param mismatch" or substitutes an empty path.
@@ -346,8 +362,15 @@ const TEMPLATE_HANDLERS = {
 
   // camp_donor_thankyou — Utility. Evening after the camp for donors who
   // actually attended (status=AT). Body vars: donor_first_name, camp_name.
-  // URL button = donor dashboard, so they can see their donation history
-  // and next-eligible date.
+  //
+  // BODY ONLY — deliberately no URL button. The only plausible CTA was the
+  // donor dashboard at the CONSTANT path /donor, and a dynamic URL button whose
+  // value never varies per recipient is exactly what got community_leader_welcome
+  // re-classified MARKETING (see env.js:98-107). A Marketing-category template
+  // is throttled and opt-out-blocked, which is unacceptable for a message that
+  // reassures a first-time donor their results are coming. The approved template
+  // carries no button, and sending a component the template does not declare is
+  // rejected as an 'FA' row — i.e. it reads as a delivery failure, not a bug.
   CAMP_DONOR_THANKYOU: (vars) => [
     {
       type: 'body',
@@ -356,11 +379,109 @@ const TEMPLATE_HANDLERS = {
         { type: 'text', text: String(vars.camp_name || '') },
       ],
     },
+  ],
+
+  // ── Camp organiser + blood-bank coordination ───────────────────────────
+
+  // camp_organizer_link_v2 — Utility, EN + MR + HI. The organiser's magic
+  // dashboard link, sent when the NGO admin verifies a camp application.
+  //
+  // TWO body variables, not three. The original camp_organizer_link carried a
+  // scheduled_date as {{3}}; Meta's Marathi classifier flagged that record
+  // MARKETING and scripts/reword_marketing_templates.js replaced all three
+  // languages with a two-variable body. Passing a third parameter here is a
+  // param-count mismatch and Meta rejects the whole send — as an 'FA' row, so
+  // it looks like a delivery failure rather than a code bug. Keep it at two.
+  //
+  // URL button = the raw camp_access_tokens token, NOT the assembled URL: the
+  // approved button is `{BASE_URL}/camp/{{1}}` and Meta appends the parameter
+  // to that path. Sending a full https:// URL would produce
+  // /camp/https%3A%2F%2F… and a dead link.
+  CAMP_LINK: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.organiser_name || '') },
+        { type: 'text', text: String(vars.camp_name || '') },
+      ],
+    },
     {
       type: 'button',
       sub_type: 'url',
       index: '0',
-      parameters: [{ type: 'text', text: String(vars.donor_dashboard_path || 'donor') }],
+      parameters: [{ type: 'text', text: String(vars.camp_token || '') }],
+    },
+  ],
+
+  // camp_announcement — Utility. The organiser's broadcast to donors who
+  // RSVP'd, and the automatic notice when a verified camp's date, time or
+  // venue is edited. Body vars: camp_name, camp_date, message.
+  //
+  // The message is operator-typed free text, so it is scrubbed to one line
+  // first. Meta rejects any parameter containing a newline, a tab, or more
+  // than four consecutive spaces — and an organiser typing a two-line notice
+  // into the broadcast box is the normal case, not the edge case. Scrubbing
+  // beats rejecting: the donor gets the message on one line instead of not at
+  // all. Trimmed to 900 chars so body + variables stay inside Meta's 1024.
+  CAMP_ANNC: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.camp_name || '') },
+        { type: 'text', text: String(vars.camp_date || '') },
+        { type: 'text', text: oneLine(vars.message).slice(0, 900) },
+      ],
+    },
+  ],
+
+  // camp_bb_request — Utility. Sent to the partnered blood bank when a camp
+  // is waiting on its answer (bb_response='PE'). Body vars: bb_name,
+  // camp_date, venue, expected_donors.
+  //
+  // NO URL BUTTON, deliberately. A blood-bank user signs in with password +
+  // TOTP, so any button here would be a CONSTANT /bb link — which is exactly
+  // what got community_leader_welcome re-classified MARKETING (see env.js).
+  // The BB acts on this in the portal's Camps tab; the message only has to
+  // tell it there is something to act on.
+  CAMP_BB_REQUEST: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.bb_name || '') },
+        { type: 'text', text: String(vars.camp_date || '') },
+        { type: 'text', text: String(vars.venue || '') },
+        { type: 'text', text: String(vars.expected_donors || '') },
+      ],
+    },
+  ],
+
+  // camp_bb_accepted — Utility. To the ORGANISER: a blood bank has confirmed
+  // it will collect. Body vars: organiser_name, camp_name, scheduled_date.
+  CAMP_BB_ACCEPTED: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.organiser_name || '') },
+        { type: 'text', text: String(vars.camp_name || '') },
+        { type: 'text', text: String(vars.scheduled_date || '') },
+      ],
+    },
+  ],
+
+  // camp_bb_changed — Utility. To the ORGANISER when the partnered blood bank
+  // declines. Same three variables as camp_bb_accepted, and deliberately no
+  // fourth: bb_decline_reason is NEVER passed here. An organiser told "no
+  // capacity" starts phoning around, which is the behaviour this whole feature
+  // exists to remove. The reason stays with the NGO admin, who is the one who
+  // can act on it. See migration 317's COMMENT ON COLUMN.
+  CAMP_BB_CHANGED: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: String(vars.organiser_name || '') },
+        { type: 'text', text: String(vars.camp_name || '') },
+        { type: 'text', text: String(vars.scheduled_date || '') },
+      ],
     },
   ],
 };

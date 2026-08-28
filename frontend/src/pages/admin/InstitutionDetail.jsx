@@ -5,6 +5,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Header } from '../../components/Header.jsx';
 import { Footer } from '../../components/Footer.jsx';
 import { apiRequest } from '../../lib/api.js';
+import { isoOffsetYears } from '../../lib/dateBounds.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { LocalityPicker } from '../../components/LocalityPicker.jsx';
 import { StaffRosterTable } from '../../components/institution/StaffRoster.jsx';
@@ -605,6 +606,8 @@ function DetailsForm({ inst, onSaved }) {
             className="rk-input"
             value={norm(form.cdsco_licence_expires)}
             onChange={(e) => set('cdsco_licence_expires', e.target.value)}
+            min={isoOffsetYears(-5)}
+            max={isoOffsetYears(10)}
           />
         </Field>
 

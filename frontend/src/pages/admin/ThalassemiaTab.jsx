@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { DateOfBirthInput } from '../../components/DateOfBirthInput.jsx';
 import { apiRequest } from '../../lib/api.js';
+import { todayISO } from '../../lib/dateBounds.js';
 
 const COMPONENTS = [
   { id: 1, code: 'WB',   label: 'Whole blood' },
@@ -206,7 +208,15 @@ function EnrolForm({ onCreated }) {
       </label>
       <label className="block">
         <span className="rk-label">Date of birth</span>
-        <input type="date" className="rk-input" value={form.date_of_birth} onChange={(e) => set('date_of_birth', e.target.value)} required />
+        {/* minAge 0 / maxAge 90: a thalassemia patient is usually a child, and
+            024 puts no age CHECK on this column for exactly that reason. */}
+        <DateOfBirthInput
+          value={form.date_of_birth}
+          onChange={(iso) => set('date_of_birth', iso)}
+          minAge={0}
+          maxAge={90}
+          required
+        />
       </label>
       <label className="block">
         <span className="rk-label">Gender</span>
@@ -256,7 +266,7 @@ function EnrolForm({ onCreated }) {
       </label>
       <label className="block">
         <span className="rk-label">Last transfusion (optional)</span>
-        <input type="date" className="rk-input" value={form.last_transfusion_date} onChange={(e) => set('last_transfusion_date', e.target.value)} />
+        <input type="date" className="rk-input" value={form.last_transfusion_date} onChange={(e) => set('last_transfusion_date', e.target.value)} max={todayISO()} />
       </label>
       <label className="block sm:col-span-2">
         <span className="rk-label">Guardian name (paediatric)</span>

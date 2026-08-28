@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { Header } from '../../components/Header.jsx';
 import { apiRequest } from '../../lib/api.js';
+import { isoOffsetYears } from '../../lib/dateBounds.js';
 
 // Client-side mirror of backend/src/routes/onboarding.js applySchema.
 // Backend re-validates; this keeps UX snappy. The `.superRefine` block below
@@ -498,6 +499,8 @@ export function InstitutionApply() {
                     value={form.cdsco_licence_expires}
                     onChange={(e) => update('cdsco_licence_expires', e.target.value)}
                     required
+                    min={isoOffsetYears(-5)}
+                    max={isoOffsetYears(10)}
                   />
                 </Field>
               </>

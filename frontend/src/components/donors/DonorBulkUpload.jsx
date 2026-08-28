@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
+import { DateOfBirthInput } from '../DateOfBirthInput.jsx';
 import { apiRequest } from '../../lib/api.js';
 
 /**
@@ -478,13 +479,10 @@ function ActivateImportModal({ donor, onClose, onActivated }) {
 
           <label className="block">
             <span className="rk-label">Date of birth *</span>
-            <input
-              type="date"
-              className="rk-input w-full"
+            <DateOfBirthInput
               value={form.date_of_birth}
-              onChange={(e) => setForm({ ...form, date_of_birth: e.target.value })}
+              onChange={(iso) => setForm({ ...form, date_of_birth: iso })}
               required
-              max={new Date().toISOString().slice(0, 10)}
             />
           </label>
 

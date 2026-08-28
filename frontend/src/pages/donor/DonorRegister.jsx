@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { z } from 'zod';
 
+import { DateOfBirthInput } from '../../components/DateOfBirthInput.jsx';
 import { Header } from '../../components/Header.jsx';
 import { LocalityPicker } from '../../components/LocalityPicker.jsx';
 import { apiRequest } from '../../lib/api.js';
@@ -435,12 +436,14 @@ function StepDetails({ details, update, onContinue, error }) {
           />
         </Field>
         <Field label="Date of birth" htmlFor="r-dob">
-          <input
+          {/* Day / month / year selects, not a native date picker: that opens on
+              the current month, so a 45-year-old at a camp desk would page back
+              540 months to reach 1981. The 18–65 year range mirrors the
+              age_min / age_max CHECKs — it does not replace them. */}
+          <DateOfBirthInput
             id="r-dob"
-            type="date"
-            className="rk-input"
             value={details.date_of_birth}
-            onChange={(e) => update('date_of_birth', e.target.value)}
+            onChange={(iso) => update('date_of_birth', iso)}
             required
           />
         </Field>

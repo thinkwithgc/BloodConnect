@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 // import { Link } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
+import { DateOfBirthInput } from '../../components/DateOfBirthInput.jsx';
 import { Header } from '../../components/Header.jsx';
 import { Footer } from '../../components/Footer.jsx';
 import { RoleSwitcher } from '../../components/RoleSwitcher.jsx';
@@ -350,12 +351,10 @@ function EditProfileCard({ donor }) {
           <label className="rk-label" htmlFor="ep-dob">
             Date of birth
           </label>
-          <input
+          <DateOfBirthInput
             id="ep-dob"
-            type="date"
-            className="rk-input"
             value={form.date_of_birth}
-            onChange={(e) => set('date_of_birth', e.target.value)}
+            onChange={(iso) => set('date_of_birth', iso)}
           />
         </div>
         <div>

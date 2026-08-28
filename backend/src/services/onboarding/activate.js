@@ -56,7 +56,7 @@ async function activateInstitution({ institutionId, mou, recordedByUserId }) {
   // The child BB, if this HO onboarded with an in-house blood bank. One MoU
   // covers the pair — the child inherits the parent's.
   const childR = await pool.query(
-    `SELECT id, shortname FROM institutions
+    `SELECT id, shortname, primary_contact_mobile FROM institutions
       WHERE parent_institution_id = $1 AND kind = 'BB'
       ORDER BY created_at ASC LIMIT 1`,
     [institutionId],
@@ -214,37 +214,80 @@ async function activateInstitution({ institutionId, mou, recordedByUserId }) {
 
       // 4. BB admin (only if a child BB exists).
       //
-      // Deliberately created with mobile = NULL, NOT the applicant's contact
-      // number. idx_platform_users_mobile_staff_cluster (migrations 269 + 282)
-      // makes mobile unique across staff roles precisely so a SETUP_LINK
-      // WhatsApp can never route to an ambiguous inbox, and the HO admin above
-      // already holds that number. Mobile is delivery-channel-only for staff
-      // (auth_path_required needs just username + password_hash), and the BB
-      // admin's link is never WhatsApp'd — it is surfaced to the HO admin from
-      // institutions.bb_admin_pending_setup_token below. The BB team sets their
-      // own contact number after they activate.
+      // Mobile now comes from the CHILD institution's own primary_contact_mobile
+      // — the blood bank's contact, which POST /onboarding/apply asks for
+      // separately whenever an in-house BB is ticked. Before that field existed
+      // this login was always minted with mobile = NULL, and the roster offered
+      // no way to correct it: every action there re-issues a link, resets 2FA or
+      // retires the account, so "no mobile on file" was a dead end until
+      // POST /institutions/:id/users/:userId/contact was added alongside this.
+      //
+      // It is still minted with NULL in two cases, both deliberate:
+      //
+      //   1. The blood bank's number is the SAME as the hospital's.
+      //   2. That number already belongs to some other staff login.
+      //
+      // idx_platform_users_mobile_staff_cluster (migrations 269 + 282) makes
+      // mobile unique across staff roles precisely so a SETUP_LINK can never
+      // route to an ambiguous inbox. Case 1 is legitimate and common — at a
+      // small hospital one person heads both, which is why apply accepts it
+      // rather than rejecting a real application over a modelling detail. In
+      // either case the pair share the number, the BB login takes none, and its
+      // link is surfaced to the HO admin from
+      // institutions.bb_admin_pending_setup_token below, exactly as before.
+      //
+      // Mobile is delivery-channel-only for staff (auth_path_required needs just
+      // username + password_hash), so a NULL here never blocks a sign-in — it
+      // only decides whether the link can be WhatsApp'd.
       let bbSetupToken = null;
       let bbExpiresAt = null;
       let bbUserId = null;
+      // Reported back to the caller so it knows whether the BB's link can be
+      // sent, or has to be surfaced on the hospital dashboard.
+      let bbAdminMobile = null;
       if (child) {
-        const bbExisting = await c.query(`SELECT id FROM platform_users WHERE username = $1`, [
-          bbAdminUsername,
-        ]);
+        const parentMobile = (i.primary_contact_mobile || '').trim();
+        const childMobile = (child.primary_contact_mobile || '').trim();
+        bbAdminMobile = childMobile && childMobile !== parentMobile ? childMobile : null;
+
+        // Pre-checked with a SELECT rather than caught as a unique violation: a
+        // failed INSERT aborts this whole transaction, and a number that is
+        // already spoken for is not a reason to refuse to activate a hospital.
+        // The predicate mirrors the index exactly — same six roles, no
+        // deactivated_at filter — because a lenient check here would let the
+        // INSERT throw anyway, which is the outcome it exists to prevent.
+        if (bbAdminMobile) {
+          const taken = await c.query(
+            `SELECT 1 FROM platform_users
+              WHERE mobile = $1
+                AND role IN ('hospital','blood_bank','ngo_admin','super_admin','dho','coordinator')
+              LIMIT 1`,
+            [bbAdminMobile],
+          );
+          if (taken.rowCount > 0) bbAdminMobile = null;
+        }
+
+        const bbExisting = await c.query(
+          `SELECT id, mobile FROM platform_users WHERE username = $1`,
+          [bbAdminUsername],
+        );
         if (bbExisting.rowCount === 0) {
           const bbPlaceholder = await setupSvc.unusablePasswordHash();
           const created = await c.query(
             `INSERT INTO platform_users
-               (role, username, password_hash, password_set_at,
+               (role, username, mobile, password_hash, password_set_at,
                 force_password_change, institution_id, is_institution_admin)
-             VALUES ($1, $2, $3, NOW(), TRUE, $4, TRUE)
+             VALUES ($1, $2, $3, $4, NOW(), TRUE, $5, TRUE)
              RETURNING id`,
-            [bbRole, bbAdminUsername, bbPlaceholder, child.id],
+            [bbRole, bbAdminUsername, bbAdminMobile, bbPlaceholder, child.id],
           );
           bbUserId = created.rows[0].id;
         } else {
           bbUserId = bbExisting.rows[0].id;
           const bbPlaceholder = await setupSvc.unusablePasswordHash();
-          // Leaves any mobile the BB team already set for themselves alone.
+          // Leaves any mobile the BB team already set for themselves alone — a
+          // re-activation must not overwrite a number the blood bank corrected
+          // for itself, which is precisely the number most likely to be right.
           await c.query(
             `UPDATE platform_users
                 SET password_hash = $1, password_set_at = NOW(),
@@ -253,6 +296,8 @@ async function activateInstitution({ institutionId, mou, recordedByUserId }) {
               WHERE id = $2`,
             [bbPlaceholder, bbUserId],
           );
+          // Whatever is actually on the row wins for the caller's send decision.
+          bbAdminMobile = (bbExisting.rows[0].mobile || '').trim() || null;
         }
         const bb = await setupSvc.generateSetupToken(c, bbUserId);
         bbSetupToken = bb.token;
@@ -276,6 +321,7 @@ async function activateInstitution({ institutionId, mou, recordedByUserId }) {
         hoExpiresAt,
         bbUserId,
         bbAdminUsername,
+        bbAdminMobile,
         bbSetupToken,
         bbExpiresAt,
       };

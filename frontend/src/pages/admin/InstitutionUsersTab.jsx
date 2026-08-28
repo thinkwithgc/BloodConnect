@@ -14,6 +14,7 @@ import {
   institutionErrorText,
 } from '../../components/institution/ReasonDialog.jsx';
 import { InviteForm } from '../../components/institution/InviteForm.jsx';
+import { ContactDialog } from '../../components/institution/ContactDialog.jsx';
 
 /**
  * Cross-institution staff-login directory — the one screen that answers
@@ -57,6 +58,9 @@ export function InstitutionUsersTab() {
   const [actionNote, setActionNote] = useState(null);
   // The reason-gated action waiting on its justification: { kind, user }.
   const [pending, setPending] = useState(null);
+  // The row whose contact details are being edited. Separate from `pending`
+  // because this action needs no written reason — it moves no authority.
+  const [contactFor, setContactFor] = useState(null);
 
   const qc = useQueryClient();
 
@@ -103,6 +107,31 @@ export function InstitutionUsersTab() {
     },
   });
 
+  // Contact details are credential-neutral, so they get their own mutation
+  // rather than riding on `act`: this must never blank a password, and the
+  // optional follow-up send is a SECOND call to reissue-setup, so each endpoint
+  // keeps doing exactly one job.
+  const contactMut = useMutation({
+    mutationFn: ({ user, body }) =>
+      apiRequest('POST', `/institutions/${user.institution_id}/users/${user.id}/contact`, body),
+    onSuccess: (data, vars) => {
+      setContactFor(null);
+      setActionError(null);
+      setActionNote(`${data.user.username}: contact details updated.`);
+      refresh();
+      if (vars.sendLink) {
+        setBusyId(vars.user.id);
+        act.mutate({ kind: 'reissue-setup', user: vars.user, body: {} });
+      } else {
+        setBusyId(null);
+      }
+    },
+    onError: (err) => {
+      setBusyId(null);
+      setActionError(err?.response?.data?.error || 'action_failed');
+    },
+  });
+
   // Keyed by username, not id — that is the contract of the existing
   // POST /auth/institutional/reset-2fa (used by the Staff security tab).
   const reset2fa = useMutation({
@@ -134,6 +163,11 @@ export function InstitutionUsersTab() {
       }
       setBusyId(user.id);
       reset2fa.mutate(user);
+      return;
+    }
+
+    if (kind === 'contact') {
+      setContactFor(user);
       return;
     }
 
@@ -306,6 +340,22 @@ export function InstitutionUsersTab() {
             onAction={onAction}
           />
         </>
+      ) : null}
+
+      {contactFor ? (
+        <ContactDialog
+          user={contactFor}
+          busy={contactMut.isPending}
+          error={actionError}
+          onCancel={() => {
+            setContactFor(null);
+            setActionError(null);
+          }}
+          onSubmit={({ sendLink, ...body }) => {
+            setBusyId(contactFor.id);
+            contactMut.mutate({ user: contactFor, body, sendLink });
+          }}
+        />
       ) : null}
 
       {pending ? (

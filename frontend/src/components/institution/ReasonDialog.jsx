@@ -218,7 +218,15 @@ export function institutionErrorText(code, { minLength = 10 } = {}) {
     case 'invalid_mobile_format':
       return 'Not a valid Indian mobile: 10 digits starting 6, 7, 8 or 9 (with or without +91).';
     case 'no_mobile_on_file':
-      return 'This login has no mobile number on file, so there is nowhere to send the setup link. Record a number on it first.';
+      return 'This login has no mobile number on file, so there is nowhere to send the setup link. Use “Edit contact” on this row to record one, then send the link.';
+
+    // Contact details
+    case 'email_already_in_use':
+      return 'That email address is already on another login. Every login needs its own.';
+    case 'invalid_email_format':
+      return 'That does not look like an email address.';
+    case 'nothing_to_update':
+      return 'Nothing was changed — edit the mobile or the email before saving.';
     case 'not_found_or_not_deactivated':
       return 'Not deactivated, so there is nothing to restore.';
     case 'cannot_deactivate_self':

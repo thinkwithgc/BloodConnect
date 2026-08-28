@@ -31,6 +31,14 @@ const schema = z
       .regex(/^(\+?91[-\s]?)?[6-9]\d{9}$/, 'invalid_mobile'),
     primary_contact_email: z.string().email().optional().or(z.literal('')),
     has_inhouse_blood_bank: z.boolean().optional(),
+    bb_contact_name: z.string().optional(),
+    bb_contact_designation: z.string().optional(),
+    bb_contact_mobile: z
+      .string()
+      .regex(/^(\+?91[-\s]?)?[6-9]\d{9}$/, 'invalid_mobile')
+      .optional()
+      .or(z.literal('')),
+    bb_contact_email: z.string().email().optional().or(z.literal('')),
     is_blood_bank_software_user: z.boolean().optional(),
     software_vendor: z.string().optional(),
   })
@@ -62,6 +70,23 @@ const schema = z
       if (!data.cdsco_licence_expires) {
         ctx.addIssue({
           path: ['cdsco_licence_expires'],
+          code: z.ZodIssueCode.custom,
+          message: 'required_for_inhouse_bb',
+        });
+      }
+      // The blood bank gets its own login, so it needs its own person. Without
+      // a name and number here the BB admin is minted with mobile = NULL and its
+      // setup link has nowhere to go — which is the dead end this asks to close.
+      if (!data.bb_contact_name || data.bb_contact_name.trim().length < 2) {
+        ctx.addIssue({
+          path: ['bb_contact_name'],
+          code: z.ZodIssueCode.custom,
+          message: 'required_for_inhouse_bb',
+        });
+      }
+      if (!data.bb_contact_mobile) {
+        ctx.addIssue({
+          path: ['bb_contact_mobile'],
           code: z.ZodIssueCode.custom,
           message: 'required_for_inhouse_bb',
         });
@@ -106,6 +131,10 @@ export function InstitutionApply() {
     primary_contact_mobile: '',
     primary_contact_email: '',
     has_inhouse_blood_bank: false,
+    bb_contact_name: '',
+    bb_contact_designation: '',
+    bb_contact_mobile: '',
+    bb_contact_email: '',
     is_blood_bank_software_user: false,
     software_vendor: '',
   });
@@ -171,6 +200,16 @@ export function InstitutionApply() {
       primary_contact_designation: form.primary_contact_designation || undefined,
       primary_contact_email: form.primary_contact_email || undefined,
       software_vendor: form.software_vendor || undefined,
+      // Only sent when the linked blood bank is actually being created — a
+      // stray bb_contact_* on a plain hospital or a standalone BB application
+      // would be ignored by the server, but leaving it out keeps the payload
+      // saying exactly what the form asked for.
+      bb_contact_name: bbContactShown ? form.bb_contact_name || undefined : undefined,
+      bb_contact_designation: bbContactShown
+        ? form.bb_contact_designation || undefined
+        : undefined,
+      bb_contact_mobile: bbContactShown ? form.bb_contact_mobile || undefined : undefined,
+      bb_contact_email: bbContactShown ? form.bb_contact_email || undefined : undefined,
     };
 
     const parsed = schema.safeParse(payload);
@@ -259,6 +298,10 @@ export function InstitutionApply() {
   // in-house-BB checkbox — because in that case the paired child BB row
   // needs the licence.
   const showCdsco = isBB || (form.kind === 'HO' && form.has_inhouse_blood_bank === true);
+  // A standalone blood bank IS the applicant, so its primary contact is already
+  // captured above. Only the paired hospital case creates a second entity that
+  // needs a second person.
+  const bbContactShown = form.kind === 'HO' && form.has_inhouse_blood_bank === true;
   const showHospReg = form.kind === 'HO';
 
   return (
@@ -367,11 +410,11 @@ export function InstitutionApply() {
                 />
                 Yes
               </label>
-              {form.kind === 'HO' && form.has_inhouse_blood_bank ? (
+              {bbContactShown ? (
                 <p className="mt-2 text-xs text-slate-500">
-                  Ticking this creates a linked blood-bank entity that shares this MoU. You will
-                  receive activation credentials for both — the hospital admin over WhatsApp, and
-                  the blood bank admin surfaced on your hospital dashboard once activated.
+                  Ticking this creates a linked blood-bank entity that shares this MoU. Both
+                  logins are issued on activation, each to its own contact — tell us who runs
+                  the blood bank below.
                 </p>
               ) : null}
             </Field>
@@ -571,6 +614,67 @@ export function InstitutionApply() {
               />
             </Field>
           </section>
+
+          {/* Blood-bank contact — only when a linked blood bank is being created.
+              Asked here rather than left to the admin afterwards because this is
+              the one moment the applicant knows who runs the blood bank, and
+              because a BB admin minted without a mobile cannot be sent its own
+              setup link at all. */}
+          {bbContactShown ? (
+            <section className="rk-card grid gap-3 sm:grid-cols-2">
+              <h2 className="col-span-full text-sm font-semibold uppercase tracking-wide text-slate-500">
+                Blood-bank contact
+              </h2>
+              <p className="col-span-full text-xs text-slate-500">
+                Who runs the blood bank? They get their own login on activation and can then add
+                the rest of the blood-bank staff themselves.
+              </p>
+              <Field label="Full name" error={errors.bb_contact_name}>
+                <input
+                  className="rk-input"
+                  value={form.bb_contact_name}
+                  onChange={(e) => update('bb_contact_name', e.target.value)}
+                  required
+                />
+              </Field>
+              <Field label="Designation">
+                <input
+                  className="rk-input"
+                  value={form.bb_contact_designation}
+                  onChange={(e) => update('bb_contact_designation', e.target.value)}
+                  placeholder="e.g. Blood Bank Officer"
+                />
+              </Field>
+              <Field
+                label="Mobile (10-digit)"
+                hint={
+                  form.bb_contact_mobile &&
+                  form.bb_contact_mobile.replace(/[\s-]/g, '').slice(-10) ===
+                    form.primary_contact_mobile.replace(/[\s-]/g, '').slice(-10)
+                    ? 'Same as the hospital contact — one number can only hold one login, so the blood-bank setup link will appear on your hospital dashboard instead of arriving by WhatsApp.'
+                    : 'We will WhatsApp the blood-bank login setup link to this number'
+                }
+                error={errors.bb_contact_mobile}
+              >
+                <input
+                  className="rk-input"
+                  value={form.bb_contact_mobile}
+                  onChange={(e) => update('bb_contact_mobile', e.target.value)}
+                  placeholder="9XXXXXXXXX"
+                  inputMode="tel"
+                  required
+                />
+              </Field>
+              <Field label="Email (optional)" error={errors.bb_contact_email}>
+                <input
+                  type="email"
+                  className="rk-input"
+                  value={form.bb_contact_email}
+                  onChange={(e) => update('bb_contact_email', e.target.value)}
+                />
+              </Field>
+            </section>
+          ) : null}
 
           <div className="flex items-center justify-between gap-3 pt-2">
             <p className="max-w-md text-xs text-slate-500">

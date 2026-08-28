@@ -208,6 +208,16 @@ export function StaffRosterTable({
                         </ActionButton>
                       ) : (
                         <>
+                          {/* First because it is the only action here that
+                              changes nothing about access — and because a login
+                              with no mobile on file cannot be sent a setup link
+                              at all, which used to be a dead end on this row. */}
+                          <ActionButton
+                            onClick={() => onAction('contact', u)}
+                            disabled={busy || !actionable}
+                          >
+                            Edit contact
+                          </ActionButton>
                           <ActionButton
                             onClick={() => onAction('reissue', u)}
                             disabled={busy || !actionable}

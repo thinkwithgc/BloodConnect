@@ -63,6 +63,10 @@ const TEST = {
   shortname: `p2ho${RUN_TAG}`.slice(0, 23),
   // mobile must match +91[6-9]\d{9} (Indian operator range). Force a 9 prefix.
   contactMobile: `+919${RUN_TAG}001`, // 13 chars
+  // The in-house blood bank's OWN contact. Distinct from contactMobile on
+  // purpose: the paired BB admin used to be minted with mobile = NULL, so its
+  // setup link could never be sent and no UI could add a number afterwards.
+  bbContactMobile: `+919${RUN_TAG}012`,
   donorMobile: `+919${RUN_TAG}002`,
   ngoAdminMobile: `+919${RUN_TAG}003`,
   ngoAdminUsername: `ngoadm${RUN_TAG}`,
@@ -311,23 +315,42 @@ async function main() {
 
   try {
     console.log('── 1. Public apply → PE (hospital + in-house blood bank) ────');
-    let r = await fetchJson('POST', '/onboarding/apply', {
+    // Ticking the in-house blood bank creates a SECOND entity with its own
+    // login, so the form must name a second person. Schema-level refusal, so
+    // nothing is written: an applicant who skips this would otherwise produce a
+    // BB admin with no mobile, which no setup link can reach.
+    const applyBody = () => ({
+      kind: 'HO',
+      shortname: TEST.shortname,
+      legal_name: 'Phase 2 Smoke Hospital',
+      display_name: 'P2 Smoke Hospital',
+      state_id: TEST.state_id,
+      district_id: TEST.district_id,
+      address_line: '12 Phase 2 Smoke Lane, Amravati',
+      pincode: '444601',
+      hospital_registration_no: `HOSPREG-P2-${RUN_TAG}`,
+      cdsco_licence_number: `CDSCO-P2-${RUN_TAG}`,
+      cdsco_licence_expires: new Date(Date.now() + 365 * 86400_000).toISOString().slice(0, 10),
+      primary_contact_name: 'P2 Smoke Contact',
+      primary_contact_designation: 'Medical Superintendent',
+      primary_contact_mobile: TEST.contactMobile,
+      has_inhouse_blood_bank: true,
+    });
+    let r = await fetchJson('POST', '/onboarding/apply', { body: applyBody() });
+    assert(
+      r.status === 400 && r.body.error === 'invalid_input',
+      `in-house BB apply with no BB contact → 400 (got ${r.status} ${r.body.error})`,
+    );
+    assert(
+      !!(r.body.details && r.body.details.bb_contact_name && r.body.details.bb_contact_mobile),
+      'both the BB contact name and mobile are named as missing',
+    );
+    r = await fetchJson('POST', '/onboarding/apply', {
       body: {
-        kind: 'HO',
-        shortname: TEST.shortname,
-        legal_name: 'Phase 2 Smoke Hospital',
-        display_name: 'P2 Smoke Hospital',
-        state_id: TEST.state_id,
-        district_id: TEST.district_id,
-        address_line: '12 Phase 2 Smoke Lane, Amravati',
-        pincode: '444601',
-        hospital_registration_no: `HOSPREG-P2-${RUN_TAG}`,
-        cdsco_licence_number: `CDSCO-P2-${RUN_TAG}`,
-        cdsco_licence_expires: new Date(Date.now() + 365 * 86400_000).toISOString().slice(0, 10),
-        primary_contact_name: 'P2 Smoke Contact',
-        primary_contact_designation: 'Medical Superintendent',
-        primary_contact_mobile: TEST.contactMobile,
-        has_inhouse_blood_bank: true,
+        ...applyBody(),
+        bb_contact_name: 'P2 Smoke BB Officer',
+        bb_contact_designation: 'Blood Bank Officer',
+        bb_contact_mobile: TEST.bbContactMobile,
       },
     });
     assert(r.status === 201, `apply returns 201 (got ${r.status} ${JSON.stringify(r.body)})`);
@@ -335,6 +358,7 @@ async function main() {
     assert(!!r.body.child_institution_id, 'paired in-house blood bank row created');
     TEST.institutionId = r.body.institution_id;
     TEST.childInstitutionId = r.body.child_institution_id;
+
 
     console.log('── 2. ngo_admin login (username + password + TOTP) ──────────');
     r = await fetchJson('POST', '/auth/institutional/login', {
@@ -486,10 +510,54 @@ async function main() {
       'child BB admin setup token stashed on the parent row',
     );
 
-    const childRow = await dbRow(`SELECT onboarding_status FROM institutions WHERE id = $1`, [
-      TEST.childInstitutionId,
-    ]);
+    const childRow = await dbRow(
+      `SELECT onboarding_status, primary_contact_name, primary_contact_mobile
+         FROM institutions WHERE id = $1`,
+      [TEST.childInstitutionId],
+    );
     assert(childRow.onboarding_status === 'AC', 'paired blood bank flipped to AC with its parent');
+    assert(
+      childRow.primary_contact_name === 'P2 Smoke BB Officer',
+      `child BB records its OWN contact name (got ${childRow.primary_contact_name})`,
+    );
+    assert(
+      childRow.primary_contact_mobile === TEST.bbContactMobile,
+      `child BB records its OWN contact mobile (got ${childRow.primary_contact_mobile})`,
+    );
+
+    // The defect this batch closes. The paired BB admin used to be minted with
+    // mobile = NULL, because idx_platform_users_mobile_staff_cluster makes
+    // mobile unique across staff roles and the HO admin already held the
+    // applicant's number. That left the account in the one state no UI could
+    // escape: reissue-setup refuses a login with no mobile, and nothing could
+    // add one. Asking for the bank's own contact on the apply form is what
+    // makes a real number available here.
+    const hoLogin = await dbRow(
+      `SELECT mobile, institution_id, is_institution_admin
+         FROM platform_users WHERE username = $1`,
+      [TEST.hoAdminUsername],
+    );
+    assert(
+      hoLogin && hoLogin.mobile === TEST.contactMobile,
+      `HO admin login carries the applicant's mobile (got ${hoLogin && hoLogin.mobile})`,
+    );
+    assert(hoLogin && hoLogin.is_institution_admin === true, 'HO admin is flagged institution admin');
+
+    const bbLogin = await dbRow(
+      `SELECT mobile, institution_id, is_institution_admin
+         FROM platform_users WHERE username = $1`,
+      [bbAdminUsername],
+    );
+    assert(!!bbLogin, `paired BB admin login exists (${bbAdminUsername})`);
+    assert(
+      bbLogin && bbLogin.mobile === TEST.bbContactMobile,
+      `paired BB admin login is minted WITH its own mobile, not NULL (got ${bbLogin && bbLogin.mobile})`,
+    );
+    assert(
+      bbLogin && bbLogin.institution_id === TEST.childInstitutionId,
+      'paired BB admin belongs to the child institution, not the parent',
+    );
+    assert(bbLogin && bbLogin.is_institution_admin === true, 'paired BB admin is flagged admin');
 
     console.log('── 8. Re-activating is refused ──────────────────────────────');
     r = await fetchJson('POST', `/onboarding/activate/${TEST.institutionId}`, {
@@ -1049,13 +1117,200 @@ async function main() {
       `the history names who did it (got ${licenceEvent && licenceEvent.actor_username})`,
     );
 
-    console.log('── 19. Reversible lifecycle: suspend / archive ─────────────');
+    console.log('── 19. Staff contact details are editable ──────────────────');
+    // The reported defect, in one section. A login minted with no mobile could not
+    // be sent a setup link, and no screen anywhere could give it one: the roster
+    // offered re-issue, unlock, reset-2FA, admin-flag and deactivate, and every
+    // one of those is useless without a working number. What is pinned here is
+    // that the escape hatch exists, that it refuses bad input by name rather than
+    // by constraint, and that correcting a phone number can never cost somebody
+    // their access.
+
+    const bbAdminRow = await dbRow(`SELECT id FROM platform_users WHERE username = $1`, [
+      bbAdminUsername,
+    ]);
+    assert(!!bbAdminRow, `the paired BB admin login is addressable (${bbAdminUsername})`);
+    const bbAdminUserId = bbAdminRow && bbAdminRow.id;
+    const bbContactPath = `/institutions/${TEST.childInstitutionId}/users/${bbAdminUserId}/contact`;
+    const techContactPath = `/institutions/${TEST.institutionId}/users/${techUserId}/contact`;
+    const correctedMobile = `+919${RUN_TAG}013`;
+
+    // 19a. Nothing to change is said plainly, and an unknown key is refused rather
+    // than dropped — a client sending `phone` instead of `mobile` has to be told,
+    // not thanked for a change that never happened.
+    for (const [label, body] of [
+      ['an empty body', {}],
+      ['an unknown key', { phone: correctedMobile }],
+    ]) {
+      r = await fetchJson('POST', bbContactPath, { headers: auth, body });
+      assert(
+        r.status === 400 && r.body.error === 'invalid_payload',
+        `${label} → 400 invalid_payload (got ${r.status} ${r.body.error})`,
+      );
+    }
+
+    // 19b. Both formats are refused by name. A bare 400 on a phone field sends an
+    // operator hunting for a permissions problem that isn't there.
+    r = await fetchJson('POST', techContactPath, { headers: auth, body: { mobile: '12345' } });
+    assert(
+      r.status === 400 && r.body.error === 'invalid_mobile_format',
+      `an unusable mobile → 400 invalid_mobile_format (got ${r.status} ${r.body.error})`,
+    );
+    r = await fetchJson('POST', techContactPath, {
+      headers: auth,
+      body: { email: 'not-an-address' },
+    });
+    assert(
+      r.status === 400 && r.body.error === 'invalid_email_format',
+      `an unusable email → 400 invalid_email_format (got ${r.status} ${r.body.error})`,
+    );
+
+    // 19c. One number means one staff login. Handing this login the number the
+    // hospital admin already holds would make a setup link ambiguous about whose
+    // inbox it lands in, which is exactly what
+    // idx_platform_users_mobile_staff_cluster exists to stop — surfaced here as a
+    // sentence rather than a raw 23505.
+    r = await fetchJson('POST', techContactPath, {
+      headers: auth,
+      body: { mobile: TEST.contactMobile },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'mobile_already_in_staff_cluster',
+      `re-using another staff login's number → 409 (got ${r.status} ${r.body.error})`,
+    );
+
+    // 19d. Scoping, both ways. A login addressed through an institution that does
+    // not hold it is not found, and an unrelated institution's own admin never
+    // gets as far as looking.
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.childInstitutionId}/users/${techUserId}/contact`,
+      { headers: auth, body: { mobile: correctedMobile } },
+    );
+    assert(
+      r.status === 404 && r.body.error === 'user_not_found',
+      `editing a login through the wrong institution → 404 (got ${r.status} ${r.body.error})`,
+    );
+    r = await fetchJson('POST', bbContactPath, {
+      headers: outsiderAuth,
+      body: { mobile: correctedMobile },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'forbidden',
+      `an unrelated institution's admin editing contact → 403 (got ${r.status} ${r.body.error})`,
+    );
+
+    // 19e. A retired login's contact details are part of the record of who held
+    // it. Reactivate first, then correct — otherwise "deactivated, reason X" ends
+    // up pointing at a number that was never the one deactivated.
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.institutionId}/users/${techUserId}/deactivate`,
+      { headers: auth, body: { reason: 'smoke: freezing contact details' } },
+    );
+    assert(r.status === 200, `deactivate for the frozen-contact check → 200 (got ${r.status})`);
+    r = await fetchJson('POST', techContactPath, {
+      headers: auth,
+      body: { mobile: correctedMobile },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'user_deactivated',
+      `editing a retired login's contact → 409 user_deactivated (got ${r.status} ${r.body.error})`,
+    );
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.institutionId}/users/${techUserId}/reactivate`,
+      { headers: auth },
+    );
+    assert(r.status === 200, `reactivate after the frozen-contact check → 200 (got ${r.status})`);
+
+    // 19f. The institution's own admin can do this, not only the NGO. The whole
+    // point of the ask is that a hospital does not have to phone us to correct a
+    // phone number.
+    r = await fetchJson('POST', techContactPath, {
+      headers: hoAuth,
+      body: { email: `tech.${RUN_TAG}@smoke.invalid` },
+    });
+    assert(
+      r.status === 200 && r.body.user && r.body.user.email === `tech.${RUN_TAG}@smoke.invalid`,
+      `the institution's own admin corrects a colleague's email (got ${r.status} ${r.body.error || ''})`,
+    );
+
+    // 19g. The reported journey, end to end. Clearing is a real state — it is the
+    // state the paired BB admin shipped in — and it has to be offered precisely
+    // because the column is uniquely indexed: a number typed onto the wrong login
+    // blocks the right one everywhere else.
+    r = await fetchJson('POST', bbContactPath, { headers: auth, body: { mobile: null } });
+    assert(
+      r.status === 200 && r.body.status === 'updated' && r.body.user.has_mobile === false,
+      `clearing a mobile → 200 with has_mobile false (got ${r.status} ${r.body.error || ''})`,
+    );
+    assert(
+      r.body.user.mobile_masked === null,
+      'a cleared mobile masks to null rather than a row of dots over nothing',
+    );
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.childInstitutionId}/users/${bbAdminUserId}/reissue-setup`,
+      { headers: auth },
+    );
+    assert(
+      r.status === 400 && r.body.error === 'no_mobile_on_file',
+      `re-issue with nowhere to send it → 400 no_mobile_on_file (got ${r.status} ${r.body.error})`,
+    );
+    r = await fetchJson('POST', bbContactPath, {
+      headers: auth,
+      body: { mobile: correctedMobile, email: `bbadmin.${RUN_TAG}@smoke.invalid` },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'updated' && r.body.user.has_mobile === true,
+      `recording the number the UI could not reach → 200 (got ${r.status} ${r.body.error || ''})`,
+    );
+    assert(
+      typeof r.body.user.mobile_masked === 'string' &&
+        r.body.user.mobile_masked.includes('•') &&
+        r.body.user.mobile_masked.endsWith(correctedMobile.slice(-4)),
+      `the roster row masks the new number (got ${r.body.user.mobile_masked})`,
+    );
+    assert(
+      !('mobile' in r.body.user) &&
+        !('password_hash' in r.body.user) &&
+        !('setup_token_hash' in r.body.user),
+      'the edit answers with a roster row: no raw mobile, no credential material',
+    );
+    const editedRow = await dbRow(`SELECT mobile, email FROM platform_users WHERE id = $1`, [
+      bbAdminUserId,
+    ]);
+    assert(
+      editedRow && editedRow.mobile === correctedMobile,
+      `the number actually landed on the row (got ${editedRow && editedRow.mobile})`,
+    );
+
+    // 19h. Correcting contact details is not a credential event. The BB admin
+    // still signs in on the password and authenticator it already had — if this
+    // ever regresses, the fix for a wrong phone number becomes a lockout.
+    const bbTokenAfterEdit = await staffToken(bbAdminUsername, 'BloodBankPass2026', bbSecret);
+    assert(!!bbTokenAfterEdit, 'the BB admin still signs in after its contact details change');
+
+    // 19i. ...and only now does the button the user actually pressed work. This is
+    // the whole defect, closed: no mobile → nowhere to send → record one → link.
+    r = await fetchJson(
+      'POST',
+      `/institutions/${TEST.childInstitutionId}/users/${bbAdminUserId}/reissue-setup`,
+      { headers: auth },
+    );
+    assert(
+      r.status === 200 && !!r.body.setup_url,
+      `re-issue now has somewhere to send the link (got ${r.status} ${r.body.error || ''})`,
+    );
+
+    console.log('── 20. Reversible lifecycle: suspend / archive ─────────────');
     // Suspend used to be a one-way door and 'AR' was unreachable. What this
     // section pins down is that every step back out exists, that retiring an
     // institution sits one rank above pausing one, and that an institution with
     // somebody waiting on blood cannot be retired out from under them.
 
-    // 19a. Suspend closes the door on sign-in...
+    // 20a. Suspend closes the door on sign-in...
     r = await fetchJson('POST', `/institutions/${TEST.institutionId}/suspend`, {
       headers: auth,
       body: { reason: 'suspected licence lapse pending district inspection' },
@@ -1083,7 +1338,7 @@ async function main() {
       `a suspended institution's admin cannot sign in (got ${r.status} ${r.body.error})`,
     );
 
-    // 19b. ...and lifting it opens the door again. The account itself was never
+    // 20b. ...and lifting it opens the door again. The account itself was never
     // touched, so the next thing refused is the authenticator, not the
     // institution - which is how we know suspend gated the org, not the login.
     r = await fetchJson('POST', `/institutions/${TEST.institutionId}/unsuspend`, {
@@ -1102,7 +1357,7 @@ async function main() {
       `after un-suspending, sign-in is back to asking for the code (got ${r.status} ${r.body.error})`,
     );
 
-    // 19c. Archive is one rank up: an ngo_admin may pause an institution,
+    // 20c. Archive is one rank up: an ngo_admin may pause an institution,
     // retiring one is a super_admin act.
     r = await fetchJson('POST', `/institutions/${TEST.institutionId}/archive`, {
       headers: auth,
@@ -1121,7 +1376,7 @@ async function main() {
     assert(!!TEST.superAdminToken, 'super_admin can sign in');
     const superAuth = { Authorization: `Bearer ${TEST.superAdminToken}` };
 
-    // 19d. Live work blocks it. This is the assertion that matters clinically:
+    // 20d. Live work blocks it. This is the assertion that matters clinically:
     // an open request means somebody is waiting on blood, and the archive has to
     // refuse rather than orphan them behind an inactive institution.
     const ref = await dbRow(
@@ -1177,7 +1432,7 @@ async function main() {
       })`,
     );
 
-    // 19e. Doing it twice is said out loud rather than silently swallowed.
+    // 20e. Doing it twice is said out loud rather than silently swallowed.
     r = await fetchJson('POST', `/institutions/${TEST.institutionId}/archive`, {
       headers: superAuth,
       body: { reason: 'attempting to archive an institution that is already archived' },
@@ -1187,7 +1442,7 @@ async function main() {
       `re-archiving → 409 already_archived (got ${r.status} ${r.body.error})`,
     );
 
-    // 19f. Coming back is deliberate. Un-archive returns the family to SUSPENDED
+    // 20f. Coming back is deliberate. Un-archive returns the family to SUSPENDED
     // rather than straight to live, so somebody has to re-check the licence
     // before the hospital can raise a request again.
     r = await fetchJson('POST', `/institutions/${TEST.institutionId}/unarchive`, {
@@ -1208,7 +1463,7 @@ async function main() {
       })`,
     );
 
-    // 19g. The last step back to live is the ordinary un-suspend - un-archiving
+    // 20g. The last step back to live is the ordinary un-suspend - un-archiving
     // is the privileged act, re-opening a suspended institution is not. It stays
     // per-institution, so the blood bank is still suspended afterwards and has to
     // be lifted on its own.

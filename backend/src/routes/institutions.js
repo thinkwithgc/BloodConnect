@@ -28,6 +28,7 @@
  *   POST /institutions/:id/users/:userId/reactivate     institution admin
  *   POST /institutions/:id/users/:userId/unlock         institution admin
  *   POST /institutions/:id/users/:userId/admin-flag     institution admin
+ *   POST /institutions/:id/users/:userId/contact        institution admin → mobile/email
  *
  *   An institution admin's reach includes its in-house blood bank (the child row
  *   linked by parent_institution_id) but never the reverse — see
@@ -1178,6 +1179,146 @@ router.post(
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'user_not_found' });
     res.json({ status: 'unlocked', ...r.rows[0] });
+  },
+);
+
+// ── POST /institutions/:id/users/:userId/contact ────────────────────────────
+// Correct a staff login's contact details. The one thing the roster could not do.
+//
+// Every other action on this router changes a login's STATE: re-issue mints a
+// token and blanks the password, unlock clears a lockout, admin-flag moves
+// authority, deactivate retires the account. None of them could fix a wrong
+// phone number, so an account created without one had no way out — the roster
+// rendered "no mobile on file", and the only handler that accepts a mobile is
+// reissue-setup, whose two callers both send an empty body.
+//
+// That dead end is reachable by design, not by accident. activateInstitution()
+// mints the paired blood-bank admin with mobile = NULL on purpose (see
+// services/onboarding/activate.js): idx_platform_users_mobile_staff_cluster
+// makes a mobile unique across staff roles, and the hospital admin already holds
+// the applicant's number. Onboarding now asks for a separate blood-bank contact
+// so new activations arrive with one, but the accounts already provisioned need
+// a way to be corrected — and so does every ordinary case of a tech changing SIM.
+//
+// CREDENTIAL-NEUTRAL, which is the whole reason this is its own route and not a
+// widening of reissue-setup. It touches mobile and email only: password_hash,
+// setup_token_hash, force_password_change, totp_secret and the lockout counters
+// are left exactly as they are, so an administrator fixing a typo on a working
+// account cannot lock its owner out. reissue-setup stays the recovery path, and
+// the UI offers it as a follow-up step rather than folding it in here.
+//
+// No written reason is required. deactivate and admin-flag demand one because
+// they change who can do what; a phone number does not, and requiring a
+// paragraph to fix a digit is how administrators learn to type "asdf". The audit
+// trigger records the before and after regardless, and change_reason labels it.
+//
+// Neither field is a login identifier: POST /auth/institutional/login resolves
+// staff by username (auth.js:284, :541), never by email or mobile, so editing
+// either one cannot lock anybody out of the platform. Mobile is the SETUP_LINK
+// delivery target, which is why clearing it is permitted but reported.
+const contactSchema = z
+  .object({
+    // null and '' both mean "clear it". A blood bank whose admin genuinely has
+    // no WhatsApp of their own is a real state — it is today's state — so the
+    // field has to be clearable, not merely settable.
+    mobile: z.string().max(20).nullable().optional(),
+    email: z.string().max(255).nullable().optional(),
+  })
+  .strict()
+  .refine((v) => v.mobile !== undefined || v.email !== undefined, {
+    message: 'nothing_to_update',
+  });
+
+router.post(
+  '/:id/users/:userId/contact',
+  verifyJWT,
+  requireInstitutionUserAdmin,
+  async (req, res) => {
+    const inst = req.institution;
+    const parsed = contactSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_payload', details: parsed.error.flatten() });
+    }
+
+    const target = await loadStaffUser(pool, req.params.userId, inst.id);
+    if (!target) return res.status(404).json({ error: 'user_not_found' });
+    // A retired login's contact details are part of the record of who held it.
+    // Reactivate first, then correct — otherwise "deactivated, reason X" ends up
+    // pointing at a number that was never the one deactivated.
+    if (target.deactivated_at) return res.status(409).json({ error: 'user_deactivated' });
+
+    const setMobile = parsed.data.mobile !== undefined;
+    let mobile = null;
+    if (setMobile && parsed.data.mobile !== null && parsed.data.mobile.trim() !== '') {
+      mobile = normaliseIndianMobile(parsed.data.mobile);
+      if (!mobile) return res.status(400).json({ error: 'invalid_mobile_format' });
+    }
+
+    const setEmail = parsed.data.email !== undefined;
+    let email = null;
+    if (setEmail && parsed.data.email !== null && parsed.data.email.trim() !== '') {
+      email = parsed.data.email.trim().toLowerCase();
+      // Deliberately shallow. platform_users.email is CITEXT with a unique index
+      // and is not an auth path, so the only thing worth rejecting here is
+      // something that cannot be an address at all.
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
+        return res.status(400).json({ error: 'invalid_email_format' });
+      }
+    }
+
+    // Written with CASE rather than a SET list assembled in JS: the column names
+    // stay literal in the SQL and every value stays a placeholder, and a caller
+    // sending only one field cannot blank the other one by omission.
+    try {
+      const r = await withRlsContext(
+        req,
+        (c) =>
+          c.query(
+            // ROSTER_COLUMNS is a module constant (services/users/directory.js), not
+            // request input; it names only pu.-prefixed columns, which is why the
+            // table is aliased here. Every value is parameterised.
+            // eslint-disable-next-line no-restricted-syntax
+            `UPDATE platform_users AS pu
+              SET mobile = CASE WHEN $3::boolean THEN $4::char(13) ELSE pu.mobile END,
+                  email  = CASE WHEN $5::boolean THEN $6::citext  ELSE pu.email  END
+            WHERE pu.id = $1 AND pu.institution_id = $2
+              AND pu.role IN ('hospital','blood_bank')
+              AND pu.deactivated_at IS NULL
+        RETURNING ${ROSTER_COLUMNS}`,
+            [req.params.userId, inst.id, setMobile, mobile, setEmail, email],
+          ),
+        { change_reason: 'correct staff contact details' },
+      );
+      if (r.rowCount === 0) return res.status(404).json({ error: 'user_not_found' });
+
+      const row = toRosterRow(r.rows[0]);
+      logger.info(
+        {
+          institution_id: inst.id,
+          user_id: row.id,
+          changed: [setMobile ? 'mobile' : null, setEmail ? 'email' : null].filter(Boolean),
+          mobile_cleared: setMobile && !mobile,
+        },
+        'staff contact details updated',
+      );
+      return res.json({ status: 'updated', user: row });
+    } catch (err) {
+      // Migration 269 split the old global mobile unique index into an OTP cluster
+      // and a staff cluster. Inside the staff cluster one number means one login,
+      // so a SETUP_LINK can never be addressed to an ambiguous inbox.
+      if (/idx_platform_users_mobile_staff_cluster/.test(err.message)) {
+        return res.status(409).json({ error: 'mobile_already_in_staff_cluster' });
+      }
+      if (/platform_users_email_key|idx_platform_users_email/.test(err.message)) {
+        return res.status(409).json({ error: 'email_already_in_use' });
+      }
+      if (err.code === '23514') {
+        return res
+          .status(400)
+          .json({ error: 'check_violation', constraint: err.constraint || 'unknown' });
+      }
+      throw err;
+    }
   },
 );
 

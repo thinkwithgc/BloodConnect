@@ -6,6 +6,7 @@ import { SetupLinkCard } from './SetupLinkCard.jsx';
 import { StaffRosterTable, STATE_META } from './StaffRoster.jsx';
 import { ReasonDialog, institutionErrorText } from './ReasonDialog.jsx';
 import { InviteForm } from './InviteForm.jsx';
+import { ContactDialog } from './ContactDialog.jsx';
 
 /**
  * "Team" tab for a hospital or blood-bank portal: who at this institution can
@@ -38,6 +39,10 @@ export function TeamPanel() {
   // The pending reason-gated action: { kind, user, institutionId }. Held rather
   // than fired immediately because the server requires a written justification.
   const [pending, setPending] = useState(null);
+  // The row whose contact details are being edited. Not reason-gated: a phone
+  // number moves no authority, and a login with none on file cannot be sent a
+  // setup link at all — which used to be a dead end on this row.
+  const [contactFor, setContactFor] = useState(null);
 
   const rosterQ = useQuery({
     queryKey: ['institution', 'me', 'users'],
@@ -84,8 +89,39 @@ export function TeamPanel() {
     },
   });
 
+  // Its own mutation, not a `kind` on `act`: reissue-setup blanks the password
+  // and mints a new token, so contact edits must never ride on it. When the
+  // operator asks for the link too, that is a SECOND call — one job per endpoint.
+  const contactMut = useMutation({
+    mutationFn: ({ user, body }) =>
+      apiRequest(
+        'POST',
+        `/institutions/${user.institution_id || institutionId}/users/${user.id}/contact`,
+        body,
+      ),
+    onSuccess: (data, vars) => {
+      setContactFor(null);
+      setActionError(null);
+      refresh();
+      if (vars.sendLink) {
+        setBusyId(vars.user.id);
+        act.mutate({ kind: 'reissue-setup', user: vars.user, body: {} });
+      } else {
+        setBusyId(null);
+      }
+    },
+    onError: (err) => {
+      setBusyId(null);
+      setActionError(err?.response?.data?.error || 'action_failed');
+    },
+  });
+
   function onAction(kind, user) {
     setActionError(null);
+    if (kind === 'contact') {
+      setContactFor(user);
+      return;
+    }
     // Reason-gated: the server demands >= 10 characters, so collect it properly
     // rather than in a prompt that cannot state or enforce that.
     if (kind === 'deactivate' || kind === 'admin-flag') {
@@ -183,6 +219,22 @@ export function TeamPanel() {
           />
         </div>
       ))}
+
+      {contactFor ? (
+        <ContactDialog
+          user={contactFor}
+          busy={contactMut.isPending}
+          error={actionError}
+          onCancel={() => {
+            setContactFor(null);
+            setActionError(null);
+          }}
+          onSubmit={({ sendLink, ...body }) => {
+            setBusyId(contactFor.id);
+            contactMut.mutate({ user: contactFor, body, sendLink });
+          }}
+        />
+      ) : null}
 
       {pending ? (
         <ReasonDialog

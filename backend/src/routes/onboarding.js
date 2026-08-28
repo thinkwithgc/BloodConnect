@@ -72,6 +72,15 @@ const applySchema = z
     primary_contact_mobile: z.string(),
     primary_contact_email: z.string().email().optional(),
     has_inhouse_blood_bank: z.boolean().optional(),
+    // Who runs the in-house blood bank, when there is one. Optional in the
+    // schema because a pre-existing client (or a standalone BB apply) never
+    // sends them; superRefine below makes them mandatory in the one case where
+    // they mean something. They land on the CHILD institution row's own
+    // primary_contact_* columns, which already exist -- no migration.
+    bb_contact_name: z.string().min(2).optional(),
+    bb_contact_designation: z.string().optional(),
+    bb_contact_mobile: z.string().optional(),
+    bb_contact_email: z.string().email().optional(),
     is_blood_bank_software_user: z.boolean().optional(),
     software_vendor: z.string().optional(),
   })
@@ -119,6 +128,26 @@ const applySchema = z
           message: 'shortname_max_23_for_inhouse_bb',
         });
       }
+      // The blood bank gets its own login at activation, and a login with no
+      // mobile has nowhere to receive its setup link -- which is exactly the
+      // dead end that made POST /:id/users/:userId/contact necessary. Asking
+      // here, while the applicant is in front of the form and knows who runs
+      // the bank, is the cheap fix; correcting it afterwards is the expensive
+      // one. Required, not optional, for that reason.
+      if (!data.bb_contact_name) {
+        ctx.addIssue({
+          path: ['bb_contact_name'],
+          code: z.ZodIssueCode.custom,
+          message: 'bb_contact_name_required_for_inhouse_bb',
+        });
+      }
+      if (!data.bb_contact_mobile) {
+        ctx.addIssue({
+          path: ['bb_contact_mobile'],
+          code: z.ZodIssueCode.custom,
+          message: 'bb_contact_mobile_required_for_inhouse_bb',
+        });
+      }
     }
   });
 
@@ -137,6 +166,24 @@ router.post('/apply', async (req, res) => {
   if (!mobile) return res.status(400).json({ error: 'invalid_mobile_format' });
 
   const createInHouseBB = data.kind === 'HO' && data.has_inhouse_blood_bank === true;
+
+  // The blood bank's own contact, when a paired apply named one. Falls back to
+  // the applicant so an older client that does not send these fields keeps
+  // behaving exactly as before.
+  //
+  // The same number for both is ALLOWED and is not an error: at a small
+  // hospital the same person often heads both, and rejecting that would block a
+  // legitimate application over a data-modelling detail. activateInstitution()
+  // is where it matters -- idx_platform_users_mobile_staff_cluster permits one
+  // staff login per number, so when the two match the blood-bank LOGIN is
+  // minted without a mobile and its setup link is surfaced on the hospital
+  // dashboard, which is exactly today's behaviour. The institutions row still
+  // records the number either way; contact of record is not a login.
+  let bbMobile = mobile;
+  if (createInHouseBB && data.bb_contact_mobile) {
+    bbMobile = normaliseIndianMobile(data.bb_contact_mobile);
+    if (!bbMobile) return res.status(400).json({ error: 'invalid_bb_mobile_format' });
+  }
 
   try {
     const result = await withRlsContextRaw(
@@ -221,10 +268,10 @@ router.post('/apply', async (req, res) => {
               data.longitude || null,
               data.cdsco_licence_number,
               data.cdsco_licence_expires,
-              data.primary_contact_name,
-              data.primary_contact_designation || null,
-              mobile,
-              data.primary_contact_email || null,
+              data.bb_contact_name || data.primary_contact_name,
+              data.bb_contact_designation || data.primary_contact_designation || null,
+              bbMobile,
+              data.bb_contact_email || data.primary_contact_email || null,
               data.is_blood_bank_software_user ?? false,
               data.software_vendor || null,
             ],
@@ -571,9 +618,10 @@ router.post(
       'Institution activated against a paper MoU',
     );
 
-    // Send the HO admin's magic link via WhatsApp. The BB admin's link stays
-    // on the parent row for surfacing via the hospital dashboard — no auto-WA,
-    // so the HO admin controls when the BB team is onboarded.
+    // Send the HO admin's magic link via WhatsApp. The BB admin's link is sent
+    // separately below, and only when the blood bank gave a contact number of
+    // its own at apply time; otherwise it stays on the parent row for surfacing
+    // via the hospital dashboard, which is the pre-existing behaviour.
     //
     // A send failure must NOT roll activation back: the institution is
     // legitimately active, and the admin can resend. Log loudly instead.
@@ -615,6 +663,51 @@ router.post(
       );
     }
 
+    // The BB admin's link, when the blood bank named a contact of its own.
+    //
+    // activateInstitution() reports bbAdminMobile as non-null only when the
+    // number differs from the hospital's AND is free in the staff cluster, so
+    // reaching here means this login genuinely has its own inbox to receive a
+    // link. When it is null the token still sits on the parent row and the
+    // hospital dashboard surfaces it — unchanged from before this field existed.
+    //
+    // Same failure posture as the HO send: the outcome is inspected, not just
+    // the exception, because an unset WHATSAPP_TEMPLATE_* returns success:false
+    // without throwing and would otherwise be reported as delivered.
+    let bbWaSent = false;
+    if (result.bbSetupToken && result.bbAdminMobile) {
+      try {
+        const r = await sendNotification({
+          recipientId: result.bbAdminMobile,
+          templateType: 'SETUP_LINK',
+          variables: {
+            signatory_name: 'Admin',
+            institution_name: `${result.institution.display_name || result.institution.shortname} Blood Bank`,
+            setup_token: result.bbSetupToken,
+          },
+          channel: 'WA',
+          language: 'en',
+        });
+        if (r?.success) {
+          bbWaSent = true;
+        } else {
+          logger.warn(
+            { event: 'onboarding_activate_bb_notify_unsent', institutionId: i.id, result: r },
+            'BB admin activation WhatsApp did not send — setup URL returned to admin instead',
+          );
+        }
+      } catch (err) {
+        logger.error(
+          {
+            event: 'onboarding_activate_bb_notify_failed',
+            institutionId: i.id,
+            err: err.message,
+          },
+          'BB admin activation WhatsApp send failed — row still activated, admin can resend',
+        );
+      }
+    }
+
     // The setup URLs are returned UNCONDITIONALLY, not dev-gated.
     //
     // Only SHA-256(token) is stored (services/users/setup.js), so the plaintext
@@ -643,11 +736,15 @@ router.post(
       bb_admin_username: result.bbAdminUsername,
       bb_admin_setup_url: bbSetupUrl,
       bb_setup_expires_at: result.bbExpiresAt,
+      bb_admin_mobile: result.bbAdminMobile,
       whatsapp_sent: waSent,
+      bb_whatsapp_sent: bbWaSent,
       next_step: waSent
         ? `Password-setup link sent to ${result.institution.primary_contact_mobile}. They set a password, then sign in at /staff/login as "${result.hoAdminUsername}".` +
           (bbSetupUrl
-            ? ' The blood-bank admin link is not WhatsApp’d — it surfaces on the hospital dashboard.'
+            ? bbWaSent
+              ? ` The blood-bank admin link was sent to ${result.bbAdminMobile}.`
+              : ' The blood-bank admin link was not WhatsApp’d — it surfaces on the hospital dashboard.'
             : '')
         : `Institution is ACTIVE but the WhatsApp did NOT send. Share the hospital setup link below out-of-band so "${result.hoAdminUsername}" can set a password. The link is shown once — re-issue it from the Institution users tab if it is lost.`,
     });

@@ -6,6 +6,76 @@ This is a **life-critical** healthcare system. Read this whole file before touch
 > `raktify.*` (e.g. `raktify.actor_role`); the Tailwind/CSS design-system prefix
 > is `rk-*` / `.rk-*`. Use these consistently — no other brand prefix exists.
 
+## Where things stand (updated 2026-08-28) — READ THIS FIRST
+
+The rest of this file is accreted history. This section is the resume point: the
+last commit, what is live, and what is genuinely blocked. Trust it over any
+older section it contradicts.
+
+**Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
+`git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
+(fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
+auto-applies migrations to prod**). Last three commits, newest first:
+
+| Commit | What |
+|---|---|
+| `dae92d8` | `fix(notifications)`: three shipped camp reminders could not send a single message — 8 new WhatsApp templates authored + submitted, `CAMP_LINK` wired, `scripts/check_whatsapp_templates.js` gate added |
+| `9b0a59f` | BB camp capacity + `bb_response` (migrations 316/317/318, `services/camps/capacity.js`, BB Camps tab, results worklist, roster-PII fix, DOB picker, bounded date inputs) |
+| `3c4d235` | Camp organiser names a blood bank; NGO admin confirms it (migration 315) |
+
+**Schema head.** **97 migration files, latest `318_bb_camp_settings_audit_id`.
+Next new migration is `319`.** 315–318 were applied to prod by the deploy's
+`migrate` job at 2026-08-28T17:12 UTC (`✓` on all four, `Done. Applied 4
+migration(s)`), and to Neon dev first. `/health` → 200 `db: ok`. Everything
+`≤318` is immutable (hard rule 5). **`npm run migrate:status` is the source of
+truth — the numbered table further down this file is incomplete.**
+
+**Gates, with their real assertion counts** (the phase table below understates
+two of them):
+
+| Command | Count | Notes |
+|---|---|---|
+| `npm run smoke:camps` | **117** | The camp gate. Covers attendance derivation + capacity + `bb_response` + the PII scoping |
+| `node scripts/smoke_test_phase4.js` | 17 | **Required regression** for anything touching `donation_history` / `donor_screening` |
+| `node scripts/smoke_test_phase2.js` | **125** | Institution onboarding / paper MoU |
+| `node scripts/check_whatsapp_templates.js` | 0 fail, 1 warn | Every `templateType` in `backend/src` must have a handler **and** an env key |
+| `npm run lint && npm run format:check` | — | `format:check` is a hard CI gate in all three workflows, **backend only** |
+| `npm run smoke:frontend` | — | Vite build. Frontend has no ESLint config, so this is its only gate. **Run from the repo root** |
+| `node scripts/smoke_test_phase3/5/6.js` | — | **Do not run.** Pre-268 staff-auth drift; they fail for unrelated reasons |
+
+**Live in prod, code-complete, nothing outstanding:** everything in the phase
+table below, plus per-day BB camp capacity publishing, per-camp
+`bb_response` accept/decline, the BB **Camps** tab (calendar / requests /
+brief), the post-camp results worklist, the `GET /camps/:id/registrations`
+institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
+
+**Blocked on other people, not on code:**
+1. **WhatsApp template delivery.** 8 templates authored + submitted 2026-08-28,
+   7 V2 templates submitted earlier and unconfirmed. Each language is a separate
+   Meta review (1–3 days). **A missing `WHATSAPP_TEMPLATE_*` key is a silent
+   no-op** — `notification_log` still writes an `FA` row, so the job looks
+   healthy and sends nothing. Set every key in Azure Key Vault `raktify-kv`,
+   never in a commit. **Cheapest first check: `WHATSAPP_TEMPLATE_CAMP_LINK`** —
+   its template (`camp_organizer_link_v2`) is already approved in all three
+   languages, so it should deliver the moment the key lands.
+   `donor_alert_replacement`'s Meta record still carries a 28-char button label
+   (ceiling is 25) and needs deleting + resubmitting.
+2. **Legal review of the MoU template** — the last sign-off before onboarding
+   institutions at scale. Medical sign-off is done (10-Jul-2026).
+3. **Manual prod walk-through of the camp lifecycle.** Prod has **zero camps**,
+   so the flow has never been exercised there: publish a month with a holiday
+   and a reduced day → host against a full day (blocked, alternatives) and an
+   open day → accept in the BB tab and confirm the organiser's mobile appears
+   only then → record two donations and enter TTI from the worklist without
+   seeing a UUID → decline after NGO verify and confirm the admin sees the
+   reason and the organiser sees the neutral line.
+
+**Deferred by decision (not blocked):** institution-users Stage 2 (staff
+capabilities) — starts at migration **319**; `BOT_REPLY` free-form
+session-message path (6 sites in `services/whatsapp/bot.js`) — needs a
+non-template send, not a template; plus the standing list in
+**Post-Phase-8 deferred items** below.
+
 ## Design system — LOCKED (read before touching any visual surface)
 
 Full reference: `docs/Raktify_Design_System.md`. Canonical code:
@@ -86,10 +156,87 @@ Migrations 312–314 moved attendance out of human hands. Before touching camps:
   what unifies the two auth clusters without bridging them. `PATCH /camps/:id`
   edits details only; verify / decline / complete / cancel stay behind
   password + TOTP.
-- **Gate: `npm run smoke:camps`** (`scripts/smoke_test_camps.js`, 53 assertions)
+- **Gate: `npm run smoke:camps`** (`scripts/smoke_test_camps.js`, 117 assertions)
   covers the whole derivation. `smoke_test_phase4.js` is the regression gate —
   314 adds a trigger to `donation_history`, the most safety-critical insert path
   in the system, so if phase 4 fails, the trigger is wrong.
+
+### Blood banks publish camp capacity, and answer per camp (Aug 2026)
+
+Migrations 315–318 + `backend/src/services/camps/capacity.js` + the BB **Camps**
+tab. The NGO admin used to partner a blood bank by fiat and every question after
+that click was a phone call. Now the BB **declares capacity a month ahead**, so
+the organiser's hosting form pre-answers "can you do the 14th"; the per-camp
+accept/decline is the exception path, not the normal one.
+
+- **`bb_response` (`PE`/`AC`/`DC`, migration 317) is an axis ORTHOGONAL to
+  `donation_camps.status`** — exactly as `crossmatch_confirmed` sits beside
+  `blood_requests.status`. `status` gained no value: it is a CHECK-constrained
+  enum (`PE`,`PL`,`LV`,`CO`,`CA`,`DC`) read by `campStatus.js`, the admin
+  `CampsTab`, `MyCampsSection`, `PublicCampPage`, `GET /camps/collectable`,
+  `camp_close_roster` and a long tail of `IN ('PL','LV')` predicates — a new
+  value would make every one of them quietly wrong.
+- **`bb_response` never changes `status`, and never changes what
+  `GET /camps/collectable` returns.** A decline does not cancel the camp (200
+  donors may have RSVP'd) and a BB that declined Monday must still be able to
+  collect Saturday. **A decline also does not clear
+  `partnered_blood_bank_id`** — that would erase who declined. Re-partnering
+  resets to `'PE'` and **must clear all four decline/response columns**, or
+  317's `bb_decline_reason_needs_decline` CHECK fails.
+- **Two `DC`s, unrelated:** `status='DC'` = the NGO declined the application;
+  `bb_response='DC'` = the blood bank declined to collect.
+- **`bb_response` states:** `NULL` = organiser named this BB but the NGO has not
+  promoted it (no Accept/Decline buttons) · `'PE'` = actionable · `'AC'`/`'DC'`
+  = answered. Written `'PE'` in exactly two places (verify, re-partner) —
+  **apply never writes `'PE'`**; only `auto_accept_within_capacity` writes a
+  partner at apply, stamping `'AC'`.
+- **Three day-states in capacity, and only one blocks.** No `bb_camp_capacity`
+  row = **not published** (`published:false`, `slots_left:null`, `ok:true`,
+  never blocks — absence-as-closed would have stopped camp hosting
+  platform-wide on ship day, so **branch on `published`, never `max_camps`**);
+  **`max_camps = 0` IS the holiday** (no blackout table — "closed" and
+  "reduced" are the same edit); `n` = n bookable slots. `PUT /camps/bb/capacity`
+  with `max_camps:null` withdraws a day.
+- **Two counts:** `confirmed` = `status IN ('PL','LV') AND
+  partnered_blood_bank_id = bb` **blocks**; `pending` = `status='PE' AND
+  (partnered = bb OR requested = bb)` is a **warning that never blocks** — one
+  abandoned application must not hold a day hostage.
+- **Overbooking is enforced in `services/camps/capacity.js`, not the DB.** Staff
+  misallocation is not patient safety (hard rule 1), it is a cross-row count a
+  CHECK cannot express, and a trigger would remove the admin's emergency
+  override. That file is the **single source of occupancy truth** — the BB's
+  calendar and the organiser's booking gate read the identical structure, which
+  is the whole reason it exists. `staff_total`/`staff_per_camp` are **advisory**
+  (they suggest `max_camps`); `max_camps` is what binds.
+- **Decline reasons `NC`/`ND`/`DT`/`VE`/`OT` go to the NGO admin, NEVER the
+  organiser** — the organiser sees only "we're arranging a different blood
+  bank", and `PublicCampPage` is deliberately untouched. **Organiser name +
+  mobile are revealed to the accepting BB only** — redacted while
+  `bb_response='PE'`, returned after `'AC'`, invisible to every other BB.
+- **Migration 318 exists only because `fn_audit_row()` (migration 025)
+  hardcodes `NEW.id`/`OLD.id`.** `bb_camp_settings` is keyed on
+  `blood_bank_id`, so its own audit trigger threw `record "new" has no field
+  "id"`; 316 was already applied and migrations are immutable. **Any table you
+  pass to `attach_audit_trigger()` must have a column literally named `id`.**
+- **Dates are calendar labels, not instants.** Every `date` in
+  capacity/availability responses is a plain `'YYYY-MM-DD'` string. A raw
+  `RETURNING scheduled_date` serialises as `…T00:00:00.000Z` — use
+  `to_char(scheduled_date,'YYYY-MM-DD')`.
+- **The roster PII leak that shipped with this fix:** `GET
+  /camps/:id/registrations` granted `blood_bank` with **no institution
+  scoping**, so any BB could read any camp's roster including mobiles and
+  decrypted names. Now `403 not_your_camp`. RLS is inert at runtime, so the
+  handler's own `WHERE` **is** the security boundary — 316's header says so
+  verbatim.
+- **Post-camp results worklist** `GET /camps/:id/donations` — `ScreeningEntry`
+  previously had one way in: paste a donation UUID. The screening endpoints are
+  reused byte-for-byte (4-eyes + the separate `screening` key kind untouched).
+- **Date inputs:** `frontend/src/components/DateOfBirthInput.jsx` (three
+  selects, year list mirroring the DB's `age_min`/`age_max` CHECKs at
+  `008_donors.sql:105-106`) and `frontend/src/lib/dateBounds.js` (`todayISO()`
+  reads **IST explicitly**). The picker mirrors the constraint, it does not
+  become it — `donorSchema.date_of_birth` still validates format only, so a
+  bulk upload or vendor webhook still hits the CHECK.
 
 ## Phase status
 
@@ -97,7 +244,7 @@ Migrations 312–314 moved attendance out of human hands. Before touching camps:
 |-------|--------|------------|-------|
 | 0 — Infrastructure | ✅ done | `node scripts/smoke_test.js` | commit `1a8ee3e` |
 | 1 — DB foundation  | ✅ done (18/18) | `node scripts/smoke_test_phase1_full.js` | 30 migrations *at Phase 1* (46 total now — see summary below), 34 tables, 100 triggers, 71 RLS policies — commit `1a8ee3e` |
-| 2 — Auth + onboarding | ✅ done (47/47) | `node scripts/smoke_test_phase2.js` | OTP, TOTP, **paper MoU** (eSign removed Aug 2026) |
+| 2 — Auth + onboarding | ✅ done (125/125) | `node scripts/smoke_test_phase2.js` | OTP, TOTP, **paper MoU** (eSign removed Aug 2026) |
 | 3 — Donor reg + passport | ✅ scaffold (18/18) | `node scripts/smoke_test_phase3.js` | See **Phase 3 handoff** below |
 | 4 — Inventory + TTI | ✅ core (17/17) | `node scripts/smoke_test_phase4.js` | See **Phase 4 status** below |
 | 5 — Request engine + matching | ✅ core (20/20) | `node scripts/smoke_test_phase5.js` | See **Phase 5 status** below |
@@ -106,8 +253,8 @@ Migrations 312–314 moved attendance out of human hands. Before touching camps:
 | 8 — Admin + reporting + deploy | ✅ core (code-complete) | `npm run lint && npm run smoke:frontend` | See **Phase 8 status** below |
 | Post-8 — Live deploy + feature gap-close | ✅ live on Azure (single-env `raktify` RG) | `npm run lint && npm run smoke:frontend` | See **Post-Phase-8 status** below |
 
-> **Current totals (2026-08-27):** 93 migrations (latest `314_camp_attendance_from_donation`),
-> 104 route handlers across 17 resource routers, 6 frontend role-portals + public
+> **Current totals (2026-08-28):** 97 migrations (latest `318_bb_camp_settings_audit_id`),
+> 215 route handlers across 22 resource routers, 6 frontend role-portals + public
 > surfaces, 3 notification providers (console / MSG91 / WhatsApp Cloud). Phases 0–8
 > **and** all post-Phase-8 additions are code-complete and live on Azure
 > (`raktify.choudhari.ngo` + `raktify-api` App Service). Single environment
@@ -175,22 +322,39 @@ If you see those anywhere, the doc is stale.
   echoed in the API response body so the site can be demoed without a working
   SMS/WhatsApp send. **Never enable when real users are on the platform.**
 - Approved Meta templates: `donor_otp` (auth, MR/HI/EN), `donor_alert_critical`
-  (utility, MR/EN), `camp_reminder`, `camp_organizer_link`, `mou_esign_link`
-  (utility, EN), `institution_activation_link` (utility, EN),
-  `community_leader_signin` (utility, EN). All send + deliver end-to-end;
-  Business Verification is done and **WABA payment method is on file** — no
-  silent-drop of live sends. V2 batch (`donor_alert_bb_routed`,
-  `donor_alert_replacement`, `donor_alert_community_first`, `bb_donor_incoming`,
-  `coord_prefire_warning`, `coord_critical_new`, `community_leader_mobilise`)
-  submitted via `scripts/submit_whatsapp_templates_v2.js`. Template copy is
-  the source of truth in `docs/Raktify_WhatsApp_Templates.md`.
+  (utility, MR/EN), `camp_reminder`, **`camp_organizer_link_v2`** (utility,
+  EN/MR/HI — 2 body vars; the 3-var original was read as MARKETING by Meta's
+  Marathi classifier and was reworked), `mou_esign_link` (utility, EN),
+  `institution_activation_link` (utility, EN), `community_leader_signin`
+  (utility, EN). All send + deliver end-to-end; Business Verification is done and
+  **WABA payment method is on file** — no silent-drop of live sends.
+  `community_leader_welcome` is **DEPRECATED** (re-classified MARKETING after a
+  dynamic URL carried a *constant* button value) and is superseded by
+  `community_leader_signin`, whose `?m={{1}}` per-recipient URL preserves
+  Utility. Template copy is the source of truth in
+  `docs/Raktify_WhatsApp_Templates.md`.
+- **`env.whatsapp.templates` (`env.js:88`) holds 24 lower_snake keys.** Careful:
+  `env.js` has **two** `templates:` maps — `msg91.templates` at line 67
+  (camelCase) and `whatsapp.templates` at 88. Tooling must anchor on
+  `whatsapp: {`. The provider exports only `{ send, providerName }`, so
+  `TEMPLATE_HANDLERS` is module-private and can only be read as source text.
+- **Meta constraints that have each already cost a resubmission:** URL-button
+  text ≤ **25 characters**; a *parameter* may not contain a newline, tab, or >4
+  consecutive spaces (body text may); every URL button must take a
+  **per-recipient** variable or Meta re-classifies the template MARKETING; each
+  language is a **separate** review (1–3 days). Handler component shapes are
+  lower-case (`{type:'body'…}`); the submit script's creation shapes are
+  UPPER-case (`{type:'BODY'…}`).
 - **Webhook**: `POST /webhooks/whatsapp/incoming` verifies Meta's
   `X-Hub-Signature-256` HMAC against `WHATSAPP_APP_SECRET`; `POST /webhooks/msg91/delivery`
   remains for the MSG91 path.
 
 ### Camps — full lifecycle (public host → verify → organizer dashboard → attendance)
-Migrations **260–264**, router `backend/src/routes/camps.js` (14 endpoints),
-frontend public + organizer + admin surfaces.
+Migrations **260–264**, router `backend/src/routes/camps.js`, frontend public +
+organizer + admin surfaces. **This section covers the original 2026 lifecycle
+only** — attendance derivation (312–314) and BB capacity + `bb_response`
+(315–318) are documented in their own sections near the top of this file, and
+`camps.js` has grown well past the 14 endpoints described here.
 - **260 camp_registrations** — donor sign-ups attached to a camp.
 - **261 public_camp_applications** — anyone can apply to host a camp; NGO verifies.
 - **262 camp_access_tokens** — magic-link tokens for the organizer dashboard (no
@@ -297,11 +461,66 @@ always present; the **API + UI** landed post-Phase-8.
 4. **Synchronous matching** — `POST /requests` runs the matcher inline inside a
    `withTransaction`. Async queue (BullMQ + Redis) is the right shape past ~1k
    requests/day; deferred until post-CSR-funding.
-5. Carried over: WebSocket live queue, Workbox BackgroundSync, Devanagari design
+5. **WhatsApp template approvals** — 15 templates awaiting Meta review (8 newly
+   submitted, 7 unconfirmed) plus the `raktify-kv` keys. The largest open item and
+   the only one that silently degrades: see **WhatsApp template pipeline** above.
+6. **Institution-users Stage 2 (staff capabilities)** — not started; begins at
+   migration **319**. Stage 1 (staff CRUD, magic-link setup, 2FA reset,
+   deactivate-with-reason) is live.
+7. **`BOT_REPLY` free-form session path** — 6 call sites in
+   `services/whatsapp/bot.js` currently cannot reply. Needs a non-template send.
+8. Carried over: WebSocket live queue, Workbox BackgroundSync, Devanagari design
    pass, donor-merge endpoint (still 501), `audit_reader` grant for integrity check,
-   adverse-reaction table, PDF report generation, medical/legal advisor sign-offs.
+   adverse-reaction table, PDF report generation, **legal review of the MoU
+   template** (medical sign-off is done, 10-Jul-2026).
+9. **Known smaller drift, logged not fixed:** `GET /donations/:id`
+   (`donations.js:194`) has no institution scoping; `CampsTab.jsx` and
+   `CommunityDetail.jsx` each keep a private camp-status palette instead of the
+   shared `campStatus.js`; `applySchema` accepts a `community_id` the INSERT
+   ignores; `smoke_test_phase3/5/6.js` carry pre-268 staff-auth drift;
+   `institutions.is_active` defaults to `false` (a footgun); this file claims a
+   `database/triggers/` directory that does not exist.
 
-### V2 WhatsApp templates (July 2026 — task 77)
+### WhatsApp template pipeline — current state (Aug 2026)
+
+`docs/Raktify_WhatsApp_Templates.md` is the copy source of truth;
+**`node scripts/check_whatsapp_templates.js` is the gate** — it walks
+`TEMPLATE_HANDLERS` plus every `templateType:` literal in `backend/src` and
+fails when one has no handler or no env key. It exists because this whole class
+of bug is invisible: a missing `WHATSAPP_TEMPLATE_*` makes the chokepoint
+`logger.warn` + return `{success:false, deliveryStatus:'FA'}` — the
+`notification_log` row still persists, so **a scheduled job looks perfectly
+healthy and sends nothing.** That is exactly how three shipped camp reminders
+(`camp_precheck_2d`, `camp_day_of`, `camp_donor_thankyou`) ran for weeks
+delivering zero messages before commit `dae92d8`.
+
+- **Authored + submitted 2026-08-28 (8):** `camp_precheck_2d`, `camp_day_of`,
+  `camp_donor_thankyou`, `camp_announcement` (`CAMP_ANNC`),
+  `donor_consent_invite`, `camp_bb_request`, `camp_bb_accepted`,
+  `camp_bb_changed`. `camp_bb_changed` carries the neutral line only — never a
+  decline reason.
+- **Submitted earlier, status unconfirmed (7):** `donor_alert_bb_routed`,
+  `donor_alert_community_first`, `donor_alert_replacement`, `bb_donor_incoming`,
+  `coord_prefire_warning`, `coord_critical_new`, `community_leader_mobilise`.
+  **Chase these through the Graph API, not the Business Manager UI.**
+  `donor_alert_replacement`'s Meta record still carries a 28-char button label
+  (ceiling 25) — the script is fixed, the record needs deleting + resubmitting.
+- **Wired, approved, waiting only on a Key Vault key:** `CAMP_LINK` →
+  `camp_organizer_link_v2`. **The cheapest thing to verify first.**
+- **Submission order:** EN first for each template, let it clear, then MR + HI
+  from the approved copy — a rejection is then caught once instead of three
+  times. `node scripts/submit_whatsapp_templates_v2.js --lang en`
+  (`--only name1,name2` narrows, `--dry-run` prints payloads).
+- **Env keys nothing calls today** (harmless, but do not assume they are wired):
+  `community_leader_mobilise`, `community_leader_welcome`, `coord_prefire_warn`,
+  `cred`, `emg`, `thk`. `REM` has no explicit handler and falls through to the
+  default positional builder — the gate's single WARN.
+- **`BOT_REPLY` (6 sites in `services/whatsapp/bot.js`) is NOT a template
+  problem.** It needs a free-form session-message path (legal inside Meta's
+  24-hour customer-service window, since the bot only ever replies to an
+  incoming message). Logged, deliberately not fixed.
+
+### V2 WhatsApp templates (July 2026 — task 77 — historical)
 Seven new templates for the donor-alert-gate architecture are now written up
 in `docs/Raktify_WhatsApp_Templates.md` §8–14, with provider handlers +
 env keys ready in code. **Meta submission is the bottleneck** (1–3 days per
@@ -643,14 +862,22 @@ Internal-only repo migrations: `010_grant_helper_roles`, `011_grant_schema_to_he
 | `312_camp_registration_deferred` | `camp_registrations.status` gains `'DF'` (came, could not donate) + `donation_camps.deferred_donor_count`. **`DF` is an attendance fact only** — it must never write `donors.deferral_until` or `next_eligible_date` (hard rule 1) |
 | `313_camp_counts_derived` | One `AFTER INSERT/UPDATE OF status/DELETE` trigger recomputes all three camp counts from the roster (`registered` = `status <> 'CN'`, `attended` = `'AT'`, `deferred` = `'DF'`). Backfills every camp, wrapping attended in `GREATEST(derived, existing)` **on the backfill only** so hand-typed totals survive |
 | `314_camp_attendance_from_donation` | **Attendance derives itself.** `AFTER INSERT OR UPDATE OF donation_camp_id ON donation_history` upserts a `'AT'` roster row when `donation_camp_id IS NOT NULL AND trust_level IN ('V','R')`; adds roster `source='WI'`. A trigger, not route code, because there are three donation-insert paths (`POST /donations`, the vendor webhook, bulk upload). Self-reported (`S`) donations never create attendance, and `is_invalidated` never unwinds it — the person still came |
+| `315_camp_requested_blood_bank` | `donation_camps.requested_blood_bank_id` — the organiser NAMES a preferred BB on the public form; `POST /camps/:id/verify` promotes request → partner via `COALESCE`. The organiser asks, the NGO admin decides |
+| `316_bb_camp_capacity` | `bb_camp_settings` (per-BB parent: `staff_total`, `staff_per_camp`, `default_max_camps`, `weekly_closed_days`, `auto_accept_within_capacity`) + `bb_camp_capacity` (per-day child, `UNIQUE (blood_bank_id, capacity_date)`). **`max_camps=0` IS the holiday; no row means NOT PUBLISHED, never closed.** Header records that RLS is inert at runtime, so the handler `WHERE` is the boundary |
+| `317_camp_bb_response` | `donation_camps.bb_response` (`PE`/`AC`/`DC`) + `_at`/`_by` + `bb_decline_reason` (`NC`/`ND`/`DT`/`VE`/`OT`, extending 287's vocabulary) + `bb_decline_note`. **An axis ORTHOGONAL to `status`, which gains no value.** Two CHECKs: `bb_response_needs_partner`, `bb_decline_reason_needs_decline` |
+| `318_bb_camp_settings_audit_id` | Fix: `fn_audit_row()` (025) hardcodes `NEW.id`, and `bb_camp_settings` is keyed on `blood_bank_id` — so 316's own audit trigger threw `record "new" has no field "id"` on every write. 316 was already applied and migrations are immutable, hence a new file. **Any table passed to `attach_audit_trigger()` needs a column literally named `id`** |
 
-> **⚠ This table is STALE.** It lists 220–266 plus 310–314, but the repo actually holds
-> **93 migration files, latest `314_camp_attendance_from_donation`** — migrations 267–309
-> (vendor webhook 307/308, blood-group HITL 309, citizen-raise 303, community-leader
-> served-districts 304, donor-alert horizon 305, institution eSign state + paired BB
-> 306, and others) shipped without being documented here. Do not trust the counts
-> above; `npm run migrate:status` is the source of truth. Backfilling the missing rows
-> is a separate cleanup task, deliberately not done inline.
+> **⚠ This table is INCOMPLETE — 267–309 are missing.** It lists 220–266 plus
+> 310–318, but the repo holds **97 migration files, latest
+> `318_bb_camp_settings_audit_id`** (next new one is **319**). The undocumented
+> span 267–309 includes the vendor webhook (307/308), blood-group HITL (309),
+> citizen-raise (303), community-leader served-districts (304), donor-alert
+> horizon (305), institution eSign state + paired BB (306), staff-cluster mobile
+> uniqueness (269/282), open-request BB declines (287, whose `NS`/`NC`/`ND`
+> reason codes 317 extends), staff 2FA enforcement (296), the medical sign-off
+> promotion (297), case-chat scope (299/300) and bag chain-of-custody (301/302).
+> **`npm run migrate:status` is the source of truth.** Backfilling the missing
+> rows is a separate cleanup task, deliberately not done inline.
 
 **Run `npm run migrate:status`** for the applied/pending/drift view.
 

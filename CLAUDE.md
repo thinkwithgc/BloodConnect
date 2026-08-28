@@ -6,7 +6,7 @@ This is a **life-critical** healthcare system. Read this whole file before touch
 > `raktify.*` (e.g. `raktify.actor_role`); the Tailwind/CSS design-system prefix
 > is `rk-*` / `.rk-*`. Use these consistently — no other brand prefix exists.
 
-## Where things stand (updated 2026-08-28) — READ THIS FIRST
+## Where things stand (updated 2026-08-29) — READ THIS FIRST
 
 The rest of this file is accreted history. This section is the resume point: the
 last commit, what is live, and what is genuinely blocked. Trust it over any
@@ -19,6 +19,8 @@ auto-applies migrations to prod**). Last three commits, newest first:
 
 | Commit | What |
 |---|---|
+| `70ac9ba` | `fix(api)`: a missing **endpoint** and a missing **row** no longer share the code `not_found`. The catch-all now answers **`route_not_found`**; `institutionErrorText` splits one sentence into three; smoke §22 asserts they differ. See **Deploy skew** below |
+| `bdf363d` | Staff logins are editable — `POST /institutions/:id/users/:userId/contact` (username / mobile / email), the in-house-BB admin captured on the hospital apply form, `reissue-setup` accepts a mobile |
 | `dae92d8` | `fix(notifications)`: three shipped camp reminders could not send a single message — 8 new WhatsApp templates authored + submitted, `CAMP_LINK` wired, `scripts/check_whatsapp_templates.js` gate added |
 | `9b0a59f` | BB camp capacity + `bb_response` (migrations 316/317/318, `services/camps/capacity.js`, BB Camps tab, results worklist, roster-PII fix, DOB picker, bounded date inputs) |
 | `3c4d235` | Camp organiser names a blood bank; NGO admin confirms it (migration 315) |
@@ -37,11 +39,44 @@ two of them):
 |---|---|---|
 | `npm run smoke:camps` | **117** | The camp gate. Covers attendance derivation + capacity + `bb_response` + the PII scoping |
 | `node scripts/smoke_test_phase4.js` | 17 | **Required regression** for anything touching `donation_history` / `donor_screening` |
-| `node scripts/smoke_test_phase2.js` | **125** | Institution onboarding / paper MoU |
+| `node scripts/smoke_test_phase2.js` | **167** | Institution onboarding / paper MoU / staff-login editing / the two-404 split |
 | `node scripts/check_whatsapp_templates.js` | 0 fail, 1 warn | Every `templateType` in `backend/src` must have a handler **and** an env key |
 | `npm run lint && npm run format:check` | — | `format:check` is a hard CI gate in all three workflows, **backend only** |
 | `npm run smoke:frontend` | — | Vite build. Frontend has no ESLint config, so this is its only gate. **Run from the repo root** |
 | `node scripts/smoke_test_phase3/5/6.js` | — | **Do not run.** Pre-268 staff-auth drift; they fail for unrelated reasons |
+
+### Deploy skew: the SPA goes live ~1 minute before the API
+
+One push, three workflows, and they do **not** land together. On commit
+`bdf363d` both started at `17:11:2x` but `raktify-web` finished in **2m26s**
+while `raktify-api` took **3m31s**. **Every release therefore has a ~60–90
+second window in which the new SPA is live against the old API**, so a button
+shipped in that release calls a route prod does not have yet and the user gets a
+404 from the Express catch-all.
+
+That is exactly how the staff-contact editor was reported broken on 2026-08-28
+— *"This no longer exists at this address. Go back to the register and re-open
+it."* The record was fine; the route was 65 seconds from existing. It cost hours
+because the catch-all answered the same bare `not_found` a dozen handlers use for
+a missing row.
+
+**When a 404 is reported right after a deploy, suspect skew before reading any
+handler.** `gh run list --branch main --limit 3` for the timings, then probe prod
+— one command tells you which of the three cases it is:
+
+| Probe result | Means |
+|---|---|
+| `{"error":"missing_token"}` | The route **exists** (`verifyJWT` is per-route). Not skew |
+| `{"error":"route_not_found"}` | The route is **not deployed yet**. Skew — tell the user to hard-reload |
+| `{"error":"not_found"}` | A handler ran and could not find the **row** |
+
+Commit `70ac9ba` is what makes that table possible: `app.js`'s catch-all answers
+`route_not_found`, and `institutionErrorText`
+(`frontend/src/components/institution/ReasonDialog.jsx`) gives the three cases
+three sentences — `route_not_found` says *reload the page*, `not_found` says the
+record is gone, `institution_not_found` names the register. **Never give
+"endpoint missing" and "row missing" the same code again**; `smoke_test_phase2.js`
+section 22 asserts they differ.
 
 **Live in prod, code-complete, nothing outstanding:** everything in the phase
 table below, plus per-day BB camp capacity publishing, per-camp
@@ -244,7 +279,7 @@ accept/decline is the exception path, not the normal one.
 |-------|--------|------------|-------|
 | 0 — Infrastructure | ✅ done | `node scripts/smoke_test.js` | commit `1a8ee3e` |
 | 1 — DB foundation  | ✅ done (18/18) | `node scripts/smoke_test_phase1_full.js` | 30 migrations *at Phase 1* (46 total now — see summary below), 34 tables, 100 triggers, 71 RLS policies — commit `1a8ee3e` |
-| 2 — Auth + onboarding | ✅ done (125/125) | `node scripts/smoke_test_phase2.js` | OTP, TOTP, **paper MoU** (eSign removed Aug 2026) |
+| 2 — Auth + onboarding | ✅ done (167/167) | `node scripts/smoke_test_phase2.js` | OTP, TOTP, **paper MoU** (eSign removed Aug 2026) |
 | 3 — Donor reg + passport | ✅ scaffold (18/18) | `node scripts/smoke_test_phase3.js` | See **Phase 3 handoff** below |
 | 4 — Inventory + TTI | ✅ core (17/17) | `node scripts/smoke_test_phase4.js` | See **Phase 4 status** below |
 | 5 — Request engine + matching | ✅ core (20/20) | `node scripts/smoke_test_phase5.js` | See **Phase 5 status** below |
@@ -473,7 +508,13 @@ always present; the **API + UI** landed post-Phase-8.
    pass, donor-merge endpoint (still 501), `audit_reader` grant for integrity check,
    adverse-reaction table, PDF report generation, **legal review of the MoU
    template** (medical sign-off is done, 10-Jul-2026).
-9. **Known smaller drift, logged not fixed:** `GET /donations/:id`
+9. **Known smaller drift, logged not fixed:** `PUT /institutions/:id`'s
+   authorization pre-read (`institutions.js:265-272`) uses a bare `pool.query`
+   while its sibling `GET /:id` reads under `withRlsContext` — a consistency
+   wart, **not** a live bug (RLS is inert at runtime and 60 raw `pool.query`
+   sites across 11 route files behave identically, `auth.js`'s login reads
+   included); deliberately left alone rather than touched without a
+   demonstrated defect. `GET /donations/:id`
    (`donations.js:194`) has no institution scoping; `CampsTab.jsx` and
    `CommunityDetail.jsx` each keep a private camp-status palette instead of the
    shared `campStatus.js`; `applySchema` accepts a `community_id` the INSERT

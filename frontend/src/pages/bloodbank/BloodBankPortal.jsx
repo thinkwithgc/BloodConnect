@@ -2662,6 +2662,21 @@ function CampCalendar() {
   const [month, setMonth] = useState(monthOf(today));
   const [editDate, setEditDate] = useState('');
   const [banner, setBanner] = useState(null);
+  // Multi-day editing. A BB that published a whole month on the wrong default
+  // has 30 wrong days, and "Plan this month" will not fix one of them - it is
+  // additive by construction and never overwrites. Without this the only route
+  // back is 30 modals, which is what "there is no way to clear the calendar
+  // days" actually meant.
+  const [pick, setPick] = useState(false);
+  const [sel, setSel] = useState(() => new Set());
+
+  const toggleDay = (iso) =>
+    setSel((prev) => {
+      const next = new Set(prev);
+      if (next.has(iso)) next.delete(iso);
+      else next.add(iso);
+      return next;
+    });
 
   const dates = useMemo(() => monthDates(month), [month]);
   const from = dates[0];
@@ -2691,7 +2706,7 @@ function CampCalendar() {
       setBanner(
         res.created
           ? `Published ${res.created} day${res.created === 1 ? '' : 's'} for ${monthLabel(month)}. Days you had already set were left alone.`
-          : `Every day in ${monthLabel(month)} was already planned - nothing changed.`,
+          : `Every day in ${monthLabel(month)} is already planned, so this changed nothing - it never overwrites. Use Change several days to correct days you have already planned.`,
       );
       qc.invalidateQueries({ queryKey: ['bb-capacity'] });
     },
@@ -2720,6 +2735,7 @@ function CampCalendar() {
               onClick={() => {
                 setMonth(shiftMonth(month, -1));
                 setBanner(null);
+                setSel(new Set());
               }}
             >
               &lsaquo;
@@ -2734,36 +2750,70 @@ function CampCalendar() {
               onClick={() => {
                 setMonth(shiftMonth(month, 1));
                 setBanner(null);
+                setSel(new Set());
               }}
             >
               &rsaquo;
             </button>
           </div>
-          <button
-            type="button"
-            className="rk-button-primary"
-            disabled={publish.isPending}
-            onClick={() => {
-              setBanner(null);
-              publish.mutate();
-            }}
-          >
-            {publish.isPending ? 'Planning...' : 'Plan this month'}
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              className={pick ? 'rk-button-primary' : 'rk-button-secondary'}
+              onClick={() => {
+                setBanner(null);
+                setSel(new Set());
+                setPick(!pick);
+              }}
+            >
+              {pick ? 'Done choosing' : 'Change several days'}
+            </button>
+            <button
+              type="button"
+              className="rk-button-primary"
+              disabled={publish.isPending || pick}
+              onClick={() => {
+                setBanner(null);
+                publish.mutate();
+              }}
+            >
+              {publish.isPending ? 'Planning...' : 'Plan this month'}
+            </button>
+          </div>
         </div>
 
         <p className="mt-2 text-xs text-slate-500">
-          Plan this month fills every day from today onwards using your default number of camps,
-          and closes the weekdays you are normally shut. Days you have already set by hand are
-          never overwritten.
+          {pick
+            ? 'Tap the days you want to change, or tap a weekday name to take every one of them. Then set a number, close them, or take them off the plan.'
+            : 'Plan this month fills every day from today onwards using your default number of camps, and closes the weekdays you are normally shut. It never overwrites a day that is already planned - to change or clear days you have already planned, tap one, or use Change several days.'}
         </p>
 
         {banner ? <p className="mt-2 text-sm text-slate-700">{banner}</p> : null}
 
         <div className="mt-4 grid grid-cols-7 gap-1 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
-          {DOW_LABELS.map((d) => (
-            <span key={d}>{d}</span>
-          ))}
+          {DOW_LABELS.map((d, dow) =>
+            pick ? (
+              <button
+                key={d}
+                type="button"
+                className="rounded py-0.5 uppercase hover:bg-slate-100 hover:text-rk-700"
+                title={`Choose every ${d} left this month`}
+                onClick={() =>
+                  setSel((prev) => {
+                    const next = new Set(prev);
+                    for (const iso of dates) {
+                      if (iso >= today && isoDow(iso) === dow) next.add(iso);
+                    }
+                    return next;
+                  })
+                }
+              >
+                {d}
+              </button>
+            ) : (
+              <span key={d}>{d}</span>
+            ),
+          )}
         </div>
 
         <div className="mt-1 grid grid-cols-7 gap-1">
@@ -2773,13 +2823,30 @@ function CampCalendar() {
           {dates.map((iso) => {
             const day = byDate.get(iso);
             const past = iso < today;
+            const chosen = sel.has(iso);
+            // A past day is never worth bulk-editing, and letting it into a
+            // selection is how you accidentally rewrite history. Still tappable
+            // on its own, exactly as before.
+            const lockedForPick = pick && past;
             return (
               <button
                 key={iso}
                 type="button"
-                onClick={() => setEditDate(iso)}
-                className={dayCellClass(day, iso === today) + (past ? ' opacity-60' : '')}
+                disabled={lockedForPick}
+                aria-pressed={pick ? chosen : undefined}
+                onClick={() => (pick ? toggleDay(iso) : setEditDate(iso))}
+                className={
+                  dayCellClass(day, iso === today) +
+                  (past ? ' opacity-60' : '') +
+                  (chosen ? ' ring-2 ring-rk-700 ring-offset-1' : '') +
+                  (lockedForPick ? ' cursor-not-allowed' : '')
+                }
               >
+                {chosen ? (
+                  <span className="absolute right-1 top-1 flex h-4 w-4 items-center justify-center rounded-full bg-rk-700 text-[10px] font-bold leading-none text-white">
+                    &#10003;
+                  </span>
+                ) : null}
                 <span className="text-sm font-semibold text-slate-900">
                   {Number(iso.slice(8, 10))}
                 </span>
@@ -2816,6 +2883,23 @@ function CampCalendar() {
           </span>
         </div>
       </div>
+
+      {pick ? (
+        <CapacityBulkBar
+          dates={dates}
+          byDate={byDate}
+          selected={sel}
+          suggested={suggested}
+          today={today}
+          onSelect={setSel}
+          onDone={(msg) => {
+            setBanner(msg);
+            setSel(new Set());
+            qc.invalidateQueries({ queryKey: ['bb-capacity'] });
+            qc.invalidateQueries({ queryKey: ['bb-camps'] });
+          }}
+        />
+      ) : null}
 
       {editDate ? (
         <CapacityDayEditor
@@ -3074,6 +3158,209 @@ function CapacitySettingsBar({ settings, suggested, loading }) {
           Cancel
         </button>
       </div>
+    </div>
+  );
+}
+
+// ── Several days at once ───────────────────────────────────────────────────
+//
+// The per-day editor above can already do everything to one day. This exists
+// because the mistake this feature has to survive is made a MONTH at a time:
+// "Plan this month" is deliberately additive - it never overwrites an existing
+// row, so a BB that published September on the wrong default cannot fix a
+// single day of it by pressing that button again. One modal per day, thirty
+// times, is not a repair path.
+//
+// The three actions map exactly onto the three day-states, and the third is the
+// one that was missing: max_camps null DELETEs the row, taking the day back to
+// unplanned. That is the only undo for an accidental publish.
+//
+// ⚠ The upsert overwrites EVERY column it is sent (note and staff_committed
+// included), so a bulk change to the number of camps has to carry each day's
+// existing note and staff along with it. Sending a bare {date, max_camps}
+// would quietly erase every "Diwali, 2 techs on leave" in the selection.
+function CapacityBulkBar({ dates, byDate, selected, suggested, today, onSelect, onDone }) {
+  const [camps, setCamps] = useState('');
+  const [staff, setStaff] = useState('');
+  const [confirmWithdraw, setConfirmWithdraw] = useState(false);
+  const [err, setErr] = useState(null);
+
+  const chosen = useMemo(() => dates.filter((d) => selected.has(d)), [dates, selected]);
+  const plannedCount = chosen.filter((d) => byDate.get(d)?.published).length;
+  const bookedCount = chosen.filter((d) => (byDate.get(d)?.confirmed || 0) > 0).length;
+
+  const write = useMutation({
+    mutationFn: (days) => apiRequest('PUT', '/camps/bb/capacity', { days }),
+    onSuccess: (res) => {
+      const bits = [];
+      if (res.written) bits.push(`Updated ${res.written} day${res.written === 1 ? '' : 's'}`);
+      if (res.removed)
+        bits.push(`took ${res.removed} day${res.removed === 1 ? '' : 's'} off the plan`);
+      onDone(bits.length ? `${bits.join(' and ')}.` : 'Nothing changed.');
+    },
+    onError: (e) => setErr(errorMessage(e, 'change these days')),
+  });
+
+  const pickWhere = (fn) => onSelect(new Set(dates.filter((d) => d >= today && fn(byDate.get(d)))));
+
+  const apply = (value) => {
+    setErr(null);
+    setConfirmWithdraw(false);
+    if (!chosen.length) {
+      setErr('Choose at least one day first.');
+      return;
+    }
+    const staffText = String(staff).trim();
+    const staffNum = staffText === '' ? null : Number(staffText);
+    if (staffText !== '' && !(Number.isInteger(staffNum) && staffNum >= 0 && staffNum <= 500)) {
+      setErr('Staff has to be a whole number between 0 and 500, or left blank.');
+      return;
+    }
+    write.mutate(
+      chosen.map((date) => {
+        const d = byDate.get(date);
+        return {
+          date,
+          max_camps: value,
+          staff_committed: staffText === '' ? (d?.staff_committed ?? null) : staffNum,
+          note: d?.note ?? null,
+        };
+      }),
+    );
+  };
+
+  const applyNumber = () => {
+    const text = String(camps).trim();
+    const n = Number(text);
+    if (text === '' || !Number.isInteger(n) || n < 0 || n > 20) {
+      setErr('Enter how many camps you can staff - a whole number from 0 to 20.');
+      return;
+    }
+    apply(n);
+  };
+
+  const withdraw = () => {
+    setErr(null);
+    if (!chosen.length) {
+      setErr('Choose at least one day first.');
+      return;
+    }
+    if (!confirmWithdraw) {
+      setConfirmWithdraw(true);
+      return;
+    }
+    setConfirmWithdraw(false);
+    write.mutate(chosen.map((date) => ({ date, max_camps: null })));
+  };
+
+  const quick = 'rounded border border-slate-300 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-50';
+
+  return (
+    <div className="sticky bottom-4 z-30 rounded-lg border border-rk-200 bg-white p-4 shadow-lift">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+        <p className="text-sm font-semibold text-slate-900">
+          {chosen.length
+            ? `${chosen.length} day${chosen.length === 1 ? '' : 's'} chosen`
+            : 'No days chosen yet'}
+        </p>
+        {chosen.length ? (
+          <p className="text-xs text-slate-500">
+            {plannedCount} already planned &middot; {chosen.length - plannedCount} not planned yet
+            {bookedCount ? ` \u00b7 ${bookedCount} with a confirmed camp` : ''}
+          </p>
+        ) : null}
+      </div>
+
+      <div className="mt-2 flex flex-wrap gap-1.5">
+        <button type="button" className={quick} onClick={() => pickWhere((d) => !!d?.published)}>
+          All planned days
+        </button>
+        <button type="button" className={quick} onClick={() => pickWhere((d) => !d?.published)}>
+          Days not planned yet
+        </button>
+        <button type="button" className={quick} onClick={() => pickWhere(() => true)}>
+          Rest of the month
+        </button>
+        <button type="button" className={quick} onClick={() => onSelect(new Set())}>
+          Clear
+        </button>
+      </div>
+
+      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+        <div>
+          <label className="rk-label" htmlFor="bulk-camps">
+            Camps a day
+          </label>
+          <input
+            id="bulk-camps"
+            type="number"
+            min={0}
+            max={20}
+            className="rk-input"
+            value={camps}
+            onChange={(e) => setCamps(e.target.value)}
+            placeholder={suggested ? String(suggested) : '1'}
+          />
+        </div>
+        <div>
+          <label className="rk-label" htmlFor="bulk-staff">
+            Staff you are committing
+          </label>
+          <input
+            id="bulk-staff"
+            type="number"
+            min={0}
+            max={500}
+            className="rk-input"
+            value={staff}
+            onChange={(e) => setStaff(e.target.value)}
+            placeholder="leave blank to keep each day's own"
+          />
+        </div>
+      </div>
+
+      <p className="mt-1 text-xs text-slate-500">
+        Notes you typed on individual days are kept. Changing a number never cancels a camp that is
+        already confirmed.
+      </p>
+
+      {err ? <p className="mt-2 text-sm text-rk-700">{err}</p> : null}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="rk-button-primary"
+          disabled={write.isPending || !chosen.length}
+          onClick={applyNumber}
+        >
+          {write.isPending ? 'Saving...' : 'Set these days'}
+        </button>
+        <button
+          type="button"
+          className="rk-button-secondary"
+          disabled={write.isPending || !chosen.length}
+          onClick={() => apply(0)}
+        >
+          Close these days
+        </button>
+        <button
+          type="button"
+          className={
+            confirmWithdraw
+              ? 'rk-button-primary'
+              : 'rounded-md border border-slate-300 px-3 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50'
+          }
+          disabled={write.isPending || !chosen.length}
+          onClick={withdraw}
+        >
+          {confirmWithdraw ? 'Tap again to take them off' : 'Take off the plan'}
+        </button>
+      </div>
+
+      <p className="mt-2 text-xs text-slate-500">
+        Closed means organisers see you are shut that day. Taking a day off the plan says nothing at
+        all - back to how it was before you planned it.
+      </p>
     </div>
   );
 }

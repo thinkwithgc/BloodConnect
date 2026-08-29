@@ -4,7 +4,8 @@ import { z } from 'zod';
 
 import { Header } from '../../components/Header.jsx';
 import { apiRequest } from '../../lib/api.js';
-import { isoOffsetDays, isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
+import { isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
+import { BbAvailabilityCalendar } from '../../components/camps/BbAvailabilityCalendar.jsx';
 
 const ORGANISER_TYPES = [
   { code: 'CC', label: 'Corporate / company' },
@@ -95,6 +96,11 @@ export function HostCamp() {
 
   function update(k, v) {
     setForm((p) => ({ ...p, [k]: v }));
+    // A 409 refusal is about one date at one blood bank. Change either and the
+    // refusal no longer describes anything - and leaving it up would put a red
+    // "fully booked on the 14th" line under a calendar on which the organiser
+    // has just tapped a green 21st.
+    if (k === 'scheduled_date' || k === 'requested_blood_bank_id') setDayFull(null);
   }
 
   useEffect(() => {
@@ -349,68 +355,32 @@ export function HostCamp() {
             </Field>
           </section>
 
-          {/* Camp basics */}
-          <section className="rk-card grid gap-3 sm:grid-cols-2">
-            <h2 className="col-span-full text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Camp details
-            </h2>
-            <Field label="Camp name" error={errors.name}>
-              <input
-                className="rk-input"
-                value={form.name}
-                onChange={(e) => update('name', e.target.value)}
-                placeholder="e.g. Republic Day Donation Drive"
-                required
-              />
-            </Field>
-            <Field label="Target donors" hint="Optional — roughly how many donors are you expecting?">
-              <input
-                className="rk-input"
-                inputMode="numeric"
-                value={form.target_donor_count}
-                onChange={(e) =>
-                  update('target_donor_count', e.target.value.replace(/\D/g, ''))
-                }
-                placeholder="e.g. 50"
-              />
-            </Field>
-            <Field label="Date" error={errors.scheduled_date}>
-              <input
-                type="date"
-                className="rk-input"
-                value={form.scheduled_date}
-                min={todayISO()}
-                max={isoOffsetYears(1)}
-                onChange={(e) => update('scheduled_date', e.target.value)}
-                required
-              />
-            </Field>
-            <Field label="Start time" error={errors.start_time}>
-              <input
-                type="time"
-                className="rk-input"
-                value={form.start_time}
-                onChange={(e) => update('start_time', e.target.value)}
-                required
-              />
-            </Field>
-            <Field label="End time" error={errors.end_time}>
-              <input
-                type="time"
-                className="rk-input"
-                value={form.end_time}
-                onChange={(e) => update('end_time', e.target.value)}
-                required
-              />
-            </Field>
-          </section>
+          {/* Date + district + who collects, ONE block, and deliberately the
+              second thing on the form.
 
-          {/* Location */}
+              The founder's reason for moving it up: "doing this will give
+              upfront idea of selection of dates to organizer. then we can
+              record the camp details." An organiser who fills in a camp name,
+              a target and a date first, and only then learns the blood bank
+              cannot serve that date, has to unpick their own form. Asking the
+              constrained question first means the date they type is one that
+              can actually happen.
+
+              State + district moved up here with it because they have to: the
+              blood-bank list is district-scoped (the backend rejects a
+              cross-district request), so the district IS part of this
+              question, not part of the venue. Taluka, venue, address and
+              pincode stay behind in the Location section — they constrain
+              nothing.
+
+              Who collects is still a REQUEST, not an assignment: the NGO admin
+              promotes it to partnered_blood_bank_id at verify (migration
+              315). */}
           <section className="rk-card space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Where will it be held?
+              When, and who will collect the blood?
             </h2>
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2">
               <Field label="State" error={errors.state_id}>
                 <select
                   className="rk-input"
@@ -438,7 +408,130 @@ export function HostCamp() {
                   ))}
                 </select>
               </Field>
-              <Field label="Taluka" hint="Optional">
+            </div>
+            <p className="text-sm text-slate-600">
+              The blood bank sends the team, the beds and the cold-chain boxes. If you
+              already work with one, name it here. If you do not know one,{' '}
+              <strong>that is perfectly fine</strong> - Raktify will arrange it for you.
+            </p>
+            {!form.district_id ? (
+              <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+                Choose the district above first, then pick a blood bank here.
+              </p>
+            ) : bloodBanks.length === 0 ? (
+              <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+                No blood bank is on Raktify in this district yet -{' '}
+                <strong>we will arrange collection for you.</strong> Nothing to do on this
+                question.
+              </p>
+            ) : (
+              <Field
+                label="Preferred blood bank"
+                hint="Optional. Our NGO team confirms the blood bank when we review your application."
+                error={errors.requested_blood_bank_id}
+              >
+                <select
+                  className="rk-input"
+                  value={form.requested_blood_bank_id}
+                  onChange={(e) => update('requested_blood_bank_id', e.target.value)}
+                >
+                  <option value="">I do not know - please arrange one for us</option>
+                  {bloodBanks.map((b) => (
+                    <option key={b.id} value={b.id}>
+                      {b.display_name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+            {/* The calendar is browsable on its own — it answers "which days
+                are free" for someone who has picked no date at all, and it is
+                the surface the founder asked for so an organiser "can keep
+                watch on the dates" while they are still planning. */}
+            {form.requested_blood_bank_id ? (
+              <BbAvailabilityCalendar
+                bloodBankId={form.requested_blood_bank_id}
+                date={form.scheduled_date}
+                dayFull={dayFull}
+                onPickDate={(d) => update('scheduled_date', d)}
+              />
+            ) : null}
+            <Field
+              label="Camp date"
+              hint={
+                form.requested_blood_bank_id
+                  ? 'Tap a day above, or type it here.'
+                  : undefined
+              }
+              error={errors.scheduled_date}
+            >
+              <input
+                type="date"
+                className="rk-input max-w-[14rem]"
+                value={form.scheduled_date}
+                min={todayISO()}
+                max={isoOffsetYears(1)}
+                onChange={(e) => update('scheduled_date', e.target.value)}
+                required
+              />
+            </Field>
+          </section>
+
+          {/* Camp basics */}
+          <section className="rk-card grid gap-3 sm:grid-cols-2">
+            <h2 className="col-span-full text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Camp details
+            </h2>
+            <Field label="Camp name" error={errors.name}>
+              <input
+                className="rk-input"
+                value={form.name}
+                onChange={(e) => update('name', e.target.value)}
+                placeholder="e.g. Republic Day Donation Drive"
+                required
+              />
+            </Field>
+            <Field label="Target donors" hint="Optional — roughly how many donors are you expecting?">
+              <input
+                className="rk-input"
+                inputMode="numeric"
+                value={form.target_donor_count}
+                onChange={(e) =>
+                  update('target_donor_count', e.target.value.replace(/\D/g, ''))
+                }
+                placeholder="e.g. 50"
+              />
+            </Field>
+            <Field label="Start time" error={errors.start_time}>
+              <input
+                type="time"
+                className="rk-input"
+                value={form.start_time}
+                onChange={(e) => update('start_time', e.target.value)}
+                required
+              />
+            </Field>
+            <Field label="End time" error={errors.end_time}>
+              <input
+                type="time"
+                className="rk-input"
+                value={form.end_time}
+                onChange={(e) => update('end_time', e.target.value)}
+                required
+              />
+            </Field>
+          </section>
+
+          {/* Location */}
+          <section className="rk-card space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+              Where will it be held?
+            </h2>
+            <div className="max-w-sm">
+              <Field
+                label="Taluka"
+                hint="Optional — inside the district you chose above"
+              >
                 <select
                   className="rk-input"
                   value={form.taluka_id}
@@ -481,59 +574,6 @@ export function HostCamp() {
                 maxLength={6}
               />
             </Field>
-          </section>
-
-          {/* Who collects. A REQUEST, not an assignment - the NGO admin
-              promotes it to partnered_blood_bank_id at verify (migration 315).
-              Scoped to the district picked above, which is why it lives after
-              the Location section. */}
-          <section className="rk-card space-y-3">
-            <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Who will collect the blood?
-            </h2>
-            <p className="text-sm text-slate-600">
-              The blood bank sends the team, the beds and the cold-chain boxes. If you
-              already work with one, name it here. If you do not know one,{' '}
-              <strong>that is perfectly fine</strong> - Raktify will arrange it for you.
-            </p>
-            {!form.district_id ? (
-              <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                Choose the district above first, then pick a blood bank here.
-              </p>
-            ) : bloodBanks.length === 0 ? (
-              <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
-                No blood bank is on Raktify in this district yet -{' '}
-                <strong>we will arrange collection for you.</strong> Nothing to do on this
-                question.
-              </p>
-            ) : (
-              <Field
-                label="Preferred blood bank"
-                hint="Optional. Our NGO team confirms the blood bank when we review your application."
-                error={errors.requested_blood_bank_id}
-              >
-                <select
-                  className="rk-input"
-                  value={form.requested_blood_bank_id}
-                  onChange={(e) => update('requested_blood_bank_id', e.target.value)}
-                >
-                  <option value="">I do not know - please arrange one for us</option>
-                  {bloodBanks.map((b) => (
-                    <option key={b.id} value={b.id}>
-                      {b.display_name}
-                    </option>
-                  ))}
-                </select>
-              </Field>
-            )}
-            {form.requested_blood_bank_id ? (
-              <AvailabilityStrip
-                bloodBankId={form.requested_blood_bank_id}
-                date={form.scheduled_date}
-                dayFull={dayFull}
-                onPickDate={(d) => update('scheduled_date', d)}
-              />
-            ) : null}
           </section>
 
           {/* Volunteer training */}
@@ -633,157 +673,4 @@ export function HostCamp() {
       </main>
     </div>
   );
-}
-
-// ── What the chosen blood bank has already committed to ────────────────────
-//
-// Migration 316 lets a blood bank publish, a month ahead, how many camps a day
-// it can staff. This is the organiser's side of that: the days it has already
-// filled read as taken BEFORE the date is committed, so the clash is found on
-// the form instead of on a phone call a week later.
-//
-// A day with no published capacity looks completely normal here, and that is
-// correct - absence of a row means "not planned", never "closed" (316's
-// header). On the day this ships no blood bank has published anything, so this
-// strip renders its quiet "nothing marked" state for every date. It gets more
-// useful as blood banks fill their calendars, and it is never in the way.
-function AvailabilityStrip({ bloodBankId, date, dayFull, onPickDate }) {
-  const [data, setData] = useState(null);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    if (!bloodBankId) {
-      setData(null);
-      setFailed(false);
-      return undefined;
-    }
-    let live = true;
-    setData(null);
-    setFailed(false);
-    // 90 days: inside the endpoint's 92-day cap, and past the horizon anyone
-    // books a camp on.
-    apiRequest(
-      'GET',
-      `/camps/bb-availability?blood_bank_id=${bloodBankId}` +
-        `&from=${todayISO()}&to=${isoOffsetDays(90)}`,
-    )
-      .then((r) => {
-        if (live) setData(r);
-      })
-      .catch(() => {
-        if (live) setFailed(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, [bloodBankId]);
-
-  // The strip must never stop anyone submitting. If this call fails the form
-  // behaves exactly as it did before the feature existed, and the backend gate
-  // still catches a genuine clash.
-  if (failed) return null;
-
-  const days = data?.days || [];
-  const full = days.filter((d) => d.published && !d.ok);
-  const open = days.filter((d) => d.published && d.ok && d.max_camps > 0);
-  const chosen = date ? days.find((d) => d.date === date) || null : null;
-
-  // The alternatives the backend offered on a 409 beat anything worked out
-  // here: they were computed at the moment of the refusal.
-  const suggestions = (dayFull?.next_open_dates?.length
-    ? dayFull.next_open_dates
-    : open.map((d) => d.date)
-  ).slice(0, 6);
-
-  return (
-    <div className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm">
-      <p className="font-medium text-slate-700">
-        {data?.blood_bank_name || 'This blood bank'} - days it can take a camp
-      </p>
-
-      {!data ? (
-        <p className="mt-1 text-slate-500">Checking their calendar...</p>
-      ) : dayFull ? (
-        <p className="mt-1 font-medium text-rk-700">
-          Fully booked on {fmtDay(dayFull.scheduled_date)} - {dayFull.confirmed} of{' '}
-          {dayFull.max_camps} camps already taken. Choose another day below.
-        </p>
-      ) : chosen && chosen.published && chosen.max_camps === 0 ? (
-        <p className="mt-1 font-medium text-rk-700">
-          They are closed for camps on {fmtDay(chosen.date)}. Choose another day below.
-        </p>
-      ) : chosen && chosen.published && !chosen.ok ? (
-        <p className="mt-1 font-medium text-amber-700">
-          Already full on {fmtDay(chosen.date)} - {chosen.confirmed} of {chosen.max_camps}{' '}
-          camps taken. Choose another day below.
-        </p>
-      ) : chosen && chosen.published ? (
-        <p className="mt-1 text-green-800">
-          Room on {fmtDay(chosen.date)} - {chosen.confirmed} of {chosen.max_camps} camps
-          taken, {chosen.slots_left} still free.
-          {chosen.pending ? ` ${chosen.pending} other application is being reviewed.` : ''}
-        </p>
-      ) : chosen ? (
-        <p className="mt-1 text-slate-600">
-          They have not published a plan for {fmtDay(chosen.date)} yet. Go ahead - our team
-          confirms it with them when we review your application.
-        </p>
-      ) : full.length ? (
-        <p className="mt-1 text-slate-600">
-          Already full on{' '}
-          <span className="font-medium text-slate-800">
-            {full
-              .slice(0, 5)
-              .map((d) => fmtDay(d.date))
-              .join(', ')}
-          </span>
-          {full.length > 5 ? ` and ${full.length - 5} more` : ''}. Every other day is open.
-        </p>
-      ) : (
-        <p className="mt-1 text-slate-600">
-          Nothing marked full in the next 90 days. Pick whichever date suits you.
-        </p>
-      )}
-
-      {/* Suggested days, one tap each. Shown only when the chosen day will not
-          work - offering alternatives to someone whose date is already fine
-          just invites second-guessing. Published, non-full days only: a day the
-          blood bank has not committed to is not an assurance to hand out. */}
-      {suggestions.length && (dayFull || (chosen && chosen.published && !chosen.ok)) ? (
-        <div className="mt-2 flex flex-wrap gap-2">
-          {suggestions.map((d) => (
-            <button
-              key={d}
-              type="button"
-              className="rounded-full border border-rk-700 px-3 py-1 text-xs font-medium text-rk-700 hover:bg-rk-50"
-              onClick={() => onPickDate(d)}
-            >
-              {fmtDay(d)}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      <p className="mt-2 text-xs text-slate-500">
-        You can still apply for any date. Our NGO team confirms the blood bank before the
-        camp is published.
-      </p>
-    </div>
-  );
-}
-
-// "Sat 14 Sep". Short enough to sit five-across on a phone, and the weekday is
-// there because a camp on a working Tuesday is a different proposition from one
-// on a Sunday.
-function fmtDay(iso) {
-  if (!iso) return '';
-  try {
-    return new Date(`${String(iso).slice(0, 10)}T00:00:00`).toLocaleDateString('en-IN', {
-      weekday: 'short',
-      day: 'numeric',
-      month: 'short',
-    });
-  } catch {
-    return String(iso).slice(0, 10);
-  }
 }

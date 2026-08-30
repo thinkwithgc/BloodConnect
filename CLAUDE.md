@@ -183,6 +183,23 @@ Marathi. Rules that must hold for anything added to them:
   (Marathi puts the wordmark *before* द्वारे). **API error codes are never
   translated** — each maps to a pack key client-side, exactly as
   `institutionErrorText` maps `route_not_found` / `not_found`.
+- **`donors.preferred_language` is the WhatsApp language and is now ASKED, not
+  inherited** (`c9a8c85`). The column has existed since `008_donors.sql:33`
+  (`CHAR(2) NOT NULL DEFAULT 'mr'`, CHECK `mr`/`hi`/`en`) and every donor
+  notification path already reads it — `dispatchDonorAlerts`, the three camp
+  reminders, `services/matching/donors.js`, `routes/donorAlerts.js` — with
+  `whatsappCloudProvider` mapping it to Meta's `language.code`. **It is NOT the
+  UI language.** Registration used to post whatever `useT()` happened to hold,
+  and `detectInitialLang()` falls back to the **browser's** language, so a
+  Marathi donor on an English-locale phone was silently stored as `'en'` and got
+  English WhatsApp for good. `DonorRegister` now asks (`personalSchema`
+  `z.enum(['mr','hi','en'])`, defaulted to the language the page is being read
+  in) and `DonorDashboard`'s *Edit profile* edits it via the long-standing
+  `POST /donors/me/profile`. Both surfaces call `setLang` on change so the choice
+  is visible immediately, and both render native script from the single exported
+  `LANG_LABELS`. Keys `donor_lang_label` / `donor_lang_hint` are in the **main**
+  dict, so they carry real Hindi — **the no-Hindi carve-out is `camp_`/`bb_`
+  only**. No migration; schema head stayed 318.
 - `lib/campStatus.js` still returns today's `{ label, cls }` and gained a `key`
   per entry plus `campStatusLabel(code, t)`, so untranslated admin surfaces keep
   working while the organiser and BB views translate.
@@ -331,6 +348,18 @@ accept/decline is the exception path, not the normal one.
   reads **IST explicitly**). The picker mirrors the constraint, it does not
   become it — `donorSchema.date_of_birth` still validates format only, so a
   bulk upload or vendor webhook still hits the CHECK.
+  **The three selects are driven by the component's OWN `{y,m,d}` state, never
+  by the `value` prop — do not "simplify" that away** (fixed `c9a8c85`, after
+  it shipped broken). `onChange` emits `''` for any incomplete triple, so
+  `required` fires on a half-filled picker and the form can never post
+  `'1998--07'`. That contract is right, and it is precisely why `value` cannot
+  drive the selects: for two taps out of three `value` is `''`, so a
+  `value`-derived select snaps back to its placeholder the instant the donor
+  touches it and **the triple can never be completed**. `value` seeds the state
+  and can override it (an edit form loading a saved DOB, a reset); the guarded
+  re-seed `useEffect` stays out of the way while the picker is half-filled,
+  because both sides are `''` there. One component, four call sites — donor
+  register, donor profile, `ThalassemiaTab`, `DonorBulkUpload`.
 
 ## Phase status
 

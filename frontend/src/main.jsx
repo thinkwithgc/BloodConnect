@@ -6,6 +6,7 @@ import { QueryClientProvider } from '@tanstack/react-query';
 import App from './App.jsx';
 import { ScrollToTop } from './components/ScrollToTop.jsx';
 import { AuthProvider } from './auth/AuthContext.jsx';
+import { LangProvider } from './i18n/LangProvider.jsx';
 import { queryClient } from './lib/queryClient.js';
 import './index.css';
 
@@ -14,8 +15,10 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
         <BrowserRouter>
-          <ScrollToTop />
-          <App />
+          <LangProvider>
+            <ScrollToTop />
+            <App />
+          </LangProvider>
         </BrowserRouter>
       </AuthProvider>
     </QueryClientProvider>

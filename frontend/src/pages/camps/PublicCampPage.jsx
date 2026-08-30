@@ -6,6 +6,7 @@ import { Header } from '../../components/Header.jsx';
 import { Wordmark } from '../../components/Wordmark.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
+import { useT } from '../../i18n/useT.js';
 
 // Canonical via channel values (must match the backend Zod enum).
 const VALID_CHANNELS = [
@@ -14,28 +15,31 @@ const VALID_CHANNELS = [
 
 const PENDING_KEY = 'rk.pendingCampRsvp';
 
-function fmtDate(v) {
+// Month and weekday names come from the string pack, never
+// toLocaleDateString('mr-IN'): Intl's Marathi data is not reliably present and
+// its forms are unpredictable. Digits stay Latin in every language.
+function fmtDate(v, t) {
   if (!v) return '—';
-  try {
-    return new Date(v).toLocaleDateString('en-IN', {
-      day: 'numeric', month: 'long', year: 'numeric',
-    });
-  } catch {
-    return String(v);
-  }
+  const ymd = String(v).slice(0, 10);
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return String(v);
+  const months = t('camp_months');
+  const mn = Array.isArray(months) ? months[m - 1] : m;
+  return `${d} ${mn} ${y}`;
 }
 
 function fmtTime(v) {
   return v ? String(v).slice(0, 5) : '';
 }
 
-function fmtWeekday(v) {
+function fmtWeekday(v, t) {
   if (!v) return '';
-  try {
-    return new Date(v).toLocaleDateString('en-IN', { weekday: 'long' });
-  } catch {
-    return '';
-  }
+  const ymd = String(v).slice(0, 10);
+  const [y, m, d] = ymd.split('-').map(Number);
+  if (!y || !m || !d) return '';
+  const dows = t('camp_weekdays');
+  const dow = new Date(Date.UTC(y, m - 1, d)).getUTCDay();
+  return Array.isArray(dows) ? dows[dow] : '';
 }
 
 export function PublicCampPage() {
@@ -44,6 +48,7 @@ export function PublicCampPage() {
   const navigate = useNavigate();
   const qc = useQueryClient();
   const { isAuthenticated, role } = useAuth();
+  const { t } = useT();
 
   // Capture ?via= and stash for later (so a donor signing in / signing up
   // mid-flow keeps the attribution).
@@ -120,7 +125,7 @@ export function PublicCampPage() {
   if (campQ.isLoading) {
     return (
       <Shell>
-        <div className="rk-card text-center text-slate-500">Loading camp…</div>
+        <div className="rk-card text-center text-slate-500">{t('camp_pub_loading')}</div>
       </Shell>
     );
   }
@@ -129,13 +134,10 @@ export function PublicCampPage() {
     return (
       <Shell>
         <div className="rk-card text-center">
-          <h1 className="text-lg font-semibold text-rk-700">Camp not found</h1>
-          <p className="mt-2 text-sm text-slate-600">
-            This camp link isn&apos;t recognised — it may have been cancelled, completed, or
-            the URL was mistyped.
-          </p>
+          <h1 className="text-lg font-semibold text-rk-700">{t('camp_pub_nf_title')}</h1>
+          <p className="mt-2 text-sm text-slate-600">{t('camp_pub_nf_body')}</p>
           <Link to="/" className="rk-button-secondary mt-4 inline-block">
-            Go to Raktify home
+            {t('camp_pub_nf_cta')}
           </Link>
         </div>
       </Shell>
@@ -171,24 +173,34 @@ export function PublicCampPage() {
       <article className="rk-card space-y-3 border-l-4 border-rk-700">
         <div>
           <div className="text-xs uppercase tracking-wide text-slate-500">
-            Blood donation camp · {camp.district_name}
+            {t('camp_pub_eyebrow', { district: camp.district_name })}
           </div>
           <h1 className="mt-1 text-2xl font-bold text-slate-900">{camp.name}</h1>
-          <p className="text-sm text-slate-600">Hosted by {camp.organiser_name}</p>
+          <p className="text-sm text-slate-600">
+            {t('camp_pub_hosted_by', { name: camp.organiser_name })}
+          </p>
         </div>
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-          <Fact label="Date" big={fmtDate(camp.scheduled_date)} sub={fmtWeekday(camp.scheduled_date)} />
-          <Fact label="Time" big={`${fmtTime(camp.start_time)}–${fmtTime(camp.end_time)}`} />
-          <Fact label="Venue" big={camp.venue} sub={camp.address_line} />
           <Fact
-            label="Already signed up"
+            label={t('camp_pub_f_date')}
+            big={fmtDate(camp.scheduled_date, t)}
+            sub={fmtWeekday(camp.scheduled_date, t)}
+          />
+          <Fact
+            label={t('camp_pub_f_time')}
+            big={`${fmtTime(camp.start_time)}–${fmtTime(camp.end_time)}`}
+          />
+          <Fact label={t('camp_pub_f_venue')} big={camp.venue} sub={camp.address_line} />
+          <Fact
+            label={t('camp_pub_f_signed_up')}
             big={`${camp.registered_donor_count ?? 0}${camp.target_donor_count ? ` / ${camp.target_donor_count}` : ''}`}
-            sub={slotsLeft != null ? `${slotsLeft} slots left` : null}
+            sub={slotsLeft != null ? t('camp_pub_slots_left', { n: slotsLeft }) : null}
           />
         </dl>
         {camp.partnered_blood_bank_name ? (
           <p className="text-xs text-slate-500">
-            Partner blood bank: <strong>{camp.partnered_blood_bank_name}</strong>
+            {t('camp_pub_partner_bb')}
+            <strong>{camp.partnered_blood_bank_name}</strong>
           </p>
         ) : null}
       </article>
@@ -198,34 +210,35 @@ export function PublicCampPage() {
         {ctaState === 'done' || ctaState === 'already-registered' ? (
           <div className="text-center">
             <h2 className="text-lg font-semibold text-green-800">
-              {ctaState === 'done' ? 'You’re on the list' : 'You’re already registered'}
+              {ctaState === 'done' ? t('camp_pub_done_title') : t('camp_pub_already_title')}
             </h2>
             <p className="mt-1 text-sm text-slate-600">
               {ctaState === 'done'
-                ? `We’ll send you a reminder a day before the camp. See you at ${camp.venue}.`
-                : `Thanks — your RSVP for ${camp.name} is confirmed. We’ll message you a day before with the venue details.`}
+                ? t('camp_pub_done_body', { venue: camp.venue })
+                : t('camp_pub_already_body', { name: camp.name })}
             </p>
             <Link to="/donor" className="rk-button-secondary mt-3 inline-block">
-              Open my donor profile
+              {t('camp_pub_open_profile')}
             </Link>
           </div>
         ) : ctaState === 'wrong-role' ? (
           <div className="text-center">
             <p className="text-sm text-slate-600">
-              You&apos;re signed in as <strong>{role}</strong>, not a donor. Donors can RSVP from
-              their own login.
+              {t('camp_pub_wrong_role_pre')}
+              <strong>{role}</strong>
+              {t('camp_pub_wrong_role_post')}
             </p>
             <Link to="/" className="rk-button-secondary mt-3 inline-block">
-              Back to home
+              {t('camp_pub_back_home')}
             </Link>
           </div>
         ) : (
           <>
-            <h2 className="text-base font-semibold text-slate-900">Register for this camp</h2>
+            <h2 className="text-base font-semibold text-slate-900">
+              {t('camp_pub_reg_title')}
+            </h2>
             <p className="text-sm text-slate-600">
-              {ctaState === 'rsvp'
-                ? 'One tap and you’re on the roster — we won’t share your phone with the organiser.'
-                : 'New to Raktify? Quick mobile-OTP signup, then you’ll be added to the camp.'}
+              {ctaState === 'rsvp' ? t('camp_pub_reg_body_rsvp') : t('camp_pub_reg_body_new')}
             </p>
             <button
               type="button"
@@ -236,24 +249,26 @@ export function PublicCampPage() {
               {rsvp.isPending
                 ? '…'
                 : ctaState === 'rsvp'
-                  ? 'I will be there'
-                  : 'Sign up & register'}
+                  ? t('camp_pub_cta_rsvp')
+                  : t('camp_pub_cta_signup')}
             </button>
             {ctaState === 'signup-or-login' ? (
               <p className="text-center text-xs text-slate-500">
-                Already a Raktify donor?{' '}
+                {t('camp_pub_already_donor')}
                 <button
                   type="button"
                   onClick={onLoginCta}
                   className="font-semibold text-rk-700 hover:underline"
                 >
-                  Log in to RSVP
+                  {t('camp_pub_login_link')}
                 </button>
               </p>
             ) : null}
             {ctaState === 'error' ? (
               <p className="text-center text-xs text-rk-700">
-                {rsvp.error?.response?.data?.error || 'rsvp_failed'} — please try again.
+                {t('camp_pub_err', {
+                  err: rsvp.error?.response?.data?.error || 'rsvp_failed',
+                })}
               </p>
             ) : null}
           </>
@@ -263,23 +278,14 @@ export function PublicCampPage() {
       {/* Educational footer */}
       <article className="rk-card space-y-2 text-sm text-slate-600">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          What to expect
+          {t('camp_pub_expect_title')}
         </h3>
         <ul className="list-disc space-y-1 pl-5">
-          <li>Bring a government photo ID (Aadhaar, voter ID, driving licence).</li>
-          <li>Eat a normal meal 2–3 hours before. Stay hydrated.</li>
-          <li>
-            Donation takes ~10 minutes once you&apos;re on the couch. The full visit
-            (screening + post-donation rest) is about 30–45 minutes.
-          </li>
-          <li>
-            Your donation will be tested for HIV, Hepatitis B, Hepatitis C, syphilis and
-            malaria before being released — your results stay confidential.
-          </li>
-          <li>
-            Raktify never shares your phone number with the organiser. All
-            organiser-to-donor communication goes through the platform.
-          </li>
+          <li>{t('camp_pub_expect_1')}</li>
+          <li>{t('camp_pub_expect_2')}</li>
+          <li>{t('camp_pub_expect_3')}</li>
+          <li>{t('camp_pub_expect_4')}</li>
+          <li>{t('camp_pub_expect_5')}</li>
         </ul>
       </article>
 
@@ -309,13 +315,18 @@ function Shell({ children }) {
   );
 }
 
+// The wordmark sits AFTER the words in English and BEFORE them in Marathi, so
+// this is two fragment keys rather than one: mr leaves _pre empty and carries
+// ' द्वारे' in _post, en does the reverse.
 function Footer() {
+  const { t } = useT();
   return (
     <footer className="pt-4 text-center text-xs text-slate-400">
-      Powered by{' '}
+      {t('camp_pub_powered_pre')}
       <Link to="/" className="font-semibold text-rk-700 hover:underline">
         <Wordmark className="inline-block align-baseline text-[13px]" />
       </Link>
+      {t('camp_pub_powered_post')}
     </footer>
   );
 }

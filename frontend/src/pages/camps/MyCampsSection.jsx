@@ -4,8 +4,9 @@ import { Link } from 'react-router-dom';
 
 import { CollectionBankLine } from '../../components/CollectionBankLine.jsx';
 import { apiRequest } from '../../lib/api.js';
-import { campStatus } from '../../lib/campStatus.js';
+import { campStatus, campStatusLabel } from '../../lib/campStatus.js';
 import { isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
+import { useT } from '../../i18n/useT.js';
 
 // Every camp this person hosts, wherever it was created from.
 //
@@ -20,17 +21,15 @@ import { isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
 // stay in the coordinator and admin portals behind a password + TOTP login.
 // What this offers is the organiser link, the public page, the live roster
 // counts, and editing the details of a camp not yet held.
-function fmtDate(v) {
+// Month names come from the string pack, not toLocaleDateString('mr-IN') -
+// Intl's Marathi data is not reliably present and its short forms are
+// unpredictable. Digits stay Latin in every language.
+function fmtDate(v, t) {
   if (!v) return '—';
-  try {
-    return new Date(v).toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  } catch {
-    return v;
-  }
+  const [y, m, d] = String(v).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return v;
+  const months = t('camp_months_short');
+  return `${d} ${Array.isArray(months) ? months[m - 1] : m} ${y}`;
 }
 
 function Count({ label, value, tone }) {
@@ -56,11 +55,11 @@ function Count({ label, value, tone }) {
 // unchanged, which is also why a blank box keeps the current value instead of
 // clearing it: nothing here offers "make this empty".
 const EDIT_TEXT_FIELDS = [
-  { k: 'name', label: 'Camp name', wide: false },
-  { k: 'venue', label: 'Venue', wide: false },
-  { k: 'address_line', label: 'Address', wide: true },
-  { k: 'organiser_name', label: 'Organisation hosting', wide: false },
-  { k: 'organiser_contact_name', label: 'Contact person', wide: false },
+  { k: 'name', key: 'camp_ed_name', wide: false },
+  { k: 'venue', key: 'camp_ed_venue', wide: false },
+  { k: 'address_line', key: 'camp_ed_address', wide: true },
+  { k: 'organiser_name', key: 'camp_ed_org', wide: false },
+  { k: 'organiser_contact_name', key: 'camp_ed_contact_person', wide: false },
 ];
 
 // The API WhatsApps everyone already registered when one of these moves, so the
@@ -69,14 +68,15 @@ const NOTIFY_FIELDS = ['scheduled_date', 'start_time', 'end_time', 'venue', 'add
 
 const NUMBER_FIELDS = ['target_donor_count', 'expected_volunteer_count'];
 
-const EDIT_ERRORS = {
-  scheduled_date_in_past: 'Pick a date that has not already passed.',
-  camp_update_rejected: 'The end time has to be later than the start time.',
-  camp_not_editable: 'This camp can no longer be edited. Refresh to see its current state.',
-  not_camp_owner: 'This camp is not yours to edit.',
-  invalid_mobile_format: 'Enter a 10-digit Indian mobile number.',
-  invalid_input: 'Please check the details above - something is not in the expected format.',
-  not_found: 'This camp no longer exists.',
+// API error code -> string-pack key. The code itself is never shown.
+const EDIT_ERROR_KEYS = {
+  scheduled_date_in_past: 'camp_ed_e_past',
+  camp_update_rejected: 'camp_ed_e_reject',
+  camp_not_editable: 'camp_ed_e_not_editable',
+  not_camp_owner: 'camp_ed_e_not_owner',
+  invalid_mobile_format: 'camp_ed_e_mobile',
+  invalid_input: 'camp_ed_e_invalid',
+  not_found: 'camp_ed_e_not_found',
 };
 
 function initEditForm(c) {
@@ -115,6 +115,7 @@ function buildCampPatch(form, base) {
 }
 
 function CampEditPanel({ camp, onDone }) {
+  const { t } = useT();
   const qc = useQueryClient();
   // Diff against the camp as it looked when the panel opened, not against a
   // background refetch mid-edit.
@@ -155,12 +156,12 @@ function CampEditPanel({ camp, onDone }) {
       <div className="grid gap-3 sm:grid-cols-2">
         {EDIT_TEXT_FIELDS.map((f) => (
           <label key={f.k} className={f.wide ? 'block sm:col-span-2' : 'block'}>
-            <span className="rk-label">{f.label}</span>
+            <span className="rk-label">{t(f.key)}</span>
             <input className="rk-input" value={form[f.k]} onChange={set(f.k)} />
           </label>
         ))}
         <label className="block">
-          <span className="rk-label">Date</span>
+          <span className="rk-label">{t('camp_ed_date')}</span>
           <input
             type="date"
             className="rk-input"
@@ -171,7 +172,7 @@ function CampEditPanel({ camp, onDone }) {
           />
         </label>
         <label className="block">
-          <span className="rk-label">PIN code</span>
+          <span className="rk-label">{t('camp_ed_pin')}</span>
           <input
             className="rk-input"
             inputMode="numeric"
@@ -181,7 +182,7 @@ function CampEditPanel({ camp, onDone }) {
           />
         </label>
         <label className="block">
-          <span className="rk-label">Starts</span>
+          <span className="rk-label">{t('camp_ed_starts')}</span>
           <input
             type="time"
             className="rk-input"
@@ -190,21 +191,21 @@ function CampEditPanel({ camp, onDone }) {
           />
         </label>
         <label className="block">
-          <span className="rk-label">Ends</span>
+          <span className="rk-label">{t('camp_ed_ends')}</span>
           <input type="time" className="rk-input" value={form.end_time} onChange={set('end_time')} />
         </label>
         <label className="block sm:col-span-2">
-          <span className="rk-label">Contact mobile</span>
+          <span className="rk-label">{t('camp_ed_mobile')}</span>
           <input
             className="rk-input"
             inputMode="tel"
-            placeholder="Leave blank to keep the current number"
+            placeholder={t('camp_ed_mobile_ph')}
             value={form.organiser_contact_mobile}
             onChange={set('organiser_contact_mobile')}
           />
         </label>
         <label className="block">
-          <span className="rk-label">Donors expected</span>
+          <span className="rk-label">{t('camp_ed_donors')}</span>
           <input
             type="number"
             min="1"
@@ -214,7 +215,7 @@ function CampEditPanel({ camp, onDone }) {
           />
         </label>
         <label className="block">
-          <span className="rk-label">Volunteers expected</span>
+          <span className="rk-label">{t('camp_ed_volunteers')}</span>
           <input
             type="number"
             min="0"
@@ -229,7 +230,7 @@ function CampEditPanel({ camp, onDone }) {
             checked={form.volunteer_training_requested}
             onChange={set('volunteer_training_requested')}
           />
-          We would like volunteer training before the camp
+          {t('camp_ed_training')}
         </label>
       </div>
 
@@ -237,20 +238,20 @@ function CampEditPanel({ camp, onDone }) {
           result. Say it while the change can still be reconsidered. */}
       {willNotify ? (
         <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-          <strong>
-            {audience} registered donor{audience === 1 ? '' : 's'} will be told about this change
-          </strong>{' '}
-          on WhatsApp as soon as you save.
+          <strong>{t('camp_ed_notify_strong', { n: audience })}</strong>
+          {t('camp_ed_notify_rest')}
         </p>
       ) : null}
 
       {err ? (
-        <p className="text-xs text-rk-700">{EDIT_ERRORS[err] || `Could not save (${err}).`}</p>
+        <p className="text-xs text-rk-700">
+          {EDIT_ERROR_KEYS[err] ? t(EDIT_ERROR_KEYS[err]) : t('camp_ed_err_generic', { err })}
+        </p>
       ) : null}
 
       <div className="flex flex-wrap items-center gap-2">
         <button type="submit" className="rk-button-primary" disabled={save.isPending}>
-          {save.isPending ? 'Saving…' : 'Save changes'}
+          {save.isPending ? t('camp_ed_saving') : t('camp_ed_save')}
         </button>
         <button
           type="button"
@@ -258,21 +259,18 @@ function CampEditPanel({ camp, onDone }) {
           onClick={() => onDone(null)}
           disabled={save.isPending}
         >
-          Cancel
+          {t('camp_ed_cancel')}
         </button>
-        <span className="text-[11px] text-slate-500">
-          A box left blank keeps its current value. The camp keeps its status.
-        </span>
+        <span className="text-[11px] text-slate-500">{t('camp_ed_blank_note')}</span>
       </div>
     </form>
   );
 }
 
-export function MyCampsSection({
-  heading = 'Camps I host',
-  showWhenEmpty = false,
-  emptyHint = 'Camps you apply to host will appear here so you can track every one of them in one place.',
-}) {
+// `heading` / `emptyHint` stay overridable so a portal can name the section in
+// its own words; unset, they come from the string pack in the reader's language.
+export function MyCampsSection({ heading, showWhenEmpty = false, emptyHint }) {
+  const { t } = useT();
   const q = useQuery({
     queryKey: ['camps', 'mine'],
     queryFn: () => apiRequest('GET', '/camps/mine'),
@@ -291,7 +289,7 @@ export function MyCampsSection({
   return (
     <section>
       <h2 className="px-1 pb-2 text-sm font-semibold uppercase tracking-wide text-slate-500">
-        {heading}
+        {heading || t('camp_mine_heading')}
         {camps.length ? <span className="ml-1 text-slate-400">({camps.length})</span> : null}
       </h2>
 
@@ -299,9 +297,11 @@ export function MyCampsSection({
         {q.isLoading ? (
           <div className="rk-card text-center text-slate-500">…</div>
         ) : q.isError ? (
-          <div className="rk-card text-sm text-rk-700">Could not load your camps.</div>
+          <div className="rk-card text-sm text-rk-700">{t('camp_mine_load_err')}</div>
         ) : camps.length === 0 ? (
-          <div className="rk-card text-sm text-slate-500">{emptyHint}</div>
+          <div className="rk-card text-sm text-slate-500">
+            {emptyHint || t('camp_mine_empty')}
+          </div>
         ) : (
           camps.map((c) => {
             const st = campStatus(c.status);
@@ -312,7 +312,7 @@ export function MyCampsSection({
                   <div>
                     <div className="font-medium text-slate-900">{c.name}</div>
                     <div className="text-xs text-slate-500">
-                      {fmtDate(c.scheduled_date)}
+                      {fmtDate(c.scheduled_date, t)}
                       {c.start_time ? (
                         <>
                           {' · '}
@@ -331,7 +331,7 @@ export function MyCampsSection({
                   <span
                     className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${st.cls}`}
                   >
-                    {st.label}
+                    {campStatusLabel(c.status, t)}
                   </span>
                 </div>
 
@@ -339,21 +339,33 @@ export function MyCampsSection({
                     not buried behind a link. */}
                 {c.status === 'DC' && c.declined_reason ? (
                   <div className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-900">
-                    <strong>Why this was declined:</strong> {c.declined_reason}
+                    <strong>{t('camp_mine_declined_why')}</strong> {c.declined_reason}
                   </div>
                 ) : null}
 
                 <div className="flex flex-wrap items-end gap-4 border-t border-slate-100 pt-2">
-                  <Count label="registered" value={c.registered} />
-                  <Count label="donated" value={c.donated} tone="text-emerald-700" />
+                  <Count label={t('camp_mine_c_registered')} value={c.registered} />
+                  <Count
+                    label={t('camp_mine_c_donated')}
+                    value={c.donated}
+                    tone="text-emerald-700"
+                  />
                   {c.deferred ? (
-                    <Count label="couldn’t donate" value={c.deferred} tone="text-amber-700" />
+                    <Count
+                      label={t('camp_mine_c_deferred')}
+                      value={c.deferred}
+                      tone="text-amber-700"
+                    />
                   ) : null}
                   {/* Absent is only meaningful once the roster has closed - the
                       camp-close-roster job waits 48h for the blood bank's batch
                       entry, so before then a blank is honest and a zero is not. */}
                   {held && c.no_show ? (
-                    <Count label="did not come" value={c.no_show} tone="text-slate-500" />
+                    <Count
+                      label={t('camp_mine_c_noshow')}
+                      value={c.no_show}
+                      tone="text-slate-500"
+                    />
                   ) : null}
                 </div>
 
@@ -362,10 +374,7 @@ export function MyCampsSection({
                     once, where an organiser would otherwise go looking for the
                     button. */}
                 {held && c.donated === 0 && (c.status === 'PL' || c.status === 'LV') ? (
-                  <p className="text-[11px] text-slate-500">
-                    Donations are counted here as soon as the blood bank records them - usually
-                    the next working day. Nothing to mark by hand.
-                  </p>
+                  <p className="text-[11px] text-slate-500">{t('camp_mine_derived')}</p>
                 ) : null}
 
                 <div className="flex flex-wrap gap-3 text-xs">
@@ -376,7 +385,7 @@ export function MyCampsSection({
                       target="_blank"
                       rel="noreferrer"
                     >
-                      Open organiser dashboard →
+                      {t('camp_mine_manage')}
                     </a>
                   ) : null}
                   {c.slug && (c.status === 'PL' || c.status === 'LV') ? (
@@ -384,7 +393,7 @@ export function MyCampsSection({
                       to={`/c/${encodeURIComponent(c.slug)}`}
                       className="text-slate-500 hover:text-rk-700 hover:underline"
                     >
-                      Public camp page
+                      {t('camp_mine_public')}
                     </Link>
                   ) : null}
                   {c.can_edit && editingId !== c.id ? (
@@ -396,7 +405,7 @@ export function MyCampsSection({
                         setEditingId(c.id);
                       }}
                     >
-                      Edit details
+                      {t('camp_mine_edit')}
                     </button>
                   ) : null}
                 </div>
@@ -410,12 +419,10 @@ export function MyCampsSection({
                       setSaved({
                         id: c.id,
                         text: result.notified
-                          ? `Saved. ${result.notified} donor${
-                              result.notified === 1 ? '' : 's'
-                            } told about the change.`
+                          ? t('camp_mine_saved_notified', { n: result.notified })
                           : result.unchanged
-                            ? 'Nothing had changed.'
-                            : 'Saved.',
+                            ? t('camp_mine_unchanged')
+                            : t('camp_mine_saved'),
                       });
                     }}
                   />

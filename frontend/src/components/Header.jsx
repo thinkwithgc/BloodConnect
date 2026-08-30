@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext.jsx';
 import { useT } from '../i18n/useT.js';
+import { LANG_LABELS } from '../i18n/strings.js';
 import { Wordmark } from './Wordmark.jsx';
 
 export function Header({ subtitle }) {
@@ -20,14 +21,14 @@ export function Header({ subtitle }) {
         </Link>
         <div className="flex items-center gap-2">
           <select
-            aria-label="language"
+            aria-label={t('lp_nav_lang_label')}
             value={lang}
             onChange={(e) => setLang(e.target.value)}
             className="rounded border border-slate-300 bg-white px-2 py-1 text-sm"
           >
             {supported.map((l) => (
               <option key={l} value={l}>
-                {l.toUpperCase()}
+                {LANG_LABELS[l] || l.toUpperCase()}
               </option>
             ))}
           </select>

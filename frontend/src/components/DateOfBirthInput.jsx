@@ -35,10 +35,13 @@ import { useT } from '../i18n/useT.js';
  * no year to pick.
  */
 
-// Native month names, so a Marathi session reads महिने rather than '08'. CLDR
-// covers mr and hi; the try/catch is for an engine that does not, where an
-// English month name beats a crash or a bare number.
-function monthNames(lang) {
+// Month names come from the SAME string-pack array the camp calendar reads
+// (`camp_months`), so the DOB picker and the camp calendar can never disagree on
+// what September is called. Intl is kept only as the guard for an engine or a
+// language where the key is missing — an English month name beats a bare number.
+function monthNames(lang, t) {
+  const packed = t('camp_months');
+  if (Array.isArray(packed) && packed.length === 12) return packed;
   const locale = { mr: 'mr-IN', hi: 'hi-IN', en: 'en-IN' }[lang] || 'en-IN';
   const build = (loc) => {
     const fmt = new Intl.DateTimeFormat(loc, { month: 'long', timeZone: 'UTC' });
@@ -70,7 +73,8 @@ export function DateOfBirthInput({
   disabled = false,
 }) {
   const { t, lang } = useT();
-  const months = useMemo(() => monthNames(lang), [lang]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const months = useMemo(() => monthNames(lang, t), [lang]);
 
   const today = todayISO();
   const latestISO = isoOffsetYears(-minAge, today); // youngest allowed

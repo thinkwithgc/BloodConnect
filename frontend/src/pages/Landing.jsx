@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useT } from '../i18n/useT.js';
+import { LANG_LABELS } from '../i18n/strings.js';
 import { Wordmark } from '../components/Wordmark.jsx';
 import { Footer } from '../components/Footer.jsx';
-
-// Language code → native-script label. Marathi-first users recognise their
-// own script faster than a Roman abbreviation; English speakers see "English"
-// either way.
-const LANG_LABELS = { mr: 'मराठी', hi: 'हिन्दी', en: 'English' };
 
 // ── Inline icons (lucide-style, stroke-based — no icon-lib dependency) ──────
 function Icon({ path, className = 'h-6 w-6', fill = false }) {

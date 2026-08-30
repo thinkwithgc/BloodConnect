@@ -6,7 +6,8 @@ import { QRCodeSVG } from 'qrcode.react';
 import { CollectionBankLine } from '../../components/CollectionBankLine.jsx';
 import { Wordmark } from '../../components/Wordmark.jsx';
 import { apiRequest } from '../../lib/api.js';
-import { CAMP_STATUS } from '../../lib/campStatus.js';
+import { campStatus, campStatusLabel } from '../../lib/campStatus.js';
+import { useT } from '../../i18n/useT.js';
 
 // Roster status. AT and NS are DERIVED, never tapped: AT comes from the blood
 // bank recording a donation against this camp (migration 314) and NS from the
@@ -17,24 +18,21 @@ import { CAMP_STATUS } from '../../lib/campStatus.js';
 // about the donor and never touches their deferral fields; the reason lives in
 // the blood bank's screening record, not here (migration 312).
 const STATUS = {
-  RG: { label: 'Registered', cls: 'bg-sky-100 text-sky-800' },
-  AT: { label: 'Donated', cls: 'bg-green-100 text-green-800' },
-  DF: { label: "Came, couldn't donate", cls: 'bg-amber-100 text-amber-800' },
-  NS: { label: 'No-show', cls: 'bg-slate-200 text-slate-700' },
-  CN: { label: 'Cancelled', cls: 'bg-rk-700/80 text-white' },
+  RG: { key: 'camp_od_st_RG', cls: 'bg-sky-100 text-sky-800' },
+  AT: { key: 'camp_od_st_AT', cls: 'bg-green-100 text-green-800' },
+  DF: { key: 'camp_od_st_DF', cls: 'bg-amber-100 text-amber-800' },
+  NS: { key: 'camp_od_st_NS', cls: 'bg-slate-200 text-slate-700' },
+  CN: { key: 'camp_od_st_CN', cls: 'bg-rk-700/80 text-white' },
 };
 
-function fmtDate(v) {
+// Month names come from the string pack, not toLocaleDateString('mr-IN') -
+// Intl's Marathi data is not reliably present. Digits stay Latin everywhere.
+function fmtDate(v, t) {
   if (!v) return '—';
-  try {
-    return new Date(v).toLocaleDateString('en-IN', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-  } catch {
-    return String(v);
-  }
+  const [y, m, d] = String(v).slice(0, 10).split('-').map(Number);
+  if (!y || !m || !d) return String(v);
+  const months = t('camp_months_short');
+  return `${d} ${Array.isArray(months) ? months[m - 1] : m} ${y}`;
 }
 
 function fmtTime(v) {
@@ -78,6 +76,7 @@ async function tokenFetch(path, opts = {}) {
 
 export function CampOrganizerDashboard() {
   const { token } = useParams();
+  const { t } = useT();
   const qc = useQueryClient();
   const [broadcastText, setBroadcastText] = useState('');
   const [broadcastResult, setBroadcastResult] = useState(null);
@@ -130,7 +129,7 @@ export function CampOrganizerDashboard() {
   if (dashQ.isLoading) {
     return (
       <PageShell>
-        <div className="rk-card text-center text-slate-500">Loading your dashboard…</div>
+        <div className="rk-card text-center text-slate-500">{t('camp_od_loading')}</div>
       </PageShell>
     );
   }
@@ -139,19 +138,19 @@ export function CampOrganizerDashboard() {
     const code = dashQ.error?.response?.data?.error;
     const message =
       code === 'token_expired'
-        ? 'This link has expired. Please ask the Raktify NGO admin for a fresh link.'
+        ? t('camp_od_e_expired')
         : code === 'token_revoked'
-          ? 'This link has been revoked. Please contact the Raktify NGO admin.'
+          ? t('camp_od_e_revoked')
           : code === 'invalid_token'
-            ? 'This link is not recognised. Double-check the URL.'
+            ? t('camp_od_e_invalid')
             : code || 'load_failed';
     return (
       <PageShell>
         <div className="rk-card text-center">
-          <h1 className="text-lg font-semibold text-rk-700">Access not available</h1>
+          <h1 className="text-lg font-semibold text-rk-700">{t('camp_od_no_access')}</h1>
           <p className="mt-2 text-sm text-slate-600">{message}</p>
           <Link to="/" className="rk-button-secondary mt-4 inline-block">
-            Go to Raktify home
+            {t('camp_od_home')}
           </Link>
         </div>
       </PageShell>
@@ -159,7 +158,7 @@ export function CampOrganizerDashboard() {
   }
 
   const camp = dashQ.data?.camp || {};
-  const cs = CAMP_STATUS[camp.status] || CAMP_STATUS.PL;
+  const cs = campStatus(camp.status);
 
   return (
     <PageShell>
@@ -167,11 +166,11 @@ export function CampOrganizerDashboard() {
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <div className="text-xs uppercase tracking-wide text-slate-500">
-              Camp organizer dashboard
+              {t('camp_od_eyebrow')}
             </div>
             <h1 className="mt-1 text-xl font-semibold text-slate-900">{camp.name}</h1>
             <p className="text-sm text-slate-600">
-              {fmtDate(camp.scheduled_date)} · {fmtTime(camp.start_time)}–{fmtTime(camp.end_time)} · {camp.venue}
+              {fmtDate(camp.scheduled_date, t)} · {fmtTime(camp.start_time)}–{fmtTime(camp.end_time)} · {camp.venue}
             </p>
             <p className="text-xs text-slate-500">{camp.district_name}</p>
             <CollectionBankLine
@@ -180,13 +179,15 @@ export function CampOrganizerDashboard() {
             />
           </div>
           <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${cs.cls}`}>
-            {cs.label}
+            {campStatusLabel(camp.status, t)}
           </span>
         </div>
         {dashQ.data?.granted_to_name ? (
           <p className="mt-2 text-xs text-slate-400">
-            Access granted to {dashQ.data.granted_to_name}. Link expires{' '}
-            {fmtDate(dashQ.data.expires_at)}. Don&apos;t share this link publicly.
+            {t('camp_od_granted', {
+              name: dashQ.data.granted_to_name,
+              date: fmtDate(dashQ.data.expires_at, t),
+            })}
           </p>
         ) : null}
       </header>
@@ -194,22 +195,36 @@ export function CampOrganizerDashboard() {
       {/* KPI cards */}
       <section className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
         <KpiCard
-          label="Registered"
+          label={t('camp_od_k_registered')}
           value={counts.registered}
-          sub={camp.target_donor_count ? `Target ${camp.target_donor_count}` : ''}
+          sub={
+            camp.target_donor_count ? t('camp_od_k_target', { n: camp.target_donor_count }) : ''
+          }
         />
         <KpiCard
-          label="Donated"
+          label={t('camp_od_k_donated')}
           value={counts.AT}
-          sub="from blood bank records"
+          sub={t('camp_od_k_donated_sub')}
         />
-        <KpiCard label="Couldn't donate" value={counts.DF} sub="turned away at screening" />
         <KpiCard
-          label="Turnout"
-          value={counts.turnout}
-          sub={counts.NS > 0 ? `${counts.NS} did not come` : 'donated + turned away'}
+          label={t('camp_od_k_deferred')}
+          value={counts.DF}
+          sub={t('camp_od_k_deferred_sub')}
         />
-        <KpiCard label="Units collected" value={camp.units_collected ?? 0} sub="from blood bank" />
+        <KpiCard
+          label={t('camp_od_k_turnout')}
+          value={counts.turnout}
+          sub={
+            counts.NS > 0
+              ? t('camp_od_k_turnout_ns', { n: counts.NS })
+              : t('camp_od_k_turnout_sub')
+          }
+        />
+        <KpiCard
+          label={t('camp_od_k_units')}
+          value={camp.units_collected ?? 0}
+          sub={t('camp_od_k_units_sub')}
+        />
       </section>
 
       {/* Share toolkit */}
@@ -221,16 +236,13 @@ export function CampOrganizerDashboard() {
       {/* Broadcast */}
       <article className="rk-card space-y-2">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Send an update to registered donors
+          {t('camp_od_bc_title')}
         </h2>
-        <p className="text-xs text-slate-500">
-          The message goes via WhatsApp (or SMS as fallback) to everyone who&apos;s RSVP&apos;d for this
-          camp. Use it for venue changes, ID reminders, or thank-yous after the camp.
-        </p>
+        <p className="text-xs text-slate-500">{t('camp_od_bc_hint')}</p>
         <textarea
           className="rk-input min-h-[80px]"
           maxLength={500}
-          placeholder="e.g. Venue updated to Hall 2 of Sant Gadge Baba University. Please carry a govt ID. Light breakfast will be served from 8am."
+          placeholder={t('camp_od_bc_ph')}
           value={broadcastText}
           onChange={(e) => setBroadcastText(e.target.value)}
         />
@@ -242,12 +254,12 @@ export function CampOrganizerDashboard() {
             onClick={() => broadcast.mutate(broadcastText)}
             disabled={broadcast.isPending || broadcastText.trim().length < 5}
           >
-            {broadcast.isPending ? '…' : `Send to ${counts.RG + counts.AT} donors`}
+            {broadcast.isPending ? '…' : t('camp_od_bc_send', { n: counts.RG + counts.AT })}
           </button>
         </div>
         {broadcastResult ? (
           <p className="text-sm text-green-700">
-            Queued {broadcastResult.queued} message{broadcastResult.queued === 1 ? '' : 's'}.
+            {t('camp_od_bc_queued', { n: broadcastResult.queued })}
           </p>
         ) : null}
         {broadcast.error ? (
@@ -261,37 +273,37 @@ export function CampOrganizerDashboard() {
       <article className="rk-card overflow-x-auto p-0">
         <div className="flex items-center justify-between px-4 py-3">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-            Roster ({regs.length})
+            {t('camp_od_roster', { n: regs.length })}
           </h2>
-          <span className="text-xs text-slate-500">
-            Attendance fills itself as the blood bank records donations.
-          </span>
+          <span className="text-xs text-slate-500">{t('camp_od_roster_auto')}</span>
         </div>
         {/* Said once, plainly, because the desk used to tick attendance here and
             will look for the buttons. Nobody marks Donated or No-show now. */}
         <p className="border-y border-slate-100 bg-slate-50/70 px-4 py-2 text-xs text-slate-600">
-          <strong>Donated</strong> appears on its own when the blood bank records that
-          donation - usually during the camp, sometimes the next morning. Anyone still{' '}
-          <strong>Registered</strong> two days after the camp becomes a{' '}
-          <strong>No-show</strong> automatically. The one thing to record here is a donor who
-          came and was <strong>turned away at screening</strong> - and only that they were,
-          never why.
+          <strong>{t('camp_od_st_AT')}</strong>
+          {t('camp_od_note_1')}
+          <strong>{t('camp_od_st_RG')}</strong>
+          {t('camp_od_note_2')}
+          <strong>{t('camp_od_st_NS')}</strong>
+          {t('camp_od_note_3')}
+          <strong>{t('camp_od_note_turned')}</strong>
+          {t('camp_od_note_4')}
         </p>
         {markStatus.error ? (
           <p className="border-b border-rk-100 bg-rk-50 px-4 py-2 text-xs text-rk-700">
             {markStatus.error?.response?.data?.error === 'attendance_is_derived'
-              ? 'Attendance is not set by hand - it comes from the donation the blood bank records against this camp.'
+              ? t('camp_od_e_derived')
               : markStatus.error?.response?.data?.error || 'could_not_update'}
           </p>
         ) : null}
         <table className="min-w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
             <tr>
-              <th className="px-3 py-2 text-left">Donor</th>
-              <th className="px-3 py-2 text-left">Blood group</th>
-              <th className="px-3 py-2 text-left">RSVP&apos;d</th>
-              <th className="px-3 py-2 text-left">Status</th>
-              <th className="px-3 py-2 text-right">Record</th>
+              <th className="px-3 py-2 text-left">{t('camp_od_th_donor')}</th>
+              <th className="px-3 py-2 text-left">{t('camp_od_th_group')}</th>
+              <th className="px-3 py-2 text-left">{t('camp_od_th_rsvp')}</th>
+              <th className="px-3 py-2 text-left">{t('camp_od_th_status')}</th>
+              <th className="px-3 py-2 text-right">{t('camp_od_th_record')}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
@@ -304,7 +316,7 @@ export function CampOrganizerDashboard() {
                     <div className="font-medium text-slate-900">{r.full_name}</div>
                     {deferred ? (
                       <div className="text-xs text-amber-700">
-                        ⚠ currently deferred — may not donate today
+                        {t('camp_od_deferred_warn')}
                       </div>
                     ) : null}
                   </td>
@@ -313,10 +325,10 @@ export function CampOrganizerDashboard() {
                       {r.blood_group_code || '—'}
                     </span>
                   </td>
-                  <td className="px-3 py-2 text-slate-600">{fmtDate(r.registered_at)}</td>
+                  <td className="px-3 py-2 text-slate-600">{fmtDate(r.registered_at, t)}</td>
                   <td className="px-3 py-2">
                     <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${s.cls}`}>
-                      {s.label}
+                      {t(s.key)}
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -333,7 +345,7 @@ export function CampOrganizerDashboard() {
                           onClick={() => markStatus.mutate({ regId: r.id, status: 'DF' })}
                           disabled={markStatus.isPending}
                         >
-                          Couldn&apos;t donate
+                          {t('camp_od_btn_df')}
                         </button>
                       ) : null}
                       {r.status === 'RG' ? (
@@ -343,7 +355,7 @@ export function CampOrganizerDashboard() {
                           onClick={() => markStatus.mutate({ regId: r.id, status: 'CN' })}
                           disabled={markStatus.isPending}
                         >
-                          Cancel
+                          {t('camp_od_btn_cancel')}
                         </button>
                       ) : null}
                       {r.status === 'DF' || r.status === 'CN' ? (
@@ -353,11 +365,11 @@ export function CampOrganizerDashboard() {
                           onClick={() => markStatus.mutate({ regId: r.id, status: 'RG' })}
                           disabled={markStatus.isPending}
                         >
-                          Undo
+                          {t('camp_od_btn_undo')}
                         </button>
                       ) : null}
                       {r.status === 'AT' ? (
-                        <span className="text-xs text-slate-400">recorded by blood bank</span>
+                        <span className="text-xs text-slate-400">{t('camp_od_by_bb')}</span>
                       ) : null}
                     </div>
                   </td>
@@ -367,7 +379,7 @@ export function CampOrganizerDashboard() {
             {regs.length === 0 ? (
               <tr>
                 <td colSpan={5} className="px-3 py-6 text-center text-sm text-slate-500">
-                  No RSVPs yet — registrations will appear here as donors sign up.
+                  {t('camp_od_no_rsvp')}
                 </td>
               </tr>
             ) : null}
@@ -376,12 +388,13 @@ export function CampOrganizerDashboard() {
       </article>
 
       <footer className="text-center text-xs text-slate-400">
-        Powered by{' '}
+        {t('camp_pub_powered_pre')}
         <Link to="/" className="font-semibold text-rk-700 hover:underline">
           Raktify
         </Link>
+        {t('camp_pub_powered_post')}
         {' · '}
-        Need help? WhatsApp the NGO coordinator on the number they shared with you.
+        {t('camp_od_help')}
       </footer>
     </PageShell>
   );
@@ -391,6 +404,7 @@ export function CampOrganizerDashboard() {
 // Generates the public /c/<slug> URL plus a QR code and per-channel share
 // buttons. Each button appends ?via=<channel> so RSVPs can be attributed.
 function ShareToolkit({ camp }) {
+  const { t } = useT();
   const slug = camp?.slug;
   const [copyState, setCopyState] = useState('');
 
@@ -399,24 +413,19 @@ function ShareToolkit({ camp }) {
     typeof window !== 'undefined' ? window.location.origin : 'https://raktify.choudhari.ngo';
   const baseUrl = slug ? `${origin}/c/${slug}` : null;
 
+  // The share message is what a donor reads on WhatsApp, so it follows the
+  // organiser's own language - they are the one pasting it into their group.
   const shareText = useMemo(() => {
     if (!camp) return '';
-    const dateStr = (() => {
-      try {
-        return new Date(camp.scheduled_date).toLocaleDateString('en-IN', {
-          day: 'numeric', month: 'short', year: 'numeric',
-        });
-      } catch {
-        return camp.scheduled_date || '';
-      }
-    })();
-    return (
-      `🩸 Blood donation camp: ${camp.name}\n` +
-      `📅 ${dateStr} · ${(camp.start_time || '').slice(0, 5)}–${(camp.end_time || '').slice(0, 5)}\n` +
-      `📍 ${camp.venue}\n\n` +
-      `If you can donate, please register here:`
-    );
-  }, [camp]);
+    const start = (camp.start_time || '').slice(0, 5);
+    const end = (camp.end_time || '').slice(0, 5);
+    return t('camp_od_share_body', {
+      name: camp.name,
+      date: fmtDate(camp.scheduled_date, t),
+      time: `${start}–${end}`,
+      venue: camp.venue,
+    });
+  }, [camp, t]);
 
   if (!baseUrl) return null;
 
@@ -427,10 +436,10 @@ function ShareToolkit({ camp }) {
   async function copy(text) {
     try {
       await navigator.clipboard.writeText(text);
-      setCopyState('Copied!');
+      setCopyState(t('camp_od_copied'));
       setTimeout(() => setCopyState(''), 1800);
     } catch {
-      setCopyState('Copy failed — long-press the link.');
+      setCopyState(t('camp_od_copy_fail'));
     }
   }
 
@@ -456,7 +465,9 @@ function ShareToolkit({ camp }) {
     {
       key: 'email',
       label: 'Email',
-      href: `mailto:?subject=${encodeURIComponent(`Blood donation camp: ${camp.name}`)}&body=${encodeURIComponent(`${shareText}\n${urlWith('email')}`)}`,
+      href: `mailto:?subject=${encodeURIComponent(
+        t('camp_od_share_subject', { name: camp.name }),
+      )}&body=${encodeURIComponent(`${shareText}\n${urlWith('email')}`)}`,
       cls: 'border-slate-300 text-slate-700 hover:bg-slate-50',
     },
   ];
@@ -465,11 +476,9 @@ function ShareToolkit({ camp }) {
     <article className="rk-card space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-          Invite donors
+          {t('camp_od_share_title')}
         </h2>
-        <span className="text-xs text-slate-500">
-          Every share carries a different ?via= so you can see which channels work.
-        </span>
+        <span className="text-xs text-slate-500">{t('camp_od_share_hint')}</span>
       </div>
 
       <div className="grid gap-4 sm:grid-cols-[1fr_auto]">
@@ -487,7 +496,7 @@ function ShareToolkit({ camp }) {
               className="rounded-md bg-rk-700 px-2 py-1 text-xs font-semibold text-white hover:bg-rk-800"
               onClick={() => copy(baseUrl)}
             >
-              {copyState || 'Copy'}
+              {copyState || t('camp_od_copy')}
             </button>
           </div>
 
@@ -508,15 +517,12 @@ function ShareToolkit({ camp }) {
               type="button"
               onClick={() => copy(`${shareText}\n${urlWith('instagram')}`)}
               className="rounded-md border border-pink-500 px-3 py-1.5 text-xs font-semibold text-pink-700 hover:bg-pink-50"
-              title="Instagram doesn't accept direct share links — copy this text then paste into your Story or bio"
+              title={t('camp_od_ig_title')}
             >
-              Instagram (copy text)
+              {t('camp_od_ig')}
             </button>
           </div>
-          <p className="text-xs text-slate-500">
-            Instagram doesn&apos;t support direct share URLs. Tap the button above to copy a
-            ready-to-paste message; add it to your Story link sticker or bio.
-          </p>
+          <p className="text-xs text-slate-500">{t('camp_od_ig_hint')}</p>
         </div>
 
         {/* QR code for printable posters */}
@@ -529,13 +535,15 @@ function ShareToolkit({ camp }) {
             bgColor="#ffffff"
             fgColor="#7c1d1b"
           />
-          <p className="text-[10px] uppercase tracking-wide text-slate-400">Scan to register</p>
+          <p className="text-[10px] uppercase tracking-wide text-slate-400">
+            {t('camp_od_scan')}
+          </p>
           <button
             type="button"
             className="mt-1 text-xs font-medium text-rk-700 hover:underline"
             onClick={() => window.print()}
           >
-            Print this page
+            {t('camp_od_print')}
           </button>
         </div>
       </div>
@@ -544,29 +552,33 @@ function ShareToolkit({ camp }) {
 }
 
 // ─── Channel mix ───────────────────────────────────────────────────────────
+// Brand names are brand names in every language; only the three generic
+// channels take a string-pack key.
 const CHANNEL_LABEL = {
   whatsapp: 'WhatsApp',
   facebook: 'Facebook',
   instagram: 'Instagram',
   twitter: 'X / Twitter',
   email: 'Email',
-  qr: 'QR poster',
-  direct: 'Direct link',
-  web: 'Web',
 };
+const CHANNEL_KEY = { qr: 'camp_od_ch_qr', direct: 'camp_od_ch_direct', web: 'camp_od_ch_web' };
 
 function ChannelMix({ mix, total }) {
+  const { t } = useT();
   if (!mix || mix.length === 0 || total === 0) return null;
   const max = Math.max(...mix.map((m) => m.count));
   return (
     <article className="rk-card space-y-2">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-        Where RSVPs came from
+        {t('camp_od_mix_title')}
       </h2>
       <ul className="space-y-1.5">
         {mix.map((m) => (
           <li key={m.channel} className="grid grid-cols-[7rem_1fr_3rem] items-center gap-3 text-sm">
-            <span className="text-slate-700">{CHANNEL_LABEL[m.channel] || m.channel}</span>
+            <span className="text-slate-700">
+              {CHANNEL_LABEL[m.channel] ||
+                (CHANNEL_KEY[m.channel] ? t(CHANNEL_KEY[m.channel]) : m.channel)}
+            </span>
             <span className="h-2 rounded-full bg-slate-100">
               <span
                 className="block h-full rounded-full bg-rk-700/80"
@@ -577,14 +589,13 @@ function ChannelMix({ mix, total }) {
           </li>
         ))}
       </ul>
-      <p className="text-xs text-slate-400">
-        Tracked from the ?via= parameter on your share links.
-      </p>
+      <p className="text-xs text-slate-400">{t('camp_od_mix_hint')}</p>
     </article>
   );
 }
 
 function PageShell({ children }) {
+  const { t } = useT();
   return (
     <div className="min-h-full bg-cream">
       <header className="border-b border-sand bg-cream/90 backdrop-blur">
@@ -592,7 +603,7 @@ function PageShell({ children }) {
           <Link to="/" aria-label="Raktify home" className="flex items-center">
             <Wordmark className="text-xl" />
           </Link>
-          <span className="text-xs text-slate-500">Camp organizer</span>
+          <span className="text-xs text-slate-500">{t('camp_od_shell_tag')}</span>
         </div>
       </header>
       <main className="mx-auto max-w-5xl space-y-4 px-4 py-6">{children}</main>

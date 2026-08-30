@@ -18,16 +18,20 @@
  * (clearing it would erase who declined), but printing it would read as "this
  * is who is coming" about the one institution that has said it is not.
  */
+import { useT } from '../i18n/useT.js';
+
 export function CollectionBankLine({
   bbResponse,
   bloodBankName,
   requestedBloodBankName,
   className = 'text-xs',
 }) {
+  const { t } = useT();
+
   if (bbResponse === 'DC') {
     return (
       <p className={`${className} font-medium text-amber-700`}>
-        We&apos;re arranging a different blood bank for your camp — we&apos;ll confirm shortly.
+        {t('camp_cbl_declined')}
       </p>
     );
   }
@@ -36,27 +40,30 @@ export function CollectionBankLine({
     if (bbResponse === 'AC') {
       return (
         <p className={`${className} text-green-700`}>
-          Collection by {bloodBankName} — confirmed.
+          {t('camp_cbl_confirmed', { bb: bloodBankName })}
         </p>
       );
     }
     if (bbResponse === 'PE') {
       return (
         <p className={`${className} text-slate-500`}>
-          Collection by {bloodBankName} — waiting for them to confirm.
+          {t('camp_cbl_pending', { bb: bloodBankName })}
         </p>
       );
     }
     // No response recorded: the NGO partnered them without the accept/decline
     // step (an older camp, or an admin bridging by hand). Nothing to caveat.
-    return <p className={`${className} text-slate-500`}>Collection by {bloodBankName}.</p>;
+    return (
+      <p className={`${className} text-slate-500`}>
+        {t('camp_cbl_plain', { bb: bloodBankName })}
+      </p>
+    );
   }
 
   if (requestedBloodBankName) {
     return (
       <p className={`${className} text-slate-500`}>
-        You asked for {requestedBloodBankName}. We&apos;ll confirm the collecting blood bank
-        shortly.
+        {t('camp_cbl_requested', { bb: requestedBloodBankName })}
       </p>
     );
   }

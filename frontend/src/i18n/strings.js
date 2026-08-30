@@ -2,9 +2,20 @@
 // This is intentionally hand-rolled rather than i18next — the Phase-7 starter
 // only needs a couple of screens. Swap for i18next when the screen count grows.
 
+// Domain string packs. Kept out of the dict literal below so a 100-key feature
+// does not make every future diff in this file unreviewable. They are spread
+// FIRST in each block, so an existing literal key here always wins a collision.
+import * as camps from './camps.js';
+import * as bloodbank from './bloodbank.js';
+
 const STORAGE_KEY = 'rk.lang';
 
 export const SUPPORTED = ['mr', 'hi', 'en'];
+
+// Language code -> native-script label. A Marathi-first user recognises their
+// own script instantly; three Roman abbreviations (MR / HI / EN) are opaque to
+// exactly the person the picker exists for.
+export const LANG_LABELS = { mr: 'मराठी', hi: 'हिन्दी', en: 'English' };
 
 export function detectInitialLang() {
   const stored = localStorage.getItem(STORAGE_KEY);
@@ -21,6 +32,8 @@ export function setLang(lang) {
 
 const dict = {
   mr: {
+    ...camps.mr,
+    ...bloodbank.mr,
     app_name: 'Raktify',
     tagline: 'रक्त दान करा. जीव वाचवा.',
     role_donor: 'मी रक्तदाता आहे',
@@ -283,6 +296,8 @@ const dict = {
     will_sync_when_online: 'ऑनलाइन होने पर सिंक होगा',
   },
   en: {
+    ...camps.en,
+    ...bloodbank.en,
     app_name: 'Raktify',
     tagline: 'Donate blood. Save lives.',
     role_donor: 'I am a donor',

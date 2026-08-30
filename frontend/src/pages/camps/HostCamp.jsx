@@ -3,18 +3,14 @@ import { Link } from 'react-router-dom';
 import { z } from 'zod';
 
 import { Header } from '../../components/Header.jsx';
+import { useT } from '../../i18n/useT.js';
 import { apiRequest } from '../../lib/api.js';
 import { isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
 import { BbAvailabilityCalendar } from '../../components/camps/BbAvailabilityCalendar.jsx';
 
-const ORGANISER_TYPES = [
-  { code: 'CC', label: 'Corporate / company' },
-  { code: 'EI', label: 'Educational institution / college' },
-  { code: 'EO', label: 'NGO or external organisation' },
-  { code: 'MC', label: 'Medical college / hospital' },
-  { code: 'CO', label: 'Community / neighbourhood group' },
-  { code: 'OT', label: 'Other' },
-];
+// Codes only. Labels are resolved at render time from the camp_ pack
+// (camp_org_type_CC ...), so adding a language never touches this file.
+const ORGANISER_CODES = ['CC', 'EI', 'EO', 'MC', 'CO', 'OT'];
 
 // Client-side mirror of backend/src/routes/camps.js applySchema. The
 // backend re-validates so this just keeps the UX tight.
@@ -59,6 +55,7 @@ function Field({ label, hint, children, error }) {
 }
 
 export function HostCamp() {
+  const { t } = useT();
   const [form, setForm] = useState({
     name: '',
     organiser_type: 'EO',
@@ -173,20 +170,20 @@ export function HostCamp() {
       const f = {};
       for (const issue of parsed.error.issues) f[issue.path[0]] = issue.message;
       setErrors(f);
-      setTopError('Please review the highlighted fields.');
+      setTopError(t('camp_err_review'));
       return;
     }
     // Date sanity
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     if (new Date(parsed.data.scheduled_date) < today) {
-      setErrors({ scheduled_date: 'must be a future date' });
-      setTopError('Camp date must be in the future.');
+      setErrors({ scheduled_date: t('camp_err_future') });
+      setTopError(t('camp_err_future_top'));
       return;
     }
     if (parsed.data.end_time <= parsed.data.start_time) {
-      setErrors({ end_time: 'must be after start time' });
-      setTopError('End time must be after start time.');
+      setErrors({ end_time: t('camp_err_end_after_start') });
+      setTopError(t('camp_err_end_after_start_top'));
       return;
     }
 
@@ -202,15 +199,18 @@ export function HostCamp() {
         // alternatives ride down to the strip beside the blood bank, which is
         // where the choice actually gets made.
         setDayFull(data);
-        setErrors({ scheduled_date: 'that blood bank is full on this day' });
+        setErrors({ scheduled_date: t('camp_err_day_full_field') });
         setTopError(
-          'That blood bank cannot take another camp on ' +
-            (data.scheduled_date || 'that date') +
-            '. Pick one of the open days shown below, or leave the blood bank blank ' +
-            'and we will arrange one.',
+          data.scheduled_date
+            ? t('camp_err_day_full', { date: data.scheduled_date })
+            : t('camp_err_day_full_nodate'),
         );
       } else {
-        setTopError(data.error || 'submit_failed');
+        // Readable sentence, raw code in brackets. The organiser cannot read
+        // `validation_error`, but whoever they phone for help can.
+        setTopError(
+          t('camp_err_submit_failed') + (data.error ? ' (' + data.error + ')' : ''),
+        );
       }
     } finally {
       setSubmitting(false);
@@ -220,26 +220,22 @@ export function HostCamp() {
   if (submitted) {
     return (
       <div className="min-h-full">
-        <Header subtitle="Host a camp" />
+        <Header subtitle={t('camp_host_subtitle')} />
         <main className="mx-auto max-w-2xl px-4 py-10">
           <div className="rk-card space-y-3">
-            <h1 className="text-xl font-semibold text-rk-700">Application received</h1>
-            <p className="text-sm text-slate-700">
-              Thank you for offering to host a donation camp. Our NGO coordinator will
-              contact you on the mobile number you provided to verify details and arrange
-              <strong> volunteer training</strong> on how to use Raktify during the camp.
-            </p>
+            <h1 className="text-xl font-semibold text-rk-700">{t('camp_ok_title')}</h1>
+            <p className="text-sm text-slate-700">{t('camp_ok_thanks')}</p>
             <dl className="grid grid-cols-2 gap-2 rounded-md bg-slate-50 p-3 text-sm">
-              <dt className="text-slate-500">Application ID</dt>
+              <dt className="text-slate-500">{t('camp_ok_app_id')}</dt>
               <dd className="font-mono text-xs text-slate-800">{submitted.camp_id}</dd>
-              <dt className="text-slate-500">Camp name</dt>
+              <dt className="text-slate-500">{t('camp_name')}</dt>
               <dd className="font-medium">{submitted.name}</dd>
-              <dt className="text-slate-500">Scheduled</dt>
+              <dt className="text-slate-500">{t('camp_ok_scheduled')}</dt>
               <dd>{submitted.scheduled_date}</dd>
-              <dt className="text-slate-500">Status</dt>
+              <dt className="text-slate-500">{t('camp_ok_status')}</dt>
               <dd>
                 <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800">
-                  Pending review
+                  {t('camp_status_PE')}
                 </span>
               </dd>
             </dl>
@@ -252,14 +248,14 @@ export function HostCamp() {
                 point of the picker on the form. */}
             {submitted.requested_blood_bank_name ? (
               <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                You asked for <strong>{submitted.requested_blood_bank_name}</strong> to
-                collect. We will confirm it with them and tell you - normally within 2-3
-                days.
+                {t('camp_ok_bb_named_1')}
+                <strong>{submitted.requested_blood_bank_name}</strong>
+                {t('camp_ok_bb_named_2')}
               </p>
             ) : (
               <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
-                <strong>We will arrange a blood bank</strong> and tell you which one is
-                coming. You do not have to find one yourself.
+                <strong>{t('camp_ok_bb_arrange_strong')}</strong>
+                {t('camp_ok_bb_arrange_rest')}
               </p>
             )}
 
@@ -273,29 +269,30 @@ export function HostCamp() {
                 is still pending review. */}
             {submitted.tracked_in_profile ? (
               <p className="rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">
-                <strong>This camp is now in your profile.</strong> Open{' '}
-                <strong>My camps</strong> to follow registrations, get the organiser link and
-                correct the details while it is still pending.
+                <strong>{t('camp_ok_track_mine_strong')}</strong>
+                {t('camp_ok_track_mine_1')}
+                <strong>{t('camp_my_camps')}</strong>
+                {t('camp_ok_track_mine_2')}
               </p>
             ) : (
               <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
-                <strong>Sign in with this mobile number</strong> to track this camp - and any
-                other you host - from one place. We will link it to you automatically.
+                <strong>{t('camp_ok_track_signin_strong')}</strong>
+                {t('camp_ok_track_signin_rest')}
               </p>
             )}
 
             <div className="flex flex-wrap gap-2">
               {submitted.tracked_in_profile ? (
                 <Link to="/" className="rk-button-primary inline-block">
-                  Go to my camps
+                  {t('camp_ok_cta_my_camps')}
                 </Link>
               ) : (
                 <>
                   <Link to="/login" className="rk-button-primary inline-block">
-                    Sign in to track it
+                    {t('camp_ok_cta_signin')}
                   </Link>
                   <Link to="/" className="rk-button-secondary inline-block">
-                    Back to home
+                    {t('camp_ok_cta_home')}
                   </Link>
                 </>
               )}
@@ -308,17 +305,11 @@ export function HostCamp() {
 
   return (
     <div className="min-h-full">
-      <Header subtitle="Host a camp" />
+      <Header subtitle={t('camp_host_subtitle')} />
       <main className="mx-auto max-w-3xl px-4 py-8">
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-slate-900">Host a blood donation camp</h1>
-          <p className="mt-1 text-sm text-slate-600">
-            Anyone can register a camp — hospitals, blood banks, schools, colleges, corporates,
-            housing societies, Rotary / Lions clubs, panchayats, or other NGOs. You do not need
-            a Raktify account. Our NGO coordinator will verify your details and{' '}
-            <strong>train your volunteers</strong> on how to use Raktify so every donor at the
-            camp gets registered and every unit gets traced.
-          </p>
+          <h1 className="text-2xl font-semibold text-slate-900">{t('camp_host_title')}</h1>
+          <p className="mt-1 text-sm text-slate-600">{t('camp_host_intro')}</p>
         </div>
 
         {topError ? (
@@ -331,25 +322,25 @@ export function HostCamp() {
           {/* Organiser */}
           <section className="rk-card grid gap-3 sm:grid-cols-2">
             <h2 className="col-span-full text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Who is hosting?
+              {t('camp_who_hosting')}
             </h2>
-            <Field label="Organisation type">
+            <Field label={t('camp_org_type')}>
               <select
                 className="rk-input"
                 value={form.organiser_type}
                 onChange={(e) => update('organiser_type', e.target.value)}
               >
-                {ORGANISER_TYPES.map((o) => (
-                  <option key={o.code} value={o.code}>{o.label}</option>
+                {ORGANISER_CODES.map((code) => (
+                  <option key={code} value={code}>{t('camp_org_type_' + code)}</option>
                 ))}
               </select>
             </Field>
-            <Field label="Organisation name" error={errors.organiser_name}>
+            <Field label={t('camp_org_name')} error={errors.organiser_name}>
               <input
                 className="rk-input"
                 value={form.organiser_name}
                 onChange={(e) => update('organiser_name', e.target.value)}
-                placeholder="e.g. Rotary Club of Amravati"
+                placeholder={t('camp_org_name_ph')}
                 required
               />
             </Field>
@@ -378,23 +369,23 @@ export function HostCamp() {
               315). */}
           <section className="rk-card space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              When, and who will collect the blood?
+              {t('camp_when_who')}
             </h2>
             <div className="grid gap-3 sm:grid-cols-2">
-              <Field label="State" error={errors.state_id}>
+              <Field label={t('camp_state')} error={errors.state_id}>
                 <select
                   className="rk-input"
                   value={form.state_id}
                   onChange={(e) => update('state_id', Number(e.target.value))}
                   required
                 >
-                  <option value={0}>— select —</option>
+                  <option value={0}>{t('camp_select')}</option>
                   {states.map((s) => (
                     <option key={s.id} value={s.id}>{s.name}</option>
                   ))}
                 </select>
               </Field>
-              <Field label="District" error={errors.district_id}>
+              <Field label={t('camp_district')} error={errors.district_id}>
                 <select
                   className="rk-input"
                   value={form.district_id}
@@ -402,7 +393,7 @@ export function HostCamp() {
                   disabled={!form.state_id}
                   required
                 >
-                  <option value={0}>— select —</option>
+                  <option value={0}>{t('camp_select')}</option>
                   {districts.map((d) => (
                     <option key={d.id} value={d.id}>{d.name}</option>
                   ))}
@@ -410,24 +401,24 @@ export function HostCamp() {
               </Field>
             </div>
             <p className="text-sm text-slate-600">
-              The blood bank sends the team, the beds and the cold-chain boxes. If you
-              already work with one, name it here. If you do not know one,{' '}
-              <strong>that is perfectly fine</strong> - Raktify will arrange it for you.
+              {t('camp_bb_explainer_1')}
+              <strong>{t('camp_bb_explainer_strong')}</strong>
+              {t('camp_bb_explainer_2')}
             </p>
             {!form.district_id ? (
               <p className="rounded-md border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-                Choose the district above first, then pick a blood bank here.
+                {t('camp_bb_pick_district_first')}
               </p>
             ) : bloodBanks.length === 0 ? (
               <p className="rounded-md border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
-                No blood bank is on Raktify in this district yet -{' '}
-                <strong>we will arrange collection for you.</strong> Nothing to do on this
-                question.
+                {t('camp_bb_none_1')}
+                <strong>{t('camp_bb_none_strong')}</strong>
+                {t('camp_bb_none_2')}
               </p>
             ) : (
               <Field
-                label="Preferred blood bank"
-                hint="Optional. Our NGO team confirms the blood bank when we review your application."
+                label={t('camp_bb_label')}
+                hint={t('camp_bb_hint')}
                 error={errors.requested_blood_bank_id}
               >
                 <select
@@ -435,7 +426,7 @@ export function HostCamp() {
                   value={form.requested_blood_bank_id}
                   onChange={(e) => update('requested_blood_bank_id', e.target.value)}
                 >
-                  <option value="">I do not know - please arrange one for us</option>
+                  <option value="">{t('camp_bb_dont_know')}</option>
                   {bloodBanks.map((b) => (
                     <option key={b.id} value={b.id}>
                       {b.display_name}
@@ -457,11 +448,9 @@ export function HostCamp() {
               />
             ) : null}
             <Field
-              label="Camp date"
+              label={t('camp_date')}
               hint={
-                form.requested_blood_bank_id
-                  ? 'Tap a day above, or type it here.'
-                  : undefined
+                form.requested_blood_bank_id ? t('camp_date_hint') : undefined
               }
               error={errors.scheduled_date}
             >
@@ -480,18 +469,18 @@ export function HostCamp() {
           {/* Camp basics */}
           <section className="rk-card grid gap-3 sm:grid-cols-2">
             <h2 className="col-span-full text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Camp details
+              {t('camp_details')}
             </h2>
-            <Field label="Camp name" error={errors.name}>
+            <Field label={t('camp_name')} error={errors.name}>
               <input
                 className="rk-input"
                 value={form.name}
                 onChange={(e) => update('name', e.target.value)}
-                placeholder="e.g. Republic Day Donation Drive"
+                placeholder={t('camp_name_ph')}
                 required
               />
             </Field>
-            <Field label="Target donors" hint="Optional — roughly how many donors are you expecting?">
+            <Field label={t('camp_target')} hint={t('camp_target_hint')}>
               <input
                 className="rk-input"
                 inputMode="numeric"
@@ -499,10 +488,10 @@ export function HostCamp() {
                 onChange={(e) =>
                   update('target_donor_count', e.target.value.replace(/\D/g, ''))
                 }
-                placeholder="e.g. 50"
+                placeholder={t('camp_target_ph')}
               />
             </Field>
-            <Field label="Start time" error={errors.start_time}>
+            <Field label={t('camp_start_time')} error={errors.start_time}>
               <input
                 type="time"
                 className="rk-input"
@@ -511,7 +500,7 @@ export function HostCamp() {
                 required
               />
             </Field>
-            <Field label="End time" error={errors.end_time}>
+            <Field label={t('camp_end_time')} error={errors.end_time}>
               <input
                 type="time"
                 className="rk-input"
@@ -525,12 +514,12 @@ export function HostCamp() {
           {/* Location */}
           <section className="rk-card space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Where will it be held?
+              {t('camp_where')}
             </h2>
             <div className="max-w-sm">
               <Field
-                label="Taluka"
-                hint="Optional — inside the district you chose above"
+                label={t('camp_taluka')}
+                hint={t('camp_taluka_hint')}
               >
                 <select
                   className="rk-input"
@@ -538,32 +527,32 @@ export function HostCamp() {
                   onChange={(e) => update('taluka_id', Number(e.target.value))}
                   disabled={!form.district_id || talukas.length === 0}
                 >
-                  <option value={0}>— optional —</option>
+                  <option value={0}>{t('camp_optional')}</option>
                   {talukas.map((t) => (
                     <option key={t.id} value={t.id}>{t.name}</option>
                   ))}
                 </select>
               </Field>
             </div>
-            <Field label="Venue" error={errors.venue}>
+            <Field label={t('camp_venue')} error={errors.venue}>
               <input
                 className="rk-input"
                 value={form.venue}
                 onChange={(e) => update('venue', e.target.value)}
-                placeholder="e.g. Auditorium, Sant Gadge Baba University"
+                placeholder={t('camp_venue_ph')}
                 required
               />
             </Field>
-            <Field label="Address" error={errors.address_line}>
+            <Field label={t('camp_address')} error={errors.address_line}>
               <input
                 className="rk-input"
                 value={form.address_line}
                 onChange={(e) => update('address_line', e.target.value)}
-                placeholder="Building / street / locality"
+                placeholder={t('camp_address_ph')}
                 required
               />
             </Field>
-            <Field label="Pincode" error={errors.pincode}>
+            <Field label={t('camp_pincode')} error={errors.pincode}>
               <input
                 className="rk-input max-w-[10rem] tracking-widest"
                 value={form.pincode}
@@ -579,7 +568,7 @@ export function HostCamp() {
           {/* Volunteer training */}
           <section className="rk-card space-y-3">
             <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Volunteer training
+              {t('camp_vt')}
             </h2>
             <label className="flex items-start gap-2 text-sm text-slate-700">
               <input
@@ -588,13 +577,10 @@ export function HostCamp() {
                 checked={form.volunteer_training_requested}
                 onChange={(e) => update('volunteer_training_requested', e.target.checked)}
               />
-              <span>
-                Yes — please train our volunteers on Raktify so we can register every donor
-                and trace every unit during the camp.
-              </span>
+              <span>{t('camp_vt_check')}</span>
             </label>
             {form.volunteer_training_requested ? (
-              <Field label="How many volunteers will need training?" error={errors.expected_volunteer_count}>
+              <Field label={t('camp_vt_count')} error={errors.expected_volunteer_count}>
                 <input
                   className="rk-input max-w-[10rem]"
                   inputMode="numeric"
@@ -602,7 +588,7 @@ export function HostCamp() {
                   onChange={(e) =>
                     update('expected_volunteer_count', e.target.value.replace(/\D/g, ''))
                   }
-                  placeholder="e.g. 6"
+                  placeholder={t('camp_vt_count_ph')}
                 />
               </Field>
             ) : null}
@@ -611,9 +597,9 @@ export function HostCamp() {
           {/* Contact */}
           <section className="rk-card grid gap-3 sm:grid-cols-2">
             <h2 className="col-span-full text-sm font-semibold uppercase tracking-wide text-slate-500">
-              Your contact details
+              {t('camp_contact')}
             </h2>
-            <Field label="Full name" error={errors.submitted_by_name}>
+            <Field label={t('camp_full_name')} error={errors.submitted_by_name}>
               <input
                 className="rk-input"
                 value={form.submitted_by_name}
@@ -621,7 +607,7 @@ export function HostCamp() {
                 required
               />
             </Field>
-            <Field label="Your role" hint="e.g. President, Headmistress, HR Manager">
+            <Field label={t('camp_your_role')} hint={t('camp_your_role_hint')}>
               <input
                 className="rk-input"
                 value={form.submitted_by_role}
@@ -629,8 +615,8 @@ export function HostCamp() {
               />
             </Field>
             <Field
-              label="Mobile (10-digit)"
-              hint="Our coordinator will WhatsApp / call you on this number"
+              label={t('camp_mobile')}
+              hint={t('camp_mobile_hint')}
               error={errors.submitted_by_mobile}
             >
               <input
@@ -642,7 +628,7 @@ export function HostCamp() {
                 required
               />
             </Field>
-            <Field label="Email (optional)" error={errors.submitted_by_email}>
+            <Field label={t('camp_email')} error={errors.submitted_by_email}>
               <input
                 type="email"
                 className="rk-input"
@@ -650,7 +636,7 @@ export function HostCamp() {
                 onChange={(e) => update('submitted_by_email', e.target.value)}
               />
             </Field>
-            <Field label="Anything else you'd like us to know?" hint="Partnerships, blood-bank tie-ups, accessibility needs, etc.">
+            <Field label={t('camp_notes')} hint={t('camp_notes_hint')}>
               <textarea
                 className="rk-input col-span-full min-h-[80px]"
                 value={form.notes}
@@ -661,12 +647,9 @@ export function HostCamp() {
           </section>
 
           <div className="flex items-center justify-between gap-3 pt-2">
-            <p className="max-w-md text-xs text-slate-500">
-              By submitting you agree that our coordinator may contact you on the number you
-              provided. Raktify is free for camp hosts and donors — always.
-            </p>
+            <p className="max-w-md text-xs text-slate-500">{t('camp_consent_line')}</p>
             <button type="submit" className="rk-button-primary" disabled={submitting}>
-              {submitting ? '…' : 'Submit application'}
+              {submitting ? '…' : t('camp_submit')}
             </button>
           </div>
         </form>

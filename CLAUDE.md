@@ -15,10 +15,12 @@ older section it contradicts.
 **Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
 `git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
 (fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
-auto-applies migrations to prod**). Last three commits, newest first:
+auto-applies migrations to prod**). Last five commits, newest first:
 
 | Commit | What |
 |---|---|
+| `d5f518b` | `fix(otp)`: a rejected WhatsApp OTP send is no longer reported as "code sent", and the OTP goes out in `donors.preferred_language`. New `frontend/src/lib/otpError.js`. See **OTP delivery failures** below |
+| `c9a8c85` | `fix(donor)`: the DOB picker could never be completed (its selects read the `value` prop, which is `''` while partial); donor registration now **asks** which language WhatsApp should use. See **Marathi i18n** below |
 | `d657d8a` | **True Marathi** for Host a camp + the whole BB portal. Also fixes a real bug: `useT()` held per-call-site state, so switching language translated the header and nothing else. New `i18n/LangProvider.jsx` + packs `i18n/camps.js` / `i18n/bloodbank.js` (661 keys per language). See **Marathi i18n** below |
 | `31c5767` | `feat(bb-camps)`: repair a whole month of capacity, not one day at a time - bulk bar, *All planned days*, *Take off the plan* |
 | `9415954` | `feat(camps)`: the date question comes first on Host a camp, with a browsable BB slot calendar |
@@ -214,6 +216,66 @@ Marathi. Rules that must hold for anything added to them:
 - Devanagari runs wider than Latin. The **11-tab BB strip** is the surface to
   watch; the scrollable-strip fix has been offered twice and **never
   authorised** — report overflow, do not fix it.
+
+## OTP delivery failures are reported now, not swallowed (shipped 2026-08-30, `d5f518b`)
+
+WhatsApp is the only live OTP channel, and OTP gates **registration**, not just login
+(`DonorRegister.jsx` chains `/donors/register` → `/auth/otp/send` → `/auth/otp/verify` →
+`/donors/:id/consent`). A donor whose number is not on WhatsApp was told *"code sent"* and
+left waiting for a message Meta had already rejected — and on the registration form the
+failed send was caught by the same handler as a failed registration, so the donor saw a
+bare error code, the OTP panel never rendered, and re-submitting answered
+`mobile_already_registered`. Their row existed and was perfect; the screen offered no way
+forward. Rules for anything touching this path:
+
+- **There is no Meta pre-check for "is this number on WhatsApp."** A rejected send is the
+  only signal there is. So `classifyFailure()` in
+  `services/notifications/whatsappCloudProvider.js` may report `no_whatsapp` for
+  **recipient-side codes only** — `131026` (undeliverable) and legacy `1013` (user is not
+  valid); `131050` → `opted_out`. Everything else stays `provider_error` /
+  `transport_error` / `template_not_configured` / `not_configured` / `no_recipient`.
+  **Never widen that set to a transport or template code.** Telling a donor with working
+  WhatsApp that they cannot register is the worse of the two failures, and an unapproved
+  template or an unset `WHATSAPP_TEMPLATE_*` key looks exactly like a rejection from the
+  outside.
+- **`POST /auth/otp/send` can now answer non-200.** `422 whatsapp_not_reachable` (the two
+  recipient codes) and `502 otp_send_failed` (everything else); it also **clears
+  `otp_hash` / `otp_expires_at`** first, because a live hash for a code nobody received is
+  a verify prompt that can never be satisfied. Both are gated on **`!env.otpEcho`**, so
+  dev and demo keep their 200 — and `consoleProvider` returns `success:true` anyway.
+- **The OTP goes out in `donors.preferred_language`**, looked up by mobile, falling back
+  to `'en'` for a first-contact login with no `donors` row. It used to be a hardcoded
+  `'en'`. See the `preferred_language` note under **Marathi i18n** — it is the WhatsApp
+  language, not the UI language.
+- **A confirmed rejection auto-routes the donor to SMS.** The chokepoint
+  (`services/notifications/index.js`) persists `failure_reason` on the `notification_log`
+  row (the column has existed since `034:49`) and, for `no_whatsapp` / `opted_out` on a
+  known donor, clears `whatsapp_opted_in` and moves `preferred_contact_channel` `'WA'` →
+  `'SM'`. **That flip is in app code on purpose:** `fn_notif_propagate_opt_out`
+  (`034:70-95`) is `BEFORE UPDATE OF delivery_status`, so an `'OP'` written at INSERT never
+  fires it — which is also why the provider keeps `deliveryStatus:'FA'` even for an
+  opt-out. It runs on its own pooled client and is wrapped so bookkeeping can never break
+  the send path. `donors.sms_opted_in` already defaults **TRUE** (`008:71`), so this
+  quietly accumulates the SMS list while DLT registration is still pending.
+- **Donor-facing OTP errors go through `frontend/src/lib/otpError.js`**, not
+  `lib/errorMessage.js` — that one is English-only, staff-aimed, and a *pure function*, so
+  it cannot read the language context. 15 keys × MR/HI/EN live in the **main** dict, so
+  Hindi is genuine here (the no-Hindi carve-out is `camp_`/`bb_` only). The mapper covers
+  server codes **and** the local literals the same `error` state holds, because mixing one
+  translated sentence into a state that also renders raw snake_case looks broken.
+  `otp_err_no_whatsapp` offers a phone number and deliberately **does not** promise a
+  walk-in or staff-vouched path — that is not built.
+- **On the register form the send has its own `catch`.** It sets `otpStage='send_failed'`,
+  which renders a titled panel that says plainly the record was saved, plus a `resendOtp()`
+  that calls `/auth/otp/send` **alone** — never a second `/donors/register`.
+
+No migration; schema head stayed **318**. Gates: `smoke_test_phase2.js` 167,
+`smoke_test_phase4.js` 17, `check_whatsapp_templates.js` 0 fail / 1 warn.
+
+**Still open, founder-side:** SMS fallback needs the Foundation registered as a DLT
+Principal Entity with header `RAKTFY` and templates. Staff-vouched enrollment for donors
+with no WhatsApp at all was discussed and is **not authorised** — do not build it without
+a fresh go-ahead.
 
 ## Pilot scope — Donor + Camp modules only (Aug 2026)
 

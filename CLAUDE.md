@@ -6,7 +6,7 @@ This is a **life-critical** healthcare system. Read this whole file before touch
 > `raktify.*` (e.g. `raktify.actor_role`); the Tailwind/CSS design-system prefix
 > is `rk-*` / `.rk-*`. Use these consistently — no other brand prefix exists.
 
-## Where things stand (updated 2026-08-29) — READ THIS FIRST
+## Where things stand (updated 2026-08-30) — READ THIS FIRST
 
 The rest of this file is accreted history. This section is the resume point: the
 last commit, what is live, and what is genuinely blocked. Trust it over any
@@ -19,6 +19,9 @@ auto-applies migrations to prod**). Last three commits, newest first:
 
 | Commit | What |
 |---|---|
+| `d657d8a` | **True Marathi** for Host a camp + the whole BB portal. Also fixes a real bug: `useT()` held per-call-site state, so switching language translated the header and nothing else. New `i18n/LangProvider.jsx` + packs `i18n/camps.js` / `i18n/bloodbank.js` (661 keys per language). See **Marathi i18n** below |
+| `31c5767` | `feat(bb-camps)`: repair a whole month of capacity, not one day at a time - bulk bar, *All planned days*, *Take off the plan* |
+| `9415954` | `feat(camps)`: the date question comes first on Host a camp, with a browsable BB slot calendar |
 | `70ac9ba` | `fix(api)`: a missing **endpoint** and a missing **row** no longer share the code `not_found`. The catch-all now answers **`route_not_found`**; `institutionErrorText` splits one sentence into three; smoke §22 asserts they differ. See **Deploy skew** below |
 | `bdf363d` | Staff logins are editable — `POST /institutions/:id/users/:userId/contact` (username / mobile / email), the in-house-BB admin captured on the hospital apply form, `reissue-setup` accepts a mobile |
 | `dae92d8` | `fix(notifications)`: three shipped camp reminders could not send a single message — 8 new WhatsApp templates authored + submitted, `CAMP_LINK` wired, `scripts/check_whatsapp_templates.js` gate added |
@@ -138,6 +141,62 @@ commit/deploy cycles — get it right the first time by following these:
   `/icon.svg`.**
 - Reuse `.rk-button*/.rk-card/.rk-input/.rk-label/.rk-legal` — don't
   restyle from scratch. Shadows `shadow-soft`/`shadow-lift` (warm-tinted).
+
+## Marathi i18n — Host a camp + the BB portal (shipped 2026-08-30, `d657d8a`)
+
+The two surfaces driven by people least likely to read English are now full
+Marathi. Rules that must hold for anything added to them:
+
+- **`useT()` reads a context now.** `i18n/LangProvider.jsx` is mounted in
+  `main.jsx` inside `BrowserRouter`, outside `ScrollToTop`. Before this, every
+  call site held its own `useState`, so `setLang` re-rendered only the component
+  holding the picker. The returned shape `{ t, lang, setLang, supported }` is
+  unchanged, and `useLocalLang()` survives as the outside-provider fallback. **If
+  a language switch ever looks like a no-op again, check the provider first.**
+- **Strings live in two domain packs**, spread into `strings.js` **first** so an
+  existing literal always wins a collision: `i18n/camps.js` (`camp_*`, 277 keys)
+  and `i18n/bloodbank.js` (`bb_*`, 384). Every key carries an English value too
+  — it is what the `en` picker serves, what Hindi falls back to, and the
+  reviewable reference for each Marathi line.
+- **No Hindi keys, by decision.** A Hindi session falls back to clean English on
+  these two surfaces rather than showing rushed, unreviewed Hindi. The structure
+  takes a `hi` pack later with no refactor. Tracked follow-up, not an omission.
+- **Clinical terms stay English, by decision.** Marker names (HIV, HBsAg, HCV,
+  Syphilis, Malaria), the verdicts (Reactive / Non-reactive) and component codes
+  are untouched; those tabs get Marathi headings and help text only. Inventing
+  Marathi for a TTI verdict is a safety event, not a copy nit, and it is what
+  Marathi BB staff say out loud. Same standing deferral as Phase 7.
+  Donor-facing *educational* copy is deliberately different — `camp_pub_expect_4`
+  does use Devanagari disease names while keeping `HIV`, because a village donor
+  reading a bullet is not a technician entering a result.
+- **`tFor` falls back silently** (`table[key] ?? dict.en[key] ?? key`), so a
+  missing Marathi key renders English and never throws. **Coverage is verified by
+  walking the screens or grepping, never by a green build.**
+- **Month and weekday names are hardcoded pack arrays, never
+  `toLocaleDateString('mr-IN')`** — Intl's Marathi data is not reliably present
+  and its short weekday forms are unpredictable, which a calendar grid cannot
+  absorb. `DateOfBirthInput.jsx` reuses the same arrays so the DOB picker and the
+  camp calendar can never disagree on a month name.
+- **Latin digits in every language** (10, 48, 2026). **Never markup inside a
+  translation string** — mid-sentence `<strong>` becomes one key per fragment
+  with the tag in JSX, and word-order inversion needs paired `_pre`/`_post` keys
+  (Marathi puts the wordmark *before* द्वारे). **API error codes are never
+  translated** — each maps to a pack key client-side, exactly as
+  `institutionErrorText` maps `route_not_found` / `not_found`.
+- `lib/campStatus.js` still returns today's `{ label, cls }` and gained a `key`
+  per entry plus `campStatusLabel(code, t)`, so untranslated admin surfaces keep
+  working while the organiser and BB views translate.
+- **Deliberately left English, not oversights:** `CoordinatorPortal.jsx`'s
+  `heading` / `emptyHint` overrides on `<MyCampsSection>` (`/coordinator` is out
+  of scope and self-consistently English), and `aria-label="Raktify home"` in
+  `CampOrganizerDashboard.jsx` (matches the identical literal in `Landing.jsx`).
+- **Still English, logged not fixed:** `lib/errorMessage.js` (24+ call sites, 21
+  of them in the BB portal) and `DonorAlertResponse.jsx`'s private `STRINGS`
+  island. `errorMessage` is a pure function, not a hook, so it would have to read
+  `localStorage['rk.lang']` directly.
+- Devanagari runs wider than Latin. The **11-tab BB strip** is the surface to
+  watch; the scrollable-strip fix has been offered twice and **never
+  authorised** — report overflow, do not fix it.
 
 ## Pilot scope — Donor + Camp modules only (Aug 2026)
 

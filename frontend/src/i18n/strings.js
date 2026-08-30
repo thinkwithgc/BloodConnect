@@ -162,6 +162,9 @@ const dict = {
     dob_year: 'वर्ष',
     dob_out_of_range: 'वय {min} ते {max} वर्षांदरम्यान असावे.',
     // the language a donor's WhatsApp / SMS messages go out in
+    // the institution's own name on its portal dashboard — hospital / blood bank
+    inst_kind_hospital: 'रुग्णालय',
+    inst_kind_blood_bank: 'रक्तपेढी',
     donor_lang_label: 'संदेशाची भाषा',
     donor_lang_hint:
       'WhatsApp आणि SMS संदेश या भाषेत येतील. नंतर प्रोफाइलमध्ये बदलता येईल.',
@@ -318,6 +321,8 @@ const dict = {
     dob_month: 'महीना',
     dob_year: 'वर्ष',
     dob_out_of_range: 'उम्र {min} से {max} वर्ष के बीच होनी चाहिए।',
+    inst_kind_hospital: 'अस्पताल',
+    inst_kind_blood_bank: 'ब्लड बैंक',
     donor_lang_label: 'संदेश की भाषा',
     donor_lang_hint:
       'WhatsApp और SMS संदेश इसी भाषा में आएंगे। बाद में प्रोफ़ाइल में बदल सकते हैं।',
@@ -476,6 +481,8 @@ const dict = {
     dob_month: 'Month',
     dob_year: 'Year',
     dob_out_of_range: 'Age must be between {min} and {max} years.',
+    inst_kind_hospital: 'Hospital',
+    inst_kind_blood_bank: 'Blood bank',
     donor_lang_label: 'Language for messages',
     donor_lang_hint:
       'Your WhatsApp and SMS messages will come in this language. You can change it later in your profile.',

@@ -1382,6 +1382,44 @@ async function main() {
       `its admin login stays editable from that page (got ${r.status} ${r.body.error || ''})`,
     );
 
+    // 20e. Each of the two logins can name ITSELF. This is the pair that needs it:
+    // a hospital and its in-house blood bank differ only by an '_bb_admin' suffix on
+    // a username nobody reads, so the portal has to say which organisation the
+    // session belongs to. The name is the one the applicant typed into 'Public
+    // display name', not one we coined.
+    r = await fetchJson('GET', '/institutions/me', { headers: hoAuth });
+    assert(
+      r.status === 200 && r.body.display_name === 'P2 Smoke Hospital' && r.body.kind === 'HO',
+      `the hospital admin's session names its own hospital (got ${r.status} ${r.body.display_name || r.body.error})`,
+    );
+    const hoOwnName = r.body.display_name;
+
+    r = await fetchJson('GET', '/institutions/me', {
+      headers: { Authorization: `Bearer ${bbToken}` },
+    });
+    assert(
+      r.status === 200 && r.body.kind === 'BB' && !!r.body.display_name,
+      `the BB admin's session names the blood bank, not the hospital (got ${r.status} ${r.body.kind || r.body.error})`,
+    );
+    assert(
+      r.body.display_name !== hoOwnName && r.body.display_name.includes(hoOwnName),
+      `the two paired logins read as different names (got '${r.body.display_name}' vs '${hoOwnName}')`,
+    );
+
+    // 20f. Identity only — this fires on every portal load, so it must not carry
+    // licences or the primary contact's mobile the way GET /:id does.
+    assert(
+      r.body.primary_contact_mobile === undefined && r.body.cdsco_licence_no === undefined,
+      'the banner payload carries no licence numbers and no contact mobile',
+    );
+
+    // 20g. A session with no institution behind it is not an error to shout about.
+    r = await fetchJson('GET', '/institutions/me', { headers: auth });
+    assert(
+      r.status === 400 && r.body.error === 'session_has_no_institution',
+      `a session with no institution answers session_has_no_institution (got ${r.status} ${r.body.error})`,
+    );
+
     console.log('── 21. Reversible lifecycle: suspend / archive ─────────────');
     // Suspend used to be a one-way door and 'AR' was unreachable. What this
     // section pins down is that every step back out exists, that retiring an

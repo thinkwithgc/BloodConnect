@@ -10,6 +10,7 @@ import { HospitalRaiseRequest } from './HospitalRaiseRequest.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { useT } from '../../i18n/useT.js';
 import { TeamPanel } from '../../components/institution/TeamPanel.jsx';
+import { InstitutionBanner } from '../../components/institution/InstitutionBanner.jsx';
 
 export function HospitalPortal() {
   const { t } = useT();
@@ -36,6 +37,7 @@ export function HospitalPortal() {
     <div className="flex min-h-full flex-col">
       <Header subtitle="Hospital portal" />
       <main className="mx-auto w-full max-w-5xl px-4 py-6">
+        <InstitutionBanner fallback="Hospital portal" />
         <nav className="mb-4 flex gap-2 border-b border-slate-200">
           {TABS.map((tt) => (
             <button

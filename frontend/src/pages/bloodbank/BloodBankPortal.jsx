@@ -10,6 +10,7 @@ import { donationSchema, openingStockSchema, zodFlatten } from '../../lib/schema
 import { useT } from '../../i18n/useT.js';
 import { DonorBulkUpload, ActivateImportButton } from '../../components/donors/DonorBulkUpload.jsx';
 import { TeamPanel } from '../../components/institution/TeamPanel.jsx';
+import { InstitutionBanner } from '../../components/institution/InstitutionBanner.jsx';
 import { campStatus, campStatusLabel } from '../../lib/campStatus.js';
 import {
   isoDow,
@@ -70,6 +71,7 @@ export function BloodBankPortal() {
     <div className="flex min-h-full flex-col">
       <Header subtitle={t('bb_subtitle')} />
       <main className="mx-auto w-full max-w-4xl px-4 py-6">
+        <InstitutionBanner fallback={t('bb_subtitle')} />
         <nav className="mb-4 flex gap-2 border-b border-slate-200">
           {TABS.map((tt) => (
             <button

@@ -83,6 +83,38 @@ router.get('/', verifyJWT, requireRole('ngo_admin', 'super_admin'), async (req, 
   res.json({ institutions: r.rows, count: r.rowCount });
 });
 
+// ── GET /institutions/me ─────────────────────────────────────────
+// Who am I? The name the institution itself submitted on its onboarding
+// application, for the hospital / blood-bank portal to brand its own dashboard
+// with. Addressed by session for the same reason as '/me/users' below — a staff
+// portal never learns its own institution UUID (the JWT carries it; the client
+// persists only token / role / user_id). Declared BEFORE '/:id' so 'me' is never
+// parsed as a UUID; '/me/users' needs no such care because it has two segments.
+//
+// Deliberately NOT the full '/:id' row. Every member of an institution may
+// already read that (isSelf below), but this fires on every portal load, and
+// shipping licence numbers and the primary contact's mobile to a technician's
+// browser on every page view is not the same thing as serving them on an
+// explicit request. This returns identity only.
+router.get('/me', verifyJWT, async (req, res) => {
+  if (!req.user.institutionId) {
+    return res.status(400).json({ error: 'session_has_no_institution' });
+  }
+  const r = await withRlsContext(req, (c) =>
+    c.query(
+      `SELECT i.id, i.kind, i.shortname, i.legal_name, i.display_name,
+              st.name AS state_name, d.name AS district_name
+         FROM institutions i
+    LEFT JOIN states    st ON st.id = i.state_id
+    LEFT JOIN districts d  ON d.id  = i.district_id
+        WHERE i.id = $1`,
+      [req.user.institutionId],
+    ),
+  );
+  if (r.rowCount === 0) return res.status(404).json({ error: 'not_found' });
+  res.json(r.rows[0]);
+});
+
 router.get('/:id', verifyJWT, async (req, res) => {
   const isAdmin = ['ngo_admin', 'super_admin'].includes(req.user.role);
   const isSelf = req.user.institutionId === req.params.id;

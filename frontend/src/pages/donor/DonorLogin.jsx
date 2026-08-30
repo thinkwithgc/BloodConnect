@@ -4,6 +4,7 @@ import { z } from 'zod';
 
 import { Header } from '../../components/Header.jsx';
 import { apiRequest } from '../../lib/api.js';
+import { otpErrorText } from '../../lib/otpError.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useT } from '../../i18n/useT.js';
 
@@ -51,7 +52,7 @@ export function DonorLogin() {
     setError('');
     const parsed = mobileSchema.safeParse(mobile);
     if (!parsed.success) {
-      setError('invalid_mobile');
+      setError(otpErrorText('invalid_mobile', t));
       return;
     }
     setPending(true);
@@ -64,7 +65,10 @@ export function DonorLogin() {
       // The backend echoes `dev_otp` only in development mode.
       if (r.dev_otp) setDevOtp(r.dev_otp);
     } catch (err) {
-      setError(err?.response?.data?.error || 'send_failed');
+      // A donor whose number has no WhatsApp gets told exactly that — the
+      // route answers 422 whatsapp_not_reachable only for a recipient-side
+      // rejection, never for an outage on our side.
+      setError(otpErrorText(err, t));
     } finally {
       setPending(false);
     }
@@ -74,7 +78,7 @@ export function DonorLogin() {
     e.preventDefault();
     setError('');
     if (!/^\d{6}$/.test(otp)) {
-      setError('otp_must_be_6_digits');
+      setError(otpErrorText('otp_must_be_6_digits', t));
       return;
     }
     setPending(true);
@@ -107,7 +111,7 @@ export function DonorLogin() {
                 : '/donor';
       navigate(dest, { replace: true });
     } catch (err) {
-      setError(err?.response?.data?.error || 'verify_failed');
+      setError(otpErrorText(err, t));
     } finally {
       setPending(false);
     }

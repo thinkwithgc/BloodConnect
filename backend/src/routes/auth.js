@@ -146,21 +146,72 @@ router.post('/otp/send', otpSendLimiter, async (req, res) => {
     [codeHash, expiresAt, userId],
   );
 
+  // Send the code in the language the donor actually reads. donor_otp is
+  // Meta-approved in MR/HI/EN, but this used to pass a hardcoded 'en', so a
+  // Marathi donor who had just told us their language on the registration form
+  // still received an English OTP.
+  //
+  // donors.preferred_language is the WhatsApp language (not the UI language) and
+  // is written by the registration form, which posts /donors/register BEFORE it
+  // asks for an OTP — so on the registration path the row is already here. A
+  // first-contact login with no donors row yet falls back to English.
+  const langRow = await pool.query(
+    `SELECT preferred_language FROM donors WHERE mobile = $1 LIMIT 1`,
+    [mobile],
+  );
+  const otpLanguage = langRow.rows[0]?.preferred_language || 'en';
+
   // Dispatch via the notification service. In dev with NOTIFICATIONS_PROVIDER=console,
-  // this writes to .outbox/<id>.json. Real MSG91 lands in Phase 6.
-  await sendNotification({
+  // this writes to .outbox/<id>.json.
+  const dispatch = await sendNotification({
     recipientId: mobile,
     templateType: 'OTP',
     variables: { otp: code, ttl_minutes: otp.OTP_TTL_MIN },
     channel: 'WA',
-    language: 'en',
+    language: otpLanguage,
   });
 
-  // Surface the OTP in the response for local dev, and for staging when the
-  // OTP_ECHO flag is explicitly set (so a live staging site can be demoed
-  // without a working SMS/WhatsApp channel). Never enabled in real production.
+  // Surface the OTP in the response for local dev, and when the OTP_ECHO flag is
+  // explicitly set (so a live site can be demoed without a working WhatsApp
+  // channel). Never enabled with real users on the platform.
   const echoOtp = env.nodeEnv === 'development' || env.otpEcho;
   const devEcho = echoOtp ? { dev_otp: code } : {};
+
+  // ── Tell the truth about a send that did not happen ─────────────────────
+  //
+  // This used to `await sendNotification(...)` and throw the result away, then
+  // answer `{status:'sent'}` no matter what. WhatsApp is our only OTP channel
+  // and OTP is not merely login — the registration form cannot POST consent
+  // without a session, so a donor whose number has no WhatsApp watched a screen
+  // that promised a code, waited, and left behind a half-registered row with
+  // consent_data_use = FALSE. Nothing anywhere said why.
+  //
+  // The distinction the caller gets matters as much as the failure: only a
+  // recipient-side rejection is reported as "this number is not on WhatsApp".
+  // An unapproved template or a Meta outage is our problem and comes back as a
+  // plain retry, because telling a donor with a working WhatsApp that they have
+  // none would send them away for good.
+  if (!dispatch?.success && !echoOtp) {
+    // The code was never delivered, so leave no live hash behind for it — a
+    // clean retry, and nothing usable sitting on the row for its full TTL.
+    await pool
+      .query(`UPDATE platform_users SET otp_hash = NULL, otp_expires_at = NULL WHERE id = $1`, [
+        userId,
+      ])
+      .catch(() => {});
+
+    if (dispatch?.reason === 'no_whatsapp' || dispatch?.reason === 'opted_out') {
+      return res.status(422).json({
+        error: 'whatsapp_not_reachable',
+        // The number is fine, the channel is not. Named so the SPA can offer the
+        // alternative instead of showing a dead end; the sentence itself is
+        // written client-side, exactly as institutionErrorText does.
+        channel: 'WA',
+      });
+    }
+    return res.status(502).json({ error: 'otp_send_failed' });
+  }
+
   res.json({ status: 'sent', expires_at: expiresAt.toISOString(), ...devEcho });
 });
 

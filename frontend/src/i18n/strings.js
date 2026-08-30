@@ -166,6 +166,30 @@ const dict = {
     donor_lang_hint:
       'WhatsApp आणि SMS संदेश या भाषेत येतील. नंतर प्रोफाइलमध्ये बदलता येईल.',
     // outbox
+    // OTP errors, donor-facing. otp_err_no_whatsapp is shown ONLY when Meta
+    // rejected the number itself — never for an outage or a missing template.
+    otp_err_no_whatsapp:
+      'हा नंबर WhatsApp वर दिसत नाही, त्यामुळे कोड पाठवता आला नाही. WhatsApp सुरू असलेला नंबर टाका. WhatsApp वापरत नसाल तर +91 98505 41412 वर फोन करा.',
+    otp_err_send_failed:
+      'कोड पाठवताना अडचण आली. ही आमच्या बाजूची अडचण आहे — थोड्या वेळाने पुन्हा प्रयत्न करा.',
+    otp_err_rate_limited: 'खूप वेळा कोड मागवला गेला आहे. थोडा वेळ थांबून पुन्हा प्रयत्न करा.',
+    otp_err_wrong_code: 'हा कोड बरोबर नाही किंवा त्याची मुदत संपली आहे. नवीन कोड मागवा.',
+    otp_err_expired: 'कोडची मुदत संपली आहे. नवीन कोड मागवा.',
+    otp_err_locked:
+      'अनेक चुकीच्या प्रयत्नांमुळे हे खाते काही वेळासाठी बंद केले आहे. थोड्या वेळाने पुन्हा प्रयत्न करा.',
+    otp_err_bad_mobile: 'मोबाइल नंबर तपासा — 10 अंकी भारतीय नंबर टाका.',
+    otp_err_six_digits: '6 अंकी कोड टाका.',
+    otp_err_leader_unknown:
+      'हा नंबर समुदाय प्रमुख म्हणून नोंदलेला नाही. एनजीओ प्रशासकाशी संपर्क करा.',
+    otp_err_offline: 'इंटरनेट जोडलेले दिसत नाही. कनेक्शन तपासून पुन्हा प्रयत्न करा.',
+    otp_err_generic: 'काहीतरी चुकले. थोड्या वेळाने पुन्हा प्रयत्न करा.',
+    otp_send_failed_title: 'कोड पाठवता आला नाही',
+    otp_resend: 'कोड पुन्हा पाठवा',
+    reg_saved_otp_pending:
+      'तुमची माहिती जतन झाली आहे. पण मोबाइल तपासणीचा कोड पाठवता आला नाही, त्यामुळे नोंदणी अजून पूर्ण झाली नाही.',
+    reg_err_consent_required: 'पुढे जाण्यासाठी संमती द्यावी लागेल.',
+    reg_err_invalid_details: 'काही माहिती अपूर्ण किंवा चुकीची आहे. वरील रकाने तपासा.',
+    reg_err_submit_failed: 'नोंदणी पूर्ण होऊ शकली नाही. थोड्या वेळाने पुन्हा प्रयत्न करा.',
     pending_sync_one: '१ बदल सिंक होण्याच्या प्रतीक्षेत',
     pending_sync_many: '{n} बदल सिंक होण्याच्या प्रतीक्षेत',
     retry: 'पुन्हा प्रयत्न करा',
@@ -297,6 +321,30 @@ const dict = {
     donor_lang_label: 'संदेश की भाषा',
     donor_lang_hint:
       'WhatsApp और SMS संदेश इसी भाषा में आएंगे। बाद में प्रोफ़ाइल में बदल सकते हैं।',
+    // OTP errors, donor-facing. otp_err_no_whatsapp is shown ONLY when Meta
+    // rejected the number itself — never for an outage or a missing template.
+    otp_err_no_whatsapp:
+      'यह नंबर WhatsApp पर नहीं दिख रहा, इसलिए कोड नहीं भेजा जा सका। WhatsApp चालू नंबर डालें। WhatsApp इस्तेमाल न करते हों तो +91 98505 41412 पर कॉल करें।',
+    otp_err_send_failed:
+      'कोड भेजने में दिक्कत हुई। यह हमारी तरफ़ की दिक्कत है — कुछ देर बाद फिर कोशिश करें।',
+    otp_err_rate_limited: 'बहुत बार कोड मंगाया गया है। कुछ देर रुककर फिर कोशिश करें।',
+    otp_err_wrong_code: 'यह कोड सही नहीं है या इसकी अवधि ख़त्म हो गई है। नया कोड मंगाएँ।',
+    otp_err_expired: 'कोड की अवधि ख़त्म हो गई है। नया कोड मंगाएँ।',
+    otp_err_locked:
+      'कई ग़लत कोशिशों के बाद यह खाता कुछ समय के लिए बंद है। कुछ देर बाद फिर कोशिश करें।',
+    otp_err_bad_mobile: 'मोबाइल नंबर जाँचें — 10 अंकों का भारतीय नंबर डालें।',
+    otp_err_six_digits: '6 अंकों का कोड डालें।',
+    otp_err_leader_unknown:
+      'यह नंबर समुदाय प्रमुख के रूप में दर्ज नहीं है। एनजीओ एडमिन से संपर्क करें।',
+    otp_err_offline: 'इंटरनेट जुड़ा नहीं दिख रहा। कनेक्शन जाँचकर फिर कोशिश करें।',
+    otp_err_generic: 'कुछ ग़लत हुआ। कुछ देर बाद फिर कोशिश करें।',
+    otp_send_failed_title: 'कोड नहीं भेजा जा सका',
+    otp_resend: 'कोड फिर भेजें',
+    reg_saved_otp_pending:
+      'आपकी जानकारी सुरक्षित हो गई है। लेकिन मोबाइल जाँच का कोड नहीं भेजा जा सका, इसलिए रजिस्ट्रेशन अभी पूरा नहीं हुआ।',
+    reg_err_consent_required: 'आगे बढ़ने के लिए सहमति देना ज़रूरी है।',
+    reg_err_invalid_details: 'कुछ जानकारी अधूरी या ग़लत है। ऊपर के ख़ाने जाँचें।',
+    reg_err_submit_failed: 'रजिस्ट्रेशन पूरा नहीं हो सका। कुछ देर बाद फिर कोशिश करें।',
     pending_sync_one: '1 बदलाव सिंक होने की प्रतीक्षा में',
     pending_sync_many: '{n} बदलाव सिंक होने की प्रतीक्षा में',
     retry: 'पुनः प्रयास करें',
@@ -431,6 +479,31 @@ const dict = {
     donor_lang_label: 'Language for messages',
     donor_lang_hint:
       'Your WhatsApp and SMS messages will come in this language. You can change it later in your profile.',
+    // OTP errors, donor-facing. otp_err_no_whatsapp is shown ONLY when Meta
+    // rejected the number itself — never for an outage or a missing template.
+    otp_err_no_whatsapp:
+      'This number doesn’t appear to be on WhatsApp, so we could not send the code. Try a number that has WhatsApp, or call +91 98505 41412 if you don’t use WhatsApp.',
+    otp_err_send_failed:
+      'We could not send the code just now. This one is on our side — please try again in a few minutes.',
+    otp_err_rate_limited:
+      'Too many codes have been requested for this number. Please wait a while and try again.',
+    otp_err_wrong_code: 'That code is not correct, or it has expired. Ask for a new code.',
+    otp_err_expired: 'That code has expired. Ask for a new code.',
+    otp_err_locked:
+      'This account is locked for a while after several wrong attempts. Please try again later.',
+    otp_err_bad_mobile: 'Check the mobile number — enter a 10-digit Indian number.',
+    otp_err_six_digits: 'Enter the 6-digit code.',
+    otp_err_leader_unknown:
+      'This number is not registered as a community leader. Please contact the NGO admin.',
+    otp_err_offline: 'You appear to be offline. Check your connection and try again.',
+    otp_err_generic: 'Something went wrong. Please try again in a little while.',
+    otp_send_failed_title: 'We could not send the code',
+    otp_resend: 'Send the code again',
+    reg_saved_otp_pending:
+      'Your details are saved. But we could not send the verification code, so your registration is not finished yet.',
+    reg_err_consent_required: 'Please give your consent to continue.',
+    reg_err_invalid_details: 'Some details are missing or not valid. Check the fields above.',
+    reg_err_submit_failed: 'We could not complete your registration. Please try again shortly.',
     pending_sync_one: '1 change waiting to sync',
     pending_sync_many: '{n} changes waiting to sync',
     retry: 'Retry',

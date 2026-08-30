@@ -147,8 +147,8 @@ async function sendNotification({
          channel, template_type, language, msg91_template_id, template_variables,
          related_request_id, related_alert_id,
          provider, provider_message_id,
-         delivery_status, was_dnd_overridden)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15)
+         delivery_status, was_dnd_overridden, failure_reason)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11, $12, $13, $14, $15, $16)
     RETURNING id`,
       [
         recipient.recipient_donor_id || null,
@@ -166,6 +166,11 @@ async function sendNotification({
         dispatchResult.messageId || null,
         dispatchResult.deliveryStatus || (dispatchResult.success ? 'SE' : 'FA'),
         emergencyOverride,
+        // Until now only the delivery webhook ever filled this column, so a
+        // send that failed at dispatch left an 'FA' row with no stated cause —
+        // which is why three camp reminders could look healthy while sending
+        // nothing for a whole release.
+        dispatchResult.failureReason || null,
       ],
     );
     notificationLogId = r.rows[0].id;
@@ -180,6 +185,62 @@ async function sendNotification({
     logger.error({ err: err.message, templateType, channel }, 'notification_log write failed');
   } finally {
     client.release();
+  }
+
+  // 4. A confirmed recipient-side rejection is worth REMEMBERING, not just
+  //    reporting. Meta gives no way to ask whether a number is on WhatsApp, so
+  //    a rejected send is the only evidence that exists — and throwing it away
+  //    means asking the same question again on every future send.
+  //
+  //    Flipping preferred_contact_channel to 'SM' here is what makes the SMS
+  //    channel a switch rather than a project: donors.sms_opted_in already
+  //    defaults TRUE and the column already CHECKs IN ('WA','SM','CA'), so on
+  //    the day DLT registration clears, the list of exactly who needs SMS has
+  //    already been gathered passively instead of surveyed.
+  //
+  //    Deliberately narrow: only the two reasons that are facts about the
+  //    RECIPIENT. An unapproved template or a Meta outage must never move a
+  //    donor off WhatsApp — see classifyFailure() in whatsappCloudProvider.
+  const recipientRejected =
+    channel === 'WA' &&
+    recipient.recipient_donor_id &&
+    (dispatchResult.reason === 'no_whatsapp' || dispatchResult.reason === 'opted_out');
+
+  if (recipientRejected) {
+    const c2 = await pool.connect();
+    try {
+      await c2.query('BEGIN');
+      await c2.query(`SELECT set_config('raktify.actor_role', 'system', TRUE)`);
+      await c2.query(`SELECT set_config('raktify.change_reason', $1, TRUE)`, [
+        `whatsapp ${dispatchResult.reason} — routing to SMS`,
+      ]);
+      await c2.query(
+        `UPDATE donors
+            SET whatsapp_opted_in = FALSE,
+                preferred_contact_channel = CASE
+                  WHEN preferred_contact_channel = 'WA' THEN 'SM'
+                  ELSE preferred_contact_channel
+                END,
+                updated_at = clock_timestamp()
+          WHERE id = $1
+            AND (whatsapp_opted_in OR preferred_contact_channel = 'WA')`,
+        [recipient.recipient_donor_id],
+      );
+      await c2.query('COMMIT');
+    } catch (err) {
+      try {
+        await c2.query('ROLLBACK');
+      } catch {
+        /* ignore */
+      }
+      // Same rule as the log write: never break the caller over bookkeeping.
+      logger.error(
+        { err: err.message, templateType, reason: dispatchResult.reason },
+        'whatsapp unreachable — donor channel update failed',
+      );
+    } finally {
+      c2.release();
+    }
   }
 
   return { ...dispatchResult, notificationLogId };

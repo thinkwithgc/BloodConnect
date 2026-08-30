@@ -500,6 +500,45 @@ function buildComponents(templateType, variables) {
   return params.length ? [{ type: 'body', parameters: params }] : [];
 }
 
+// ── Why a failed send has to say WHICH kind of failed ────────────────────
+//
+// Every failure below used to collapse into a bare `deliveryStatus:'FA'`, so
+// the caller could not tell "this number has no WhatsApp" (a permanent fact
+// about the recipient, and the one thing a donor needs told) apart from "our
+// template is not approved yet" (a permanent fact about US, which the donor
+// must never be blamed for) or a 30-second Meta blip. That is why a donor with
+// no WhatsApp sat watching a screen that said the code had been sent.
+//
+// Only the recipient-side codes may ever be reported as `no_whatsapp`. Meta
+// offers no pre-check for whether a number is on WhatsApp, so this rejection is
+// the only signal that exists — which makes misclassifying an outage or a
+// template problem as `no_whatsapp` a real harm: it tells a donor holding a
+// working WhatsApp that they cannot register.
+const RECIPIENT_UNREACHABLE_CODES = new Set([
+  131026, // "Message undeliverable" — not a WhatsApp user, or cannot receive
+  1013, // "User is not valid" (legacy phrasing of the same rejection)
+]);
+
+const OPTED_OUT_CODES = new Set([
+  131050, // recipient chose to stop receiving — mirrors the webhook's 'OP'
+]);
+
+function classifyFailure(json, httpStatus) {
+  const err = json?.error || {};
+  const code = Number(err.code ?? err?.error_data?.details_code ?? NaN);
+  const detail = err?.error_data?.details || err.message || `http_${httpStatus}`;
+  let reason = 'provider_error';
+  if (RECIPIENT_UNREACHABLE_CODES.has(code)) reason = 'no_whatsapp';
+  else if (OPTED_OUT_CODES.has(code)) reason = 'opted_out';
+  return {
+    errorCode: Number.isFinite(code) ? code : null,
+    reason,
+    // Meta's own words, capped — it lands in notification_log.failure_reason,
+    // which is the only place anyone can read it after the fact.
+    failureReason: String(detail).slice(0, 500),
+  };
+}
+
 async function send({
   recipientId,
   recipientMobile,
@@ -509,19 +548,40 @@ async function send({
 }) {
   if (!isConfigured()) {
     logger.warn({ templateType }, 'whatsapp_cloud provider not configured — send skipped');
-    return { success: false, provider: 'whatsapp_cloud', messageId: null, deliveryStatus: 'FA' };
+    return {
+      success: false,
+      provider: 'whatsapp_cloud',
+      messageId: null,
+      deliveryStatus: 'FA',
+      reason: 'not_configured',
+      failureReason: 'whatsapp_cloud provider not configured',
+    };
   }
 
   const to = toWhatsAppNumber(recipientMobile || recipientId);
   if (!to) {
     logger.warn({ templateType }, 'whatsapp_cloud: no resolvable recipient mobile');
-    return { success: false, provider: 'whatsapp_cloud', messageId: null, deliveryStatus: 'FA' };
+    return {
+      success: false,
+      provider: 'whatsapp_cloud',
+      messageId: null,
+      deliveryStatus: 'FA',
+      reason: 'no_recipient',
+      failureReason: 'no resolvable recipient mobile',
+    };
   }
 
   const templateName = env.whatsapp.templates?.[String(templateType).toLowerCase()];
   if (!templateName) {
     logger.warn({ templateType }, 'whatsapp_cloud: no template name configured for this type');
-    return { success: false, provider: 'whatsapp_cloud', messageId: null, deliveryStatus: 'FA' };
+    return {
+      success: false,
+      provider: 'whatsapp_cloud',
+      messageId: null,
+      deliveryStatus: 'FA',
+      reason: 'template_not_configured',
+      failureReason: `no WHATSAPP_TEMPLATE_* env key for ${templateType}`,
+    };
   }
 
   const body = {
@@ -552,11 +612,29 @@ async function send({
     const json = await res.json().catch(() => ({}));
 
     if (!res.ok) {
+      const cls = classifyFailure(json, res.status);
       logger.error(
-        { status: res.status, error: json?.error?.message, templateType },
+        {
+          status: res.status,
+          error: json?.error?.message,
+          errorCode: cls.errorCode,
+          reason: cls.reason,
+          templateType,
+        },
         'whatsapp_cloud send failed',
       );
-      return { success: false, provider: 'whatsapp_cloud', messageId: null, deliveryStatus: 'FA' };
+      return {
+        success: false,
+        provider: 'whatsapp_cloud',
+        messageId: null,
+        // Stays 'FA', even for an opt-out: fn_notif_propagate_opt_out (034) is
+        // a BEFORE UPDATE OF delivery_status trigger, so an 'OP' written at
+        // INSERT time would never propagate to donors.whatsapp_opted_in and
+        // would sit in the log looking like the webhook's rows without having
+        // done what they do. The chokepoint flips the flag itself instead.
+        deliveryStatus: 'FA',
+        ...cls,
+      };
     }
 
     const messageId = json?.messages?.[0]?.id || null;
@@ -565,7 +643,16 @@ async function send({
     return { success: true, provider: 'whatsapp_cloud', messageId, deliveryStatus: 'SE' };
   } catch (err) {
     logger.error({ err: err.message, templateType }, 'whatsapp_cloud send error');
-    return { success: false, provider: 'whatsapp_cloud', messageId: null, deliveryStatus: 'FA' };
+    return {
+      success: false,
+      provider: 'whatsapp_cloud',
+      messageId: null,
+      deliveryStatus: 'FA',
+      // A timeout or a DNS failure is ours, not the recipient's — it must never
+      // reach a donor as "you have no WhatsApp".
+      reason: 'transport_error',
+      failureReason: String(err.message).slice(0, 500),
+    };
   } finally {
     clearTimeout(timer);
   }

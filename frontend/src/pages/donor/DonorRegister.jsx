@@ -8,6 +8,7 @@ import { LocalityPicker } from '../../components/LocalityPicker.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { indianMobileSchema } from '../../lib/schemas.js';
 import { SELF_BLOOD_GROUPS } from '../../lib/bloodGroups.js';
+import { otpErrorText } from '../../lib/otpError.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useT } from '../../i18n/useT.js';
 import { LANG_LABELS } from '../../i18n/strings.js';
@@ -89,7 +90,7 @@ export function DonorRegister() {
 
   // Post-submit handoff state.
   const [registered, setRegistered] = useState(null); // { donor_id, platform_user_id, ... }
-  const [otpStage, setOtpStage] = useState('idle'); // 'idle'|'sent'|'verified'|'consented'
+  const [otpStage, setOtpStage] = useState('idle'); // 'idle'|'send_failed'|'sent'|'verified'|'consented'
   const [otp, setOtp] = useState('');
   const [devOtp, setDevOtp] = useState('');
 
@@ -209,12 +210,12 @@ export function DonorRegister() {
   async function submitRegistration() {
     setError('');
     if (!consent) {
-      setError('consent_required');
+      setError(t('reg_err_consent_required'));
       return;
     }
     const parsed = parseDetails(details);
     if (!parsed.success) {
-      setError('invalid_details');
+      setError(t('reg_err_invalid_details'));
       setStep(1);
       return;
     }
@@ -243,21 +244,61 @@ export function DonorRegister() {
       // Successful registration. We still need to (a) verify the mobile
       // via OTP and (b) POST consent. Both require a session — kick OTP.
       setRegistered(r);
-      const sent = await apiRequest('POST', '/auth/otp/send', {
-        mobile: parsed.data.mobile,
-        role_hint: 'donor',
-      });
-      setOtpStage('sent');
-      if (sent.dev_otp) setDevOtp(sent.dev_otp);
+      // The send gets its OWN catch, because by this line the donor row
+      // EXISTS: a WhatsApp send that fails is not a failed registration. In the
+      // outer catch it read as one — a bare error on the consent step, with
+      // otpStage still 'idle' so the OTP panel never rendered, and re-submitting
+      // the form then answered mobile_already_registered. A donor whose record
+      // was created perfectly had no way forward.
+      try {
+        const sent = await apiRequest('POST', '/auth/otp/send', {
+          mobile: parsed.data.mobile,
+          role_hint: 'donor',
+        });
+        setOtpStage('sent');
+        if (sent.dev_otp) setDevOtp(sent.dev_otp);
+      } catch (sendErr) {
+        setOtpStage('send_failed');
+        setError(otpErrorText(sendErr, t));
+      }
     } catch (err) {
       const code = err?.response?.data?.error;
       if (code === 'mobile_already_registered') {
         // Surface the "log in instead" banner rather than a raw error code.
         setAlreadyRegistered(true);
         setError('');
+      } else if (code === 'invalid_input' || code === 'invalid_mobile_format') {
+        setError(t('reg_err_invalid_details'));
+        setStep(1);
+      } else if (code === 'rate_limit_donor_register') {
+        setError(t('otp_err_rate_limited'));
       } else {
-        setError(code || err?.response?.data?.message || 'submit_failed');
+        // Every remaining code — a stale camp QR, a duplicate match, a 500 —
+        // is not something the donor can act on differently, so they get one
+        // honest sentence and the support line rather than a code.
+        setError(t('reg_err_submit_failed'));
       }
+    } finally {
+      setPending(false);
+    }
+  }
+
+  // Retry path for otpStage === 'send_failed'. The account already exists, so
+  // this is the OTP call ALONE — never a second POST /donors/register, which
+  // would now answer mobile_already_registered.
+  async function resendOtp() {
+    setError('');
+    setPending(true);
+    try {
+      const sent = await apiRequest('POST', '/auth/otp/send', {
+        mobile: (details.mobile || '').trim(),
+        role_hint: 'donor',
+      });
+      setOtpStage('sent');
+      if (sent.dev_otp) setDevOtp(sent.dev_otp);
+    } catch (err) {
+      setOtpStage('send_failed');
+      setError(otpErrorText(err, t));
     } finally {
       setPending(false);
     }
@@ -266,7 +307,7 @@ export function DonorRegister() {
   async function verifyOtp() {
     setError('');
     if (!/^\d{6}$/.test(otp)) {
-      setError('otp_must_be_6_digits');
+      setError(otpErrorText('otp_must_be_6_digits', t));
       return;
     }
     setPending(true);
@@ -304,7 +345,7 @@ export function DonorRegister() {
         { replace: true },
       );
     } catch (err) {
-      setError(err?.response?.data?.error || 'verify_failed');
+      setError(otpErrorText(err, t));
     } finally {
       setPending(false);
     }
@@ -353,7 +394,24 @@ export function DonorRegister() {
           </div>
         ) : null}
 
-        {registered && otpStage !== 'idle' ? (
+        {registered && otpStage === 'send_failed' ? (
+          <div className="rk-card space-y-3">
+            <h2 className="text-lg font-semibold text-rk-700">{t('otp_send_failed_title')}</h2>
+            {error ? <p className="text-sm text-rk-700">{error}</p> : null}
+            {/* Say plainly that the record was saved. Without this the donor
+                re-fills the form, gets mobile_already_registered, and reads the
+                whole thing as broken. */}
+            <p className="text-sm text-slate-600">{t('reg_saved_otp_pending')}</p>
+            <button
+              type="button"
+              onClick={resendOtp}
+              disabled={pending}
+              className="rk-button-primary w-full"
+            >
+              {pending ? '…' : t('otp_resend')}
+            </button>
+          </div>
+        ) : registered && otpStage !== 'idle' ? (
           <div className="rk-card space-y-4">
             <h2 className="text-lg font-semibold text-rk-700">Verify mobile</h2>
             <p className="text-sm text-slate-600">
@@ -391,7 +449,7 @@ export function DonorRegister() {
                   // Validate before allowing forward step.
                   const parsed = parseDetails(details);
                   if (!parsed.success) {
-                    setError('invalid_details');
+                    setError(t('reg_err_invalid_details'));
                     return;
                   }
                   setError('');

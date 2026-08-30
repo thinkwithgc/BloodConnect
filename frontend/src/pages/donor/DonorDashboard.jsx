@@ -12,6 +12,7 @@ import { LocalityPicker } from '../../components/LocalityPicker.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { SELF_BLOOD_GROUPS } from '../../lib/bloodGroups.js';
 import { useT } from '../../i18n/useT.js';
+import { LANG_LABELS } from '../../i18n/strings.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { isOfflineError, useOutbox } from '../../lib/useOutbox.js';
 import { MyCampsSection } from '../camps/MyCampsSection.jsx';
@@ -236,6 +237,7 @@ export function DonorDashboard() {
 // happen on the backend.
 function EditProfileCard({ donor }) {
   const qc = useQueryClient();
+  const { t, setLang, supported } = useT();
   const [open, setOpen] = useState(false);
   const [msg, setMsg] = useState('');
 
@@ -284,10 +286,13 @@ function EditProfileCard({ donor }) {
 
   const save = useMutation({
     mutationFn: (payload) => apiRequest('POST', '/donors/me/profile', payload),
-    onSuccess: (data) => {
+    onSuccess: (data, payload) => {
       // The endpoint returns the authoritative fresh passport — seed the cache
       // with it directly; no invalidate (that would refetch what we just got).
       qc.setQueryData(['donor', 'me'], data);
+      // Saved a new message language → move the app to it, so the donor can see
+      // the choice took rather than having to wait for the next WhatsApp.
+      if (payload?.preferred_language) setLang(payload.preferred_language);
       setOpen(false);
       setMsg('');
     },
@@ -380,7 +385,7 @@ function EditProfileCard({ donor }) {
         </div>
         <div>
           <label className="rk-label" htmlFor="ep-lang">
-            Preferred language
+            {t('donor_lang_label')}
           </label>
           <select
             id="ep-lang"
@@ -388,10 +393,13 @@ function EditProfileCard({ donor }) {
             value={form.preferred_language}
             onChange={(e) => set('preferred_language', e.target.value)}
           >
-            <option value="mr">मराठी</option>
-            <option value="hi">हिन्दी</option>
-            <option value="en">English</option>
+            {supported.map((l) => (
+              <option key={l} value={l}>
+                {LANG_LABELS[l] || l}
+              </option>
+            ))}
           </select>
+          <p className="mt-1 text-xs text-slate-500">{t('donor_lang_hint')}</p>
         </div>
         <div className="sm:col-span-2">
           <LocalityPicker

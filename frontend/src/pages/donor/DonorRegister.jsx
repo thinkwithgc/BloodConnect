@@ -10,6 +10,7 @@ import { indianMobileSchema } from '../../lib/schemas.js';
 import { SELF_BLOOD_GROUPS } from '../../lib/bloodGroups.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useT } from '../../i18n/useT.js';
+import { LANG_LABELS } from '../../i18n/strings.js';
 
 // 2-step donor registration (simplified 2026-07-03):
 //   1 = personal details  → POST /donors/register
@@ -33,6 +34,11 @@ const personalSchema = z.object({
   village_id: z.number().int().positive().optional(),
   max_travel_km: z.number().int().min(1).max(100),
   preferred_contact_channel: z.enum(['WA', 'SM', 'CA']),
+  // Asked, not inferred. This used to be sent as whatever the UI language
+  // happened to be, and detectInitialLang() falls back to the BROWSER's
+  // language — most Indian phones report English, so a Marathi-speaking donor
+  // was silently registered as 'en' and got English WhatsApp messages for good.
+  preferred_language: z.enum(['mr', 'hi', 'en']),
   whatsapp_opted_in: z.boolean(),
   sms_opted_in: z.boolean(),
 });
@@ -66,12 +72,17 @@ const initialDetails = {
 };
 
 export function DonorRegister() {
-  const { t, lang } = useT();
+  const { t, lang, setLang, supported } = useT();
   const { setSession } = useAuth();
   const navigate = useNavigate();
 
   const [step, setStep] = useState(1);
-  const [details, setDetails] = useState(initialDetails);
+  // The picker the donor is already reading in is the right default; they only
+  // touch the field if it is wrong.
+  const [details, setDetails] = useState(() => ({
+    ...initialDetails,
+    preferred_language: lang,
+  }));
   const [consent, setConsent] = useState(false);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
@@ -211,8 +222,9 @@ export function DonorRegister() {
     setPending(true);
     try {
       const payload = {
+        // preferred_language rides in on parsed.data — it is an answered
+        // question now, not the ambient UI language.
         ...parsed.data,
-        preferred_language: lang,
         // 'QRC' + registration_camp_id closes the loop the schema has been
         // waiting on since Phase 3 (CLAUDE.md Phase 3 TODO #2). Only sent when
         // the slug actually resolved to an open camp - the backend rejects
@@ -509,6 +521,30 @@ function StepDetails({ details, update, onContinue, error }) {
             <option value="WA">WhatsApp</option>
             <option value="SM">SMS</option>
             <option value="CA">Call</option>
+          </select>
+        </Field>
+        <Field
+          label={t('donor_lang_label')}
+          htmlFor="r-lang"
+          hint={t('donor_lang_hint')}
+        >
+          <select
+            id="r-lang"
+            className="rk-input"
+            value={details.preferred_language}
+            onChange={(e) => {
+              update('preferred_language', e.target.value);
+              // Switch the page too. Answering "which language do you want" and
+              // then carrying on in a different one reads as the question having
+              // been ignored — and it makes the choice verifiable on the spot.
+              setLang(e.target.value);
+            }}
+          >
+            {supported.map((l) => (
+              <option key={l} value={l}>
+                {LANG_LABELS[l] || l}
+              </option>
+            ))}
           </select>
         </Field>
 

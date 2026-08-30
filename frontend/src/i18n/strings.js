@@ -161,6 +161,10 @@ const dict = {
     dob_month: 'महिना',
     dob_year: 'वर्ष',
     dob_out_of_range: 'वय {min} ते {max} वर्षांदरम्यान असावे.',
+    // the language a donor's WhatsApp / SMS messages go out in
+    donor_lang_label: 'संदेशाची भाषा',
+    donor_lang_hint:
+      'WhatsApp आणि SMS संदेश या भाषेत येतील. नंतर प्रोफाइलमध्ये बदलता येईल.',
     // outbox
     pending_sync_one: '१ बदल सिंक होण्याच्या प्रतीक्षेत',
     pending_sync_many: '{n} बदल सिंक होण्याच्या प्रतीक्षेत',
@@ -290,6 +294,9 @@ const dict = {
     dob_month: 'महीना',
     dob_year: 'वर्ष',
     dob_out_of_range: 'उम्र {min} से {max} वर्ष के बीच होनी चाहिए।',
+    donor_lang_label: 'संदेश की भाषा',
+    donor_lang_hint:
+      'WhatsApp और SMS संदेश इसी भाषा में आएंगे। बाद में प्रोफ़ाइल में बदल सकते हैं।',
     pending_sync_one: '1 बदलाव सिंक होने की प्रतीक्षा में',
     pending_sync_many: '{n} बदलाव सिंक होने की प्रतीक्षा में',
     retry: 'पुनः प्रयास करें',
@@ -421,6 +428,9 @@ const dict = {
     dob_month: 'Month',
     dob_year: 'Year',
     dob_out_of_range: 'Age must be between {min} and {max} years.',
+    donor_lang_label: 'Language for messages',
+    donor_lang_hint:
+      'Your WhatsApp and SMS messages will come in this language. You can change it later in your profile.',
     pending_sync_one: '1 change waiting to sync',
     pending_sync_many: '{n} changes waiting to sync',
     retry: 'Retry',

@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 
 import { isoOffsetYears, todayISO } from '../lib/dateBounds.js';
 import { useT } from '../i18n/useT.js';
@@ -58,6 +58,16 @@ function monthNames(lang, t) {
 
 const pad = (n) => String(n).padStart(2, '0');
 
+// Numbers, not zero-padded strings, because that is what the <option value>s
+// hold — '07' would never match the month option whose value is '7' and the
+// select would silently show its placeholder.
+function splitISO(iso) {
+  const [y = '', m = '', d = ''] = String(iso || '').split('-');
+  return { y, m: String(Number(m) || ''), d: String(Number(d) || '') };
+}
+
+const joinISO = ({ y, m, d }) => (y && m && d ? `${y}-${pad(m)}-${pad(d)}` : '');
+
 function daysInMonth(year, month) {
   if (!year || !month) return 31; // full list until both are chosen
   return new Date(Date.UTC(Number(year), Number(month), 0)).getUTCDate();
@@ -90,12 +100,34 @@ export function DateOfBirthInput({
     return out;
   }, [latestYear, earliestYear]);
 
-  const [vy = '', vm = '', vd = ''] = String(value || '').split('-');
+  // ── Why the parts live HERE and not in the parent's `value` ───────────────
+  //
+  // Only a complete triple is a date, so `onChange` emits '' until all three
+  // selects are filled — otherwise `required` would pass on a half-filled
+  // picker and the form would post '1998--07'. That contract is right, and it
+  // is exactly why `value` cannot drive the selects: for two taps out of three
+  // it is '', so a select whose value came from `value` would snap back to its
+  // placeholder the instant the donor touched it, and the triple could never be
+  // completed. The partial state is this component's own; `value` seeds it and
+  // can override it, but does not define it.
+  const [sel, setSel] = useState(() => splitISO(value));
+  const emitted = joinISO(sel);
 
-  // Only a complete triple is a date. A half-filled picker emits '' so the
-  // parent's `required` still fires rather than posting '1998--07'.
-  const emit = (y, m, d) => {
-    onChange(y && m && d ? `${y}-${pad(m)}-${pad(d)}` : '');
+  // Re-seed only when the parent supplies something we did not just emit: an
+  // edit form loading a saved DOB, or a reset clearing the field. While the
+  // picker is half-filled both sides are '', so this stays out of the way.
+  useEffect(() => {
+    const incoming = String(value || '');
+    if (incoming === emitted) return;
+    if (incoming && !/^\d{4}-\d{2}-\d{2}$/.test(incoming)) return;
+    setSel(splitISO(incoming));
+  }, [value, emitted]);
+
+  const { y: vy, m: vm, d: vd } = sel;
+
+  const emit = (next) => {
+    setSel(next);
+    onChange(joinISO(next));
   };
 
   // Changing month or year can orphan the day (31 → February). Drop it rather
@@ -113,8 +145,8 @@ export function DateOfBirthInput({
         <select
           id={id}
           className={selectCls}
-          value={String(Number(vd) || '')}
-          onChange={(e) => emit(vy, vm, e.target.value)}
+          value={vd}
+          onChange={(e) => emit({ y: vy, m: vm, d: e.target.value })}
           required={required}
           disabled={disabled}
           aria-label={t('dob_day')}
@@ -129,8 +161,10 @@ export function DateOfBirthInput({
 
         <select
           className={selectCls}
-          value={String(Number(vm) || '')}
-          onChange={(e) => emit(vy, e.target.value, keepDay(vy, e.target.value))}
+          value={vm}
+          onChange={(e) =>
+            emit({ y: vy, m: e.target.value, d: keepDay(vy, e.target.value) })
+          }
           required={required}
           disabled={disabled}
           aria-label={t('dob_month')}
@@ -145,8 +179,10 @@ export function DateOfBirthInput({
 
         <select
           className={selectCls}
-          value={vy || ''}
-          onChange={(e) => emit(e.target.value, vm, keepDay(e.target.value, vm))}
+          value={vy}
+          onChange={(e) =>
+            emit({ y: e.target.value, m: vm, d: keepDay(e.target.value, vm) })
+          }
           required={required}
           disabled={disabled}
           aria-label={t('dob_year')}

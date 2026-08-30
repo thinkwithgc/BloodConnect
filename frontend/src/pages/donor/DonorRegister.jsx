@@ -73,7 +73,7 @@ const initialDetails = {
 };
 
 export function DonorRegister() {
-  const { t, lang, setLang, supported } = useT();
+  const { t, lang } = useT();
   const { setSession } = useAuth();
   const navigate = useNavigate();
 
@@ -478,6 +478,12 @@ export function DonorRegister() {
 
 // ─── Step 1: personal details ─────────────────────────────────────────────
 function StepDetails({ details, update, onContinue, error }) {
+  // Its own hook call. StepDetails is a SIBLING function component, not a
+  // closure over DonorRegister's scope - c9a8c85 added the language select
+  // here using t/setLang/supported without this line, so step 1 threw
+  // ReferenceError on first render and /register came up blank. useT() reads
+  // a context now, so calling it again is free.
+  const { t, setLang, supported } = useT();
   return (
     <section className="rk-card space-y-4">
       <h2 className="text-lg font-semibold text-rk-700">Step 1 — Your details</h2>

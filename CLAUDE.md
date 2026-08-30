@@ -15,10 +15,11 @@ older section it contradicts.
 **Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
 `git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
 (fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
-auto-applies migrations to prod**). Last five commits, newest first:
+auto-applies migrations to prod**). Last six commits, newest first:
 
 | Commit | What |
 |---|---|
+| `b422787` | `fix(donor)`: **`/register` was blank in prod** — `c9a8c85` put the language select in `StepDetails` but destructured `t`/`setLang`/`supported` in `DonorRegister`. See **A blank page is a render throw** below |
 | `d5f518b` | `fix(otp)`: a rejected WhatsApp OTP send is no longer reported as "code sent", and the OTP goes out in `donors.preferred_language`. New `frontend/src/lib/otpError.js`. See **OTP delivery failures** below |
 | `c9a8c85` | `fix(donor)`: the DOB picker could never be completed (its selects read the `value` prop, which is `''` while partial); donor registration now **asks** which language WhatsApp should use. See **Marathi i18n** below |
 | `d657d8a` | **True Marathi** for Host a camp + the whole BB portal. Also fixes a real bug: `useT()` held per-call-site state, so switching language translated the header and nothing else. New `i18n/LangProvider.jsx` + packs `i18n/camps.js` / `i18n/bloodbank.js` (661 keys per language). See **Marathi i18n** below |
@@ -216,6 +217,37 @@ Marathi. Rules that must hold for anything added to them:
 - Devanagari runs wider than Latin. The **11-tab BB strip** is the surface to
   watch; the scrollable-strip fix has been offered twice and **never
   authorised** — report overflow, do not fix it.
+
+## A blank page is a render throw, and nothing gates it (fixed 2026-08-30, `b422787`)
+
+`/register` — the **Become a donor** CTA, the pilot's primary funnel — served a blank
+page from `c9a8c85` until `b422787`. `c9a8c85` added the "which language should WhatsApp
+use" `<select>` inside `StepDetails` but destructured `t` / `setLang` / `supported` in
+`DonorRegister`. **`StepDetails` is a sibling function component, not a closure over its
+parent's scope**, so all three were free identifiers, step 1 threw `ReferenceError` on
+first render, React unmounted the tree, and the donor got an empty screen.
+
+- **Nothing in this repo could have caught it.** The frontend has **no ESLint config**,
+  so `no-undef` never runs, and `npm run smoke:frontend` is only a Vite build — esbuild
+  does not resolve free identifiers. A valid-but-throwing render passes the sole gate.
+  There is also no error boundary, so a render throw is always a *blank page*, never a
+  message.
+- **Every component calls `useT()` itself.** `t` is never inherited — either call the
+  hook (free: it reads a context, see the i18n section) or take it as a prop, the way
+  `HeroCard({ t })` and `AvailabilityCard({ donor, t })` already do.
+- **Do not read a blank SPA page as a missing translation key.** `tFor` falls back
+  silently (`table[key] ?? dict.en[key] ?? key`) and can only ever render English or the
+  raw key — it cannot crash. A blank page is a throw; go looking for one.
+- **Verify with a throwaway `no-undef` pass**, not the build:
+  `npx eslint --no-config-lookup --config <tmp>.mjs "frontend/src/**/*.jsx"` with a flat
+  config of `parserOptions:{ecmaFeatures:{jsx:true}}` + browser globals +
+  `rules:{'no-undef':'error'}`, then delete the config. Inline
+  `eslint-disable react-hooks/exhaustive-deps` comments surface as "rule not found" —
+  those are noise, not findings. On the broken file this reports `'t'` twice plus
+  `'setLang'` and `'supported'` at the select's lines; on the fixed tree it reports zero
+  across the whole frontend. A per-function scan found **no second instance**. **A
+  permanent frontend ESLint config has not been authorised** — it would surface a
+  backlog; offer it, do not add it.
 
 ## OTP delivery failures are reported now, not swallowed (shipped 2026-08-30, `d5f518b`)
 

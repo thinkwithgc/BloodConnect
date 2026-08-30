@@ -15,10 +15,11 @@ older section it contradicts.
 **Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
 `git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
 (fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
-auto-applies migrations to prod**). Last six commits, newest first:
+auto-applies migrations to prod**). Last twelve commits, newest first:
 
 | Commit | What |
 |---|---|
+| `156eee0` | `feat(portals)`: a hospital / blood bank sees **its own name** on its dashboard, via the session-addressed `GET /institutions/me`. See **A staff portal never knows its own institution** below |
 | `b422787` | `fix(donor)`: **`/register` was blank in prod** — `c9a8c85` put the language select in `StepDetails` but destructured `t`/`setLang`/`supported` in `DonorRegister`. See **A blank page is a render throw** below |
 | `d5f518b` | `fix(otp)`: a rejected WhatsApp OTP send is no longer reported as "code sent", and the OTP goes out in `donors.preferred_language`. New `frontend/src/lib/otpError.js`. See **OTP delivery failures** below |
 | `c9a8c85` | `fix(donor)`: the DOB picker could never be completed (its selects read the `value` prop, which is `''` while partial); donor registration now **asks** which language WhatsApp should use. See **Marathi i18n** below |
@@ -45,7 +46,7 @@ two of them):
 |---|---|---|
 | `npm run smoke:camps` | **117** | The camp gate. Covers attendance derivation + capacity + `bb_response` + the PII scoping |
 | `node scripts/smoke_test_phase4.js` | 17 | **Required regression** for anything touching `donation_history` / `donor_screening` |
-| `node scripts/smoke_test_phase2.js` | **167** | Institution onboarding / paper MoU / staff-login editing / the two-404 split |
+| `node scripts/smoke_test_phase2.js` | **172** | Institution onboarding / paper MoU / staff-login editing / the two-404 split / the portal's own-name banner |
 | `node scripts/check_whatsapp_templates.js` | 0 fail, 1 warn | Every `templateType` in `backend/src` must have a handler **and** an env key |
 | `npm run lint && npm run format:check` | — | `format:check` is a hard CI gate in all three workflows, **backend only** |
 | `npm run smoke:frontend` | — | Vite build. Frontend has no ESLint config, so this is its only gate. **Run from the repo root** |
@@ -309,6 +310,55 @@ Principal Entity with header `RAKTFY` and templates. Staff-vouched enrollment fo
 with no WhatsApp at all was discussed and is **not authorised** — do not build it without
 a fresh go-ahead.
 
+## A staff portal never knows its own institution (shipped 2026-08-30, `156eee0`)
+
+A hospital or blood bank logging in saw nothing but the Raktify wordmark and a generic
+*Hospital portal* label — the screen never said **which** organisation the session
+belonged to. That matters most for the one shape with two logins: a hospital with an
+in-house blood bank, whose HO and BB admins differ only by an `_bb_admin` suffix on a
+username nobody reads. `<InstitutionBanner>`
+(`frontend/src/components/institution/InstitutionBanner.jsx`) now renders the applicant's
+own `display_name` as the page `<h1>` on both `/hospital` and `/bb`.
+
+- **The client has no institution UUID, and never will.** The JWT carries `inst`, but
+  `AuthContext` persists only token / role / user_id. So the fix is a **session-addressed
+  `/me` alias route**, exactly as the comment on `GET /institutions/me/users` already
+  says — not a new localStorage field, which would only start working after every staff
+  member re-logs in. **`GET /institutions/me` is declared BEFORE `GET /:id`**
+  (`routes/institutions.js:86`, ahead of `:id` at ~118) or Express binds `id='me'` and
+  Postgres throws `22P02` on the uuid cast. `/me/users` needs no such care — two segments.
+- **It is deliberately NOT the `/:id` row.** Any member of an institution may already read
+  that, but this fires on **every portal load**; shipping licence numbers and the primary
+  contact's mobile to a technician's browser on every page view is a different thing from
+  serving them on an explicit request. Identity only — `id`, `kind`, `shortname`,
+  `legal_name`, `display_name`, state + district names. **Smoke §20f asserts the payload
+  carries no licence and no contact mobile**; keep it that way.
+- **`display_name` is the prominent one**, not `legal_name`. It is what the applicant typed
+  into *"Public display name"* on the apply form (`routes/onboarding.js` `applySchema`), so
+  it is their words. `legal_name` renders underneath **only when it actually differs** —
+  for most applicants the two are near-identical and repeating it is noise. A paired
+  in-house BB is created as `"${parent display_name} Blood Bank"`, so the child is
+  self-describing and the two logins read as visibly different names (asserted in §20e).
+- **`institutions.kind` is `CHAR(2)` — `'HO'` / `'BB'`** (`004_institutions.sql:19`).
+  The first cut of the banner compared it against `'hospital'` / `'blood_bank'`, so the
+  metadata line was always `''` and **would have shipped silently never rendering**. Nothing
+  in the frontend can catch a comparison that is merely always false — the Vite build is
+  the only gate and there is no ESLint config (see **A blank page is a render throw**). It
+  was caught solely because smoke assertions were added for a frontend change; that is the
+  second concrete argument for a permanent frontend lint config, still **not authorised**.
+- **Deploy skew is handled by design, not by sequencing.** The banner query is
+  `retry: false` with a fallback label, so during the ~60–90s window where the SPA is live
+  and the API is not, it renders the portal label instead of an error. Same reason a
+  coordinator or NGO admin who somehow lands there sees no shouting: `400
+  session_has_no_institution` is a quiet fallback, not a toast (§20g).
+- **Design system untouched.** The wordmark stays product chrome and the institution name
+  is the `<h1>` beneath it — no co-branding, no monogram square (the locked icon treatment
+  is *no letters*), no new tokens. `inst_kind_hospital` / `inst_kind_blood_bank` are in the
+  **main** dict so they carry genuine Hindi — the no-Hindi carve-out is `camp_`/`bb_` only.
+
+No migration; schema head stayed **318**. Gate: `smoke_test_phase2.js` **172** (was 167;
+§20e–20g added).
+
 ## Pilot scope — Donor + Camp modules only (Aug 2026)
 
 PDMC (blood bank in-charge + Dean) agreed to run the **donor and camp modules
@@ -461,7 +511,7 @@ accept/decline is the exception path, not the normal one.
 |-------|--------|------------|-------|
 | 0 — Infrastructure | ✅ done | `node scripts/smoke_test.js` | commit `1a8ee3e` |
 | 1 — DB foundation  | ✅ done (18/18) | `node scripts/smoke_test_phase1_full.js` | 30 migrations *at Phase 1* (46 total now — see summary below), 34 tables, 100 triggers, 71 RLS policies — commit `1a8ee3e` |
-| 2 — Auth + onboarding | ✅ done (167/167) | `node scripts/smoke_test_phase2.js` | OTP, TOTP, **paper MoU** (eSign removed Aug 2026) |
+| 2 — Auth + onboarding | ✅ done (172/172) | `node scripts/smoke_test_phase2.js` | OTP, TOTP, **paper MoU** (eSign removed Aug 2026) |
 | 3 — Donor reg + passport | ✅ scaffold (18/18) | `node scripts/smoke_test_phase3.js` | See **Phase 3 handoff** below |
 | 4 — Inventory + TTI | ✅ core (17/17) | `node scripts/smoke_test_phase4.js` | See **Phase 4 status** below |
 | 5 — Request engine + matching | ✅ core (20/20) | `node scripts/smoke_test_phase5.js` | See **Phase 5 status** below |

@@ -579,7 +579,7 @@ If you did not donate at *{{2}}*, ignore this message.`,
     name: 'camp_bb_request',
     category: 'UTILITY',
     language: 'en',
-    body: `*{{1}}*, a blood donation camp has been assigned to your blood bank for collection.
+    body: `A blood donation camp has been assigned to *{{1}}* for collection.
 
 Date: *{{2}}*
 Venue: *{{3}}*
@@ -593,7 +593,7 @@ Open the Camps tab in your Raktify portal to accept or decline, and to see the l
     name: 'camp_bb_request',
     category: 'UTILITY',
     language: 'mr',
-    body: `*{{1}}*, रक्तसंकलनासाठी तुमच्या रक्तपेढीला एक रक्तदान शिबिर देण्यात आले आहे.
+    body: `रक्तसंकलनासाठी *{{1}}* या रक्तपेढीला एक रक्तदान शिबिर देण्यात आले आहे.
 
 दिनांक: *{{2}}*
 ठिकाण: *{{3}}*
@@ -607,7 +607,7 @@ Open the Camps tab in your Raktify portal to accept or decline, and to see the l
     name: 'camp_bb_request',
     category: 'UTILITY',
     language: 'hi',
-    body: `*{{1}}*, रक्त संग्रह के लिए आपके ब्लड बैंक को एक रक्तदान शिविर सौंपा गया है।
+    body: `रक्त संग्रह के लिए *{{1}}* को एक रक्तदान शिविर सौंपा गया है।
 
 दिनांक: *{{2}}*
 स्थान: *{{3}}*
@@ -623,7 +623,7 @@ Open the Camps tab in your Raktify portal to accept or decline, and to see the l
     name: 'camp_bb_accepted',
     category: 'UTILITY',
     language: 'en',
-    body: `*{{1}}*, the blood bank for *{{2}}* on *{{3}}* is confirmed.
+    body: `Hi *{{1}}*, the blood bank for *{{2}}* on *{{3}}* is confirmed.
 
 Their team will bring the staff, beds and all collection supplies. Nothing further is needed from you on this — keep sharing your registration link so they can plan supplies from the numbers.`,
     body_example: ['Ashish Tayde', 'Shivaji College Blood Donation Camp', 'Sat 12 Sep'],
@@ -633,7 +633,7 @@ Their team will bring the staff, beds and all collection supplies. Nothing furth
     name: 'camp_bb_accepted',
     category: 'UTILITY',
     language: 'mr',
-    body: `*{{1}}*, *{{2}}* (दिनांक *{{3}}*) साठी रक्तपेढी निश्चित झाली आहे.
+    body: `नमस्कार *{{1}}*, *{{2}}* (दिनांक *{{3}}*) साठी रक्तपेढी निश्चित झाली आहे.
 
 त्यांची टीम कर्मचारी, बेड आणि संकलनाचे सर्व साहित्य घेऊन येईल. यासाठी तुम्हाला आणखी काही करायचे नाही — नोंदणीची लिंक शेअर करत राहा, म्हणजे संख्येनुसार ते साहित्याची तयारी करू शकतील.`,
     body_example: ['आशिष तायडे', 'शिवाजी कॉलेज रक्तदान शिबिर', 'शनिवार १२ सप्टेंबर'],
@@ -643,7 +643,7 @@ Their team will bring the staff, beds and all collection supplies. Nothing furth
     name: 'camp_bb_accepted',
     category: 'UTILITY',
     language: 'hi',
-    body: `*{{1}}*, *{{2}}* (दिनांक *{{3}}*) के लिए ब्लड बैंक तय हो गया है।
+    body: `नमस्ते *{{1}}*, *{{2}}* (दिनांक *{{3}}*) के लिए ब्लड बैंक तय हो गया है।
 
 उनकी टीम स्टाफ, बेड और संग्रह की सभी सामग्री साथ लाएगी। इसके लिए आपको और कुछ नहीं करना है — पंजीकरण लिंक साझा करते रहें, जिससे वे संख्या के अनुसार सामग्री की तैयारी कर सकें।`,
     body_example: ['आशिष तायडे', 'शिवाजी कॉलेज रक्तदान शिविर', 'शनिवार १२ सितंबर'],
@@ -655,7 +655,7 @@ Their team will bring the staff, beds and all collection supplies. Nothing furth
     name: 'camp_bb_changed',
     category: 'UTILITY',
     language: 'en',
-    body: `*{{1}}*, we are arranging a different blood bank to collect at *{{2}}* on *{{3}}*.
+    body: `Hi *{{1}}*, we are arranging a different blood bank to collect at *{{2}}* on *{{3}}*.
 
 Your camp is going ahead as planned and your registrations are unaffected. We will confirm the new blood bank shortly — you do not need to do anything.`,
     body_example: ['Ashish Tayde', 'Shivaji College Blood Donation Camp', 'Sat 12 Sep'],
@@ -665,7 +665,7 @@ Your camp is going ahead as planned and your registrations are unaffected. We wi
     name: 'camp_bb_changed',
     category: 'UTILITY',
     language: 'mr',
-    body: `*{{1}}*, *{{2}}* (दिनांक *{{3}}*) येथे रक्तसंकलनासाठी आम्ही दुसरी रक्तपेढी नियुक्त करत आहोत.
+    body: `नमस्कार *{{1}}*, *{{2}}* (दिनांक *{{3}}*) येथे रक्तसंकलनासाठी आम्ही दुसरी रक्तपेढी नियुक्त करत आहोत.
 
 तुमचे शिबिर ठरल्याप्रमाणे होणार आहे आणि नोंदणीवर कोणताही परिणाम होणार नाही. नवीन रक्तपेढी लवकरच कळवू — तुम्हाला काहीही करण्याची गरज नाही.`,
     body_example: ['आशिष तायडे', 'शिवाजी कॉलेज रक्तदान शिबिर', 'शनिवार १२ सप्टेंबर'],
@@ -675,7 +675,7 @@ Your camp is going ahead as planned and your registrations are unaffected. We wi
     name: 'camp_bb_changed',
     category: 'UTILITY',
     language: 'hi',
-    body: `*{{1}}*, *{{2}}* (दिनांक *{{3}}*) में रक्त संग्रह के लिए हम दूसरा ब्लड बैंक तय कर रहे हैं।
+    body: `नमस्ते *{{1}}*, *{{2}}* (दिनांक *{{3}}*) में रक्त संग्रह के लिए हम दूसरा ब्लड बैंक तय कर रहे हैं।
 
 आपका शिविर योजना के अनुसार ही होगा और पंजीकरण पर कोई असर नहीं पड़ेगा। नया ब्लड बैंक शीघ्र ही बता देंगे — आपको कुछ करने की आवश्यकता नहीं है।`,
     body_example: ['आशिष तायडे', 'शिवाजी कॉलेज रक्तदान शिविर', 'शनिवार १२ सितंबर'],

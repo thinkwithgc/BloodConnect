@@ -682,6 +682,85 @@ Your camp is going ahead as planned and your registrations are unaffected. We wi
     footer: FOOTER_ORGANIZER,
   },
 
+  // ── 23. camp_review_pending - the NGO side is TOLD a camp is waiting ─────────
+  //
+  // Fired by POST /camps/apply, which until now notified nobody while promising
+  // the organiser an NGO callback within 2 working days. Goes to the district's
+  // coordinators + every active ngo_admin.
+  //
+  // Body-only, NO button: an admin signs in with password + TOTP, so a button
+  // could only carry a constant /admin link, and a constant URL is exactly what
+  // got community_leader_welcome re-classified MARKETING.
+  //
+  // Opens with literal text and closes with literal text — Meta rejects a body
+  // that begins or ends with a variable (error_subcode 2388299).
+  {
+    name: 'camp_review_pending',
+    category: 'UTILITY',
+    language: 'en',
+    body: `A new blood donation camp application is waiting for NGO review on Raktify.
+
+Camp: *{{1}}*
+Date: *{{2}}*
+Venue: *{{3}}*
+Organiser: *{{4}}*
+District: *{{5}}*
+
+Open the Camps tab in your Raktify portal to verify the details and assign a blood bank.`,
+    body_example: [
+      'Shivaji College Blood Donation Camp',
+      '2026-09-12',
+      'Shivaji College Main Hall, Amravati',
+      'Shivaji College, Amravati',
+      'Amravati',
+    ],
+    footer: FOOTER_COORD,
+  },
+  {
+    name: 'camp_review_pending',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `Raktify वर एक नवीन रक्तदान शिबिराचा अर्ज तपासणीसाठी प्रलंबित आहे.
+
+शिबिर: *{{1}}*
+दिनांक: *{{2}}*
+ठिकाण: *{{3}}*
+आयोजक: *{{4}}*
+जिल्हा: *{{5}}*
+
+तपशील तपासण्यासाठी आणि रक्तपेढी नेमण्यासाठी Raktify पोर्टलमधील Camps टॅब उघडा.`,
+    body_example: [
+      'शिवाजी कॉलेज रक्तदान शिबिर',
+      '2026-09-12',
+      'शिवाजी कॉलेज मुख्य सभागृह, अमरावती',
+      'शिवाजी कॉलेज, अमरावती',
+      'अमरावती',
+    ],
+    footer: FOOTER_COORD,
+  },
+  {
+    name: 'camp_review_pending',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `Raktify पर एक नया रक्तदान शिविर आवेदन समीक्षा के लिए लंबित है।
+
+शिविर: *{{1}}*
+दिनांक: *{{2}}*
+स्थान: *{{3}}*
+आयोजक: *{{4}}*
+जिला: *{{5}}*
+
+विवरण सत्यापित करने और ब्लड बैंक तय करने के लिए Raktify पोर्टल में Camps टैब खोलें।`,
+    body_example: [
+      'शिवाजी कॉलेज रक्तदान शिविर',
+      '2026-09-12',
+      'शिवाजी कॉलेज मुख्य सभागृह, अमरावती',
+      'शिवाजी कॉलेज, अमरावती',
+      'अमरावती',
+    ],
+    footer: FOOTER_COORD,
+  },
+
 ];
 
 function buildPayload(t) {

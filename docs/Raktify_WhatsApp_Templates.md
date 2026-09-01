@@ -1578,6 +1578,130 @@ WHATSAPP_TEMPLATE_CAMP_BB_CHANGED=camp_bb_changed
 
 ---
 
+## Template 23 · `camp_review_pending`
+
+> The NGO side is **told** a camp is waiting for it. Until this template,
+> `POST /camps/apply` notified nobody — while its own 201 answered the organiser
+> *"Our NGO coordinator will contact you within 2 working days."* The entire
+> review queue depended on a human happening to open the `/admin` Camps tab, and
+> a real prod camp sat unreviewed because nobody did.
+>
+> **No button, deliberately.** An NGO admin signs in with password + TOTP, so a
+> button could only ever carry the constant `/admin` link — and a constant URL is
+> the exact thing that got `community_leader_welcome` re-classified MARKETING.
+> The Camps tab is one tap from the portal home anyway.
+>
+> **Opens and closes on literal text**, because Meta rejects a body that begins
+> or ends with a variable (`error_subcode: 2388299`).
+
+| Field | Value |
+|---|---|
+| **Name** | `camp_review_pending` |
+| **Category** | **Utility** |
+| **Languages** | English, Marathi, Hindi |
+| **Header** | None |
+| **Footer** | `Raktify · Coordinator alert · choudhari.ngo` |
+| **Buttons** | **None** — see rationale above |
+
+### Body (English)
+
+```
+A new blood donation camp application is waiting for NGO review on Raktify.
+
+Camp: *{{1}}*
+Date: *{{2}}*
+Venue: *{{3}}*
+Organiser: *{{4}}*
+District: *{{5}}*
+
+Open the Camps tab in your Raktify portal to verify the details and assign a blood bank.
+```
+
+### Body (Marathi)
+
+```
+Raktify वर एक नवीन रक्तदान शिबिराचा अर्ज तपासणीसाठी प्रलंबित आहे.
+
+शिबिर: *{{1}}*
+दिनांक: *{{2}}*
+ठिकाण: *{{3}}*
+आयोजक: *{{4}}*
+जिल्हा: *{{5}}*
+
+तपशील तपासण्यासाठी आणि रक्तपेढी नेमण्यासाठी Raktify पोर्टलमधील Camps टॅब उघडा.
+```
+
+### Body (Hindi)
+
+```
+Raktify पर एक नया रक्तदान शिविर आवेदन समीक्षा के लिए लंबित है।
+
+शिविर: *{{1}}*
+दिनांक: *{{2}}*
+स्थान: *{{3}}*
+आयोजक: *{{4}}*
+जिला: *{{5}}*
+
+विवरण सत्यापित करने और ब्लड बैंक तय करने के लिए Raktify पोर्टल में Camps टैब खोलें।
+```
+
+### Variables
+
+- `{{1}}` — Camp name (e.g. `Shivaji College Blood Donation Camp`)
+- `{{2}}` — Camp date, calendar label (e.g. `2026-09-12`)
+- `{{3}}` — Venue, one line (e.g. `Shivaji College Main Hall, Amravati`)
+- `{{4}}` — **Organiser organisation**, never the person (e.g. `Shivaji College, Amravati`)
+- `{{5}}` — District name (e.g. `Amravati`)
+
+`{{4}}` is `organiser_name`, the organisation — **not** `submitted_by_name`. A
+person's name is PII that does not need to ride a WhatsApp message for someone
+to decide whether a camp is worth reviewing.
+
+Every one of the five comes off a **public form**, so the handler pushes each
+through `oneLine()`: Meta rejects a *parameter* (not body text) holding a
+newline, a tab, or more than four consecutive spaces.
+
+### Fires when
+
+`POST /camps/apply` (`routes/camps.js`), immediately after the camp is created
+at `status='PE'`. Backend `templateType: 'CAMP_REVIEW_PENDING'`; handler
+variable order is `camp_name, camp_date, venue, organiser_name, district`.
+
+Recipients are resolved by `notifyCampReviewPending()` as the union of the two
+role-sets `POST /camps/:id/verify` already accepts, minus `super_admin`: the
+**camp district's** active coordinators with a mobile, then every active
+`ngo_admin` with a mobile, de-duplicated by mobile and capped at
+`CAMP_REVIEW_NOTIFY_LIMIT = 5`.
+
+Three deliberate choices in that query:
+
+- **`on_duty` is NOT required.** It gates `COORD_CRITICAL_NEW`, where somebody
+  has to be at their phone *now*; a camp carries a two-working-day promise, so
+  requiring a live shift would silently notify nobody most evenings.
+- **`ngo_admin`s are always included**, because a brand-new district has no
+  `coordinators` profile row at all — dev holds 27 coordinator `platform_users`
+  against **2** `coordinators` rows.
+- **Fire-and-forget, never awaited.** The organiser's 201 must not wait on Meta,
+  and a WhatsApp outage must never lose a camp application. Zero recipients logs
+  `logger.warn` loudly — "nobody to tell" is an operational hole, not a
+  non-event.
+
+`notification_log.template_type` is plain `TEXT` with no CHECK, so this needed
+**no migration** — schema head stays 319.
+
+### After approval
+
+```
+WHATSAPP_TEMPLATE_CAMP_REVIEW_PENDING=camp_review_pending
+```
+
+A **plain App Service appsetting on `raktify-api`**, not a Key Vault secret —
+template names are not secrets. Only the Meta credentials live in `raktify-kv`,
+and they are shared by every template, which is precisely why the eight missing
+camp keys stayed invisible for weeks.
+
+---
+
 ## V3 batch — submission order (recommended)
 
 **Submit EN first for every template, let it clear, then submit MR + HI from
@@ -1611,7 +1735,9 @@ English-only beyond submission speed.
 - **Handlers + env keys: all 8 are already in code** and the gate
   `node scripts/check_whatsapp_templates.js` exits 0. Nothing in `backend/`
   needs to change for these to start delivering — setting each
-  `WHATSAPP_TEMPLATE_*` in **Azure Key Vault (`raktify-kv`)** flips them on.
+  `WHATSAPP_TEMPLATE_*` as a plain **App Service appsetting** on `raktify-api`
+  flips them on. They are **not** Key Vault secrets — only the Meta credentials
+  are, and those are shared by every template.
 - **`camp_organizer_link_v2` needs no Meta work.** It is already approved in
   EN + MR + HI as UTILITY with **two** body variables (`organiser_name`,
   `camp_name`) and a `/camp/{{1}}` button taking the **raw token**, not an

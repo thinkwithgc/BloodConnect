@@ -443,6 +443,31 @@ const TEMPLATE_HANDLERS = {
   // what got community_leader_welcome re-classified MARKETING (see env.js).
   // The BB acts on this in the portal's Camps tab; the message only has to
   // tell it there is something to act on.
+  // camp_review_pending - Utility. To the NGO side (district coordinators +
+  // ngo_admin) when a public camp application lands at status 'PE'. Body vars:
+  // camp_name, camp_date, venue, organiser_name, district. Body-only, no
+  // button - see the note on the env key in config/env.js.
+  //
+  // organiser_name is the ORGANISATION (a college, a Rotary club), never
+  // submitted_by_name: the person's name is PII that does not need to ride a
+  // WhatsApp message to decide whether a camp is worth reviewing, and the
+  // admin sees it in the portal anyway.
+  // Every string here comes off a PUBLIC form, and Meta rejects a PARAMETER
+  // (not body text) that holds a newline, a tab or >4 consecutive spaces — so
+  // each one goes through oneLine() rather than String().
+  CAMP_REVIEW_PENDING: (vars) => [
+    {
+      type: 'body',
+      parameters: [
+        { type: 'text', text: oneLine(vars.camp_name).slice(0, 160) },
+        { type: 'text', text: oneLine(vars.camp_date) },
+        { type: 'text', text: oneLine(vars.venue).slice(0, 200) },
+        { type: 'text', text: oneLine(vars.organiser_name).slice(0, 160) },
+        { type: 'text', text: oneLine(vars.district) },
+      ],
+    },
+  ],
+
   CAMP_BB_REQUEST: (vars) => [
     {
       type: 'body',

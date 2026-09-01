@@ -249,6 +249,119 @@ const applySchema = z.object({
   community_id: z.string().uuid().optional(),
 });
 
+// ── The NGO side has to be TOLD a camp is waiting ─────────────────────────
+//
+// POST /camps/apply files a camp at 'PE' and answers the organiser "our NGO
+// coordinator will contact you within 2 working days" — while notifying nobody.
+// The whole review queue depended on a human opening the /admin Camps tab, so a
+// camp filed on a Friday evening sat there unseen. This is the missing half.
+//
+// Fire-and-forget by construction: a camp application must NEVER fail because
+// WhatsApp is down, so every send is caught individually and the caller does
+// not await the result.
+//
+// Who gets it — the union of the two role-sets that POST /camps/:id/verify
+// actually accepts, minus super_admin (that is the platform operator, not the
+// district reviewer):
+//   • coordinators in the camp's OWN district — on_duty is deliberately NOT
+//     required. on_duty gates a CRITICAL blood request that needs somebody at
+//     their phone this minute (routes/requests.js autoAssignCoordinator); a
+//     camp application has a two-working-day promise on it, and requiring a
+//     live shift here would silently notify nobody most evenings.
+//   • every active ngo_admin with a mobile — they are the ones who click
+//     verify, and on a fresh district there is no coordinator row at all.
+//     (Dev holds 27 coordinator platform_users but only 2 `coordinators`
+//     profile rows, so a coordinators-only query is exactly the kind that
+//     looks wired and reaches no one.)
+//
+// LIMIT is a blast guard, not a preference: an ngo_admin table that grows to
+// 30 rows must not turn one village camp into 30 WhatsApp messages. Ordered so
+// the district's own coordinators are never the ones dropped.
+const CAMP_REVIEW_NOTIFY_LIMIT = 5;
+
+async function notifyCampReviewPending({
+  campId,
+  campName,
+  districtId,
+  scheduledDate,
+  venue,
+  organiserName,
+}) {
+  let recipients = [];
+  let districtName = '';
+  try {
+    const r = await withRlsContextRaw({ actor_role: 'system' }, (c) =>
+      c.query(
+        `WITH d AS (SELECT name FROM districts WHERE id = $1)
+         SELECT mobile, source, (SELECT name FROM d) AS district_name
+           FROM (
+             SELECT u.mobile, 0 AS source, c.joined_at AS ord
+               FROM coordinators c
+               JOIN platform_users u ON u.id = c.platform_user_id
+              WHERE c.district_id = $1
+                AND c.is_active = TRUE
+                AND u.mobile IS NOT NULL
+                AND u.deactivated_at IS NULL
+             UNION
+             SELECT u.mobile, 1 AS source, u.created_at AS ord
+               FROM platform_users u
+              WHERE u.role = 'ngo_admin'
+                AND u.mobile IS NOT NULL
+                AND u.deactivated_at IS NULL
+           ) x
+       ORDER BY source ASC, ord ASC
+          LIMIT $2`,
+        [districtId, CAMP_REVIEW_NOTIFY_LIMIT],
+      ),
+    );
+    recipients = r.rows;
+    districtName = r.rows[0]?.district_name || '';
+    if (recipients.length === 0) {
+      // Loud on purpose. "Nobody to tell" is an operational hole (a district
+      // with no coordinator and no ngo_admin mobile), not a normal outcome, and
+      // it is invisible from the outside — the camp still files fine.
+      logger.warn(
+        { camp_id: campId, district_id: districtId },
+        'camp review pending: no NGO recipient has a mobile',
+      );
+      return;
+    }
+  } catch (err) {
+    logger.warn(
+      { err: err.message, camp_id: campId },
+      'camp review-pending recipient lookup failed',
+    );
+    return;
+  }
+
+  // The UNION already de-duplicates a mobile that is both a coordinator and an
+  // ngo_admin, but only across identical `source` values — a person holding
+  // both roles would otherwise be messaged twice.
+  const seen = new Set();
+  for (const row of recipients) {
+    const mobile = row.mobile && String(row.mobile).trim();
+    if (!mobile || seen.has(mobile)) continue;
+    seen.add(mobile);
+    sendNotification({
+      recipientId: mobile,
+      templateType: 'CAMP_REVIEW_PENDING',
+      variables: {
+        camp_name: campName,
+        camp_date: scheduledDate,
+        venue,
+        organiser_name: organiserName,
+        district: districtName,
+      },
+      channel: 'WA',
+      // Explicit 'en' like every other camp send site: the provider has no
+      // en-fallback, and camp_review_pending is only APPROVED in en today.
+      language: 'en',
+    }).catch((err) =>
+      logger.warn({ err: err.message, camp_id: campId }, 'camp review-pending notify failed'),
+    );
+  }
+}
+
 function slugify(s) {
   return s
     .toLowerCase()
@@ -452,6 +565,22 @@ router.post('/apply', async (req, res) => {
   logger.info(
     { camp_id: created.id, district_id: d.district_id, organiser_type: d.organiser_type },
     'Public camp application received',
+  );
+
+  // Tell the NGO side there is something to review. Not awaited: the organiser's
+  // 201 must not wait on Meta, and a WhatsApp outage must not lose a camp.
+  notifyCampReviewPending({
+    campId: created.id,
+    campName: created.name,
+    districtId: d.district_id,
+    // d.scheduled_date is already a 'YYYY-MM-DD' string off applySchema.
+    // created.scheduled_date is a raw DATE and serialises as …T00:00:00.000Z —
+    // never send that to a human (see the calendar-label rule in CLAUDE.md).
+    scheduledDate: d.scheduled_date,
+    venue: d.venue,
+    organiserName: d.organiser_name,
+  }).catch((err) =>
+    logger.warn({ err: err.message, camp_id: created.id }, 'camp review-pending dispatch failed'),
   );
 
   res.status(201).json({

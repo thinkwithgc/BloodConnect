@@ -503,6 +503,55 @@ or rejects it, and only an approved pair renders publicly. Migration **319**.
   reason. **Any new "field is hidden" assertion on a public camp route needs the
   same care.**
 
+## A camp application told NOBODY it needed reviewing (fixed 2026-09-01)
+
+A test camp was created in prod and **no NGO coordinator and no NGO admin got a
+WhatsApp** — because `POST /camps/apply` contained no `sendNotification` call at
+all, while its own 201 answers the organiser *"Our NGO coordinator will contact
+you within 2 working days."* The whole review queue depended on a human
+happening to open the `/admin` Camps tab.
+
+- **The blood bank's silence on the same camp is CORRECT, not a second bug.**
+  `CAMP_BB_REQUEST` fires at `POST /camps/:id/verify` (`camps.js:2274`) and at
+  re-partner (`:2444`), never at apply — a camp at `'PE'` has nothing for the BB
+  to answer yet. **Do not "fix" that by moving the send to apply.**
+- **New: `notifyCampReviewPending()` in `camps.js`**, fired **fire-and-forget**
+  right after the camp row is created. Recipients are the union of the two
+  role-sets `POST /camps/:id/verify` already accepts, minus `super_admin`: the
+  **camp district's** active coordinators with a mobile, then every active
+  `ngo_admin` with a mobile — de-duplicated by mobile, capped at
+  `CAMP_REVIEW_NOTIFY_LIMIT = 5`.
+- **`on_duty` is deliberately NOT required.** It gates `COORD_CRITICAL_NEW`,
+  where somebody must be at their phone *now*; a camp carries a two-working-day
+  promise, so demanding a live shift would silently notify nobody most evenings.
+- **`ngo_admin`s are always included** because a fresh district has no
+  `coordinators` profile row at all — dev holds 27 coordinator `platform_users`
+  against **2** `coordinators` rows. Keying only on `coordinators` would have
+  reproduced the original silence in every new district.
+- **`platform_users` has NO `is_active` column** — it uses `deactivated_at`
+  (migration 311). A probe written against `is_active` errors outright, which is
+  how this query got it right.
+- **Never awaited, and wrapped.** The organiser's 201 must not wait on Meta, and
+  a WhatsApp outage must never lose a camp application. **Zero recipients logs
+  `logger.warn` loudly** — "nobody to tell" is an operational hole, not a
+  non-event.
+- **No migration.** `notification_log.template_type` is plain `TEXT` with no
+  CHECK — verified against the DB, not assumed. Schema head stays **319**.
+- **It cannot deliver until Meta approves it.** `camp_review_pending` is a
+  brand-new template (UTILITY, 5 body vars, EN/MR/HI, **body-only — an admin
+  link is constant, and a constant URL button is what got
+  `community_leader_welcome` re-classified MARKETING**) and needs the
+  appsetting `WHATSAPP_TEMPLATE_CAMP_REVIEW_PENDING=camp_review_pending`. Copy
+  lives in `docs/Raktify_WhatsApp_Templates.md` **Template 23**.
+- **Adjacent gap, deliberately NOT fixed:** a camp **auto-accepted** at apply
+  (`auto_accept_within_capacity` stamps `bb_response='AC'`) still tells the
+  blood bank nothing, and `camp_bb_request`'s *"accept or decline"* copy is the
+  wrong message for it — that needs its own new template, not a re-use.
+- Gates: `smoke:camps` **139/1** (the failing line is the documented
+  `blood-bank-options` `LIMIT 25` dev-state assertion — 25 rows returned),
+  `check_whatsapp_templates.js` 0 fail / 1 warn (handlers 21, env keys 25),
+  lint + `format:check` clean.
+
 ## Pilot scope — Donor + Camp modules only (Aug 2026)
 
 PDMC (blood bank in-charge + Dean) agreed to run the **donor and camp modules

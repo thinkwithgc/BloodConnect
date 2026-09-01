@@ -144,6 +144,15 @@ const env = {
       // to the ORGANISER once the BB has answered. camp_bb_changed carries the
       // neutral reassignment line only — never bb_decline_reason.
       camp_bb_request: optional('WHATSAPP_TEMPLATE_CAMP_BB_REQUEST', null),
+      // camp_review_pending — to the NGO side (district coordinators +
+      // ngo_admin users) the moment a public camp application lands at 'PE'.
+      // POST /camps/apply used to notify nobody while its own 201 promised the
+      // organiser "our NGO coordinator will contact you within 2 working days",
+      // so the whole queue depended on somebody opening the /admin Camps tab.
+      // Body-only, no button: an admin signs in with password + TOTP, so a
+      // button could only carry a constant /admin link — the exact thing that
+      // got community_leader_welcome re-classified MARKETING (see above).
+      camp_review_pending: optional('WHATSAPP_TEMPLATE_CAMP_REVIEW_PENDING', null),
       camp_bb_accepted: optional('WHATSAPP_TEMPLATE_CAMP_BB_ACCEPTED', null),
       camp_bb_changed: optional('WHATSAPP_TEMPLATE_CAMP_BB_CHANGED', null),
     },

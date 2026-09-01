@@ -19,6 +19,8 @@ auto-applies migrations to prod**). Last twelve commits, newest first:
 
 | Commit | What |
 |---|---|
+| `19e3ee3` | `feat(camps)`: an organiser's **own logo + tagline** on the public camp page, NGO-approved (migration **319**). See **Camp branding** below |
+| `b898503` | `docs(brand)`: the QR poster prints the wordmark **vector** (18 positions, one `<symbol>`), one poster per A4 at 130mm |
 | `156eee0` | `feat(portals)`: a hospital / blood bank sees **its own name** on its dashboard, via the session-addressed `GET /institutions/me`. See **A staff portal never knows its own institution** below |
 | `b422787` | `fix(donor)`: **`/register` was blank in prod** — `c9a8c85` put the language select in `StepDetails` but destructured `t`/`setLang`/`supported` in `DonorRegister`. See **A blank page is a render throw** below |
 | `d5f518b` | `fix(otp)`: a rejected WhatsApp OTP send is no longer reported as "code sent", and the OTP goes out in `donors.preferred_language`. New `frontend/src/lib/otpError.js`. See **OTP delivery failures** below |
@@ -32,11 +34,12 @@ auto-applies migrations to prod**). Last twelve commits, newest first:
 | `9b0a59f` | BB camp capacity + `bb_response` (migrations 316/317/318, `services/camps/capacity.js`, BB Camps tab, results worklist, roster-PII fix, DOB picker, bounded date inputs) |
 | `3c4d235` | Camp organiser names a blood bank; NGO admin confirms it (migration 315) |
 
-**Schema head.** **97 migration files, latest `318_bb_camp_settings_audit_id`.
-Next new migration is `319`.** 315–318 were applied to prod by the deploy's
-`migrate` job at 2026-08-28T17:12 UTC (`✓` on all four, `Done. Applied 4
-migration(s)`), and to Neon dev first. `/health` → 200 `db: ok`. Everything
-`≤318` is immutable (hard rule 5). **`npm run migrate:status` is the source of
+**Schema head.** **98 migration files, latest `319_camp_branding`.
+Next new migration is `320`.** 319 is applied to **Neon dev only** (2026-08-30
+15:44 UTC) — it reaches prod on the next push to `main`, via the deploy's
+`migrate` job. 315–318 went to prod at 2026-08-28T17:12 UTC (`✓` on all four,
+`Done. Applied 4 migration(s)`). `/health` → 200 `db: ok`. Everything `≤319` is
+immutable (hard rule 5). **`npm run migrate:status` is the source of
 truth — the numbered table further down this file is incomplete.**
 
 **Gates, with their real assertion counts** (the phase table below understates
@@ -44,13 +47,24 @@ two of them):
 
 | Command | Count | Notes |
 |---|---|---|
-| `npm run smoke:camps` | **117** | The camp gate. Covers attendance derivation + capacity + `bb_response` + the PII scoping |
+| `npm run smoke:camps` | **140** | The camp gate. Attendance derivation + capacity + `bb_response` + the PII scoping + the branding approval gate. **One assertion is dev-state-dependent — see below** |
 | `node scripts/smoke_test_phase4.js` | 17 | **Required regression** for anything touching `donation_history` / `donor_screening` |
 | `node scripts/smoke_test_phase2.js` | **172** | Institution onboarding / paper MoU / staff-login editing / the two-404 split / the portal's own-name banner |
 | `node scripts/check_whatsapp_templates.js` | 0 fail, 1 warn | Every `templateType` in `backend/src` must have a handler **and** an env key |
 | `npm run lint && npm run format:check` | — | `format:check` is a hard CI gate in all three workflows, **backend only** |
 | `npm run smoke:frontend` | — | Vite build. Frontend has no ESLint config, so this is its only gate. **Run from the repo root** |
 | `node scripts/smoke_test_phase3/5/6.js` | — | **Do not run.** Pre-268 staff-auth drift; they fail for unrelated reasons |
+
+**`smoke:camps` reports 139/1 on a well-used Neon dev DB, and that is not a
+regression.** The failing line is *"the public picker needs NO token and lists
+active onboarded BBs"*: `GET /camps/blood-bank-options` is
+`ORDER BY i.display_name LIMIT 25`, and district 501 has accumulated **48**
+active onboarded blood banks from repeated smoke runs, so the two BBs the run
+just seeded sort off the end of the page. Count before touching anything — if
+the district is over 25, the assertion is measuring the dev DB, not the code.
+**That LIMIT is also real product drift**: a district with more than 25 blood
+banks silently truncates the organiser's picker, with no search and no total in
+the payload. Logged, deliberately not fixed.
 
 ### Deploy skew: the SPA goes live ~1 minute before the API
 
@@ -91,17 +105,33 @@ table below, plus per-day BB camp capacity publishing, per-camp
 brief), the post-camp results worklist, the `GET /camps/:id/registrations`
 institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
 
+**Committed but NOT yet in prod:** camp branding (`19e3ee3`) and the QR-poster
+wordmark vector (`b898503`) are on `feat/paper-mou-onboarding` and have not been
+pushed. Pushing deploys them **and applies migration 319 to prod** — that push
+has not been authorised yet. Migration 319 is prod-safe: additive DDL only, all
+10 constraints report `convalidated = true` against **152 real `donation_camps`
+rows** on Neon dev (so the NULL-row CHECK semantics are validated against data,
+with no `NOT VALID` deferral), and prod has **zero camps** so the constraint scan
+is instant. Deploy skew is benign here by construction — the new SPA against the
+old API just reads `undefined` for `logo_data_uri` and renders nothing.
+
 **Blocked on other people, not on code:**
-1. **WhatsApp template delivery.** 8 templates authored + submitted 2026-08-28,
-   7 V2 templates submitted earlier and unconfirmed. Each language is a separate
-   Meta review (1–3 days). **A missing `WHATSAPP_TEMPLATE_*` key is a silent
-   no-op** — `notification_log` still writes an `FA` row, so the job looks
-   healthy and sends nothing. Set every key in Azure Key Vault `raktify-kv`,
-   never in a commit. **Cheapest first check: `WHATSAPP_TEMPLATE_CAMP_LINK`** —
-   its template (`camp_organizer_link_v2`) is already approved in all three
-   languages, so it should deliver the moment the key lands.
-   `donor_alert_replacement`'s Meta record still carries a 28-char button label
-   (ceiling is 25) and needs deleting + resubmitting.
+1. **Every camp WhatsApp message in prod sends nothing** — and this one is *not*
+   blocked on Meta. Measured 2026-09-01, against the Graph API and App Service
+   directly: **`env.js` expects 24 `WHATSAPP_TEMPLATE_*` keys; prod has 16, and
+   the 8 missing ones are exactly the camp keys** — `CAMP_LINK`,
+   `CAMP_PRECHECK_2D`, `CAMP_DAY_OF`, `CAMP_DONOR_THANKYOU`, `CAMP_ANNC`,
+   `CAMP_BB_REQUEST`, `CAMP_BB_ACCEPTED`, `CAMP_BB_CHANGED`. With
+   `SCHEDULER_ENABLED=true`, the three camp reminder jobs tick nightly and
+   deliver zero messages, and the **organiser magic link is not WhatsApp'd at
+   all** (`camps.js:2250` sends `templateType:'CAMP_LINK'`;
+   `whatsappCloudProvider.js:574-583` finds no name, warns, and returns
+   `{success:false, reason:'template_not_configured'}` while still writing the
+   `FA` row). See **WhatsApp template pipeline** below for what to add and where.
+   **Do not read "OTP / staff invitation / other messages arrive" as evidence
+   these keys are set** — those template names are among the 16 that *are*
+   present, and the Meta credentials they all share do live in Key Vault. The
+   credentials being right is exactly what makes this failure invisible.
 2. **Legal review of the MoU template** — the last sign-off before onboarding
    institutions at scale. Medical sign-off is done (10-Jul-2026).
 3. **Manual prod walk-through of the camp lifecycle.** Prod has **zero camps**,
@@ -113,7 +143,7 @@ institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
    reason and the organiser sees the neutral line.
 
 **Deferred by decision (not blocked):** institution-users Stage 2 (staff
-capabilities) — starts at migration **319**; `BOT_REPLY` free-form
+capabilities) — starts at migration **320**; `BOT_REPLY` free-form
 session-message path (6 sites in `services/whatsapp/bot.js`) — needs a
 non-template send, not a template; plus the standing list in
 **Post-Phase-8 deferred items** below.
@@ -398,6 +428,70 @@ own `display_name` as the page `<h1>` on both `/hospital` and `/bb`.
 No migration; schema head stayed **318**. Gate: `smoke_test_phase2.js` **172** (was 167;
 §20e–20g added).
 
+## Camp branding — the organiser's own logo + tagline (shipped 2026-09-01, `19e3ee3`)
+
+A village college or Rotary club hosting a camp was driving people to a page that
+carried Raktify chrome and nothing of theirs. The organiser now uploads a logo and
+writes a tagline from the **magic-link dashboard** (no login), an NGO admin approves
+or rejects it, and only an approved pair renders publicly. Migration **319**.
+
+- **The logo is a `data:` URI in its own table, NOT a storage key**, and 319's
+  header records all four reasons. (1) **Nothing in this app can serve an uploaded
+  file back** — `STORAGE_PROVIDER=local` writes to disk and no route reads it.
+  (2) Signed MoU PDFs already share `LOCAL_STORAGE_DIR`, so a public logo path
+  would sit beside them. (3) `storageDir` defaults to a **relative** path while
+  only `/home` persists on App Service. (4) The social-post PNG export needs
+  `drawImage`, and a cross-origin image **taints `<canvas>`** so `toBlob()` throws
+  `SecurityError`. Do not "improve" this into a storage key without solving all
+  four — (4) alone breaks the export.
+- **`camp_branding_logo` is deliberately NOT audited and deliberately has NO `id`
+  column.** `fn_audit_row()` (025) writes one audit row **per changed field
+  carrying the full old and new value**, so auditing a 67 KB base64 blob puts it
+  into an INSERT-only table twice per edit. The missing `id` is a **tripwire**:
+  passing this table to `attach_audit_trigger()` throws migration 318's exact
+  error (`record "new" has no field "id"`) instead of quietly working. That is the
+  intended failure — do not "fix" it by adding an `id`.
+- **The public gate is expressed in SQL, not a JS branch.**
+  `GET /camps/public/:slug` selects
+  `CASE WHEN c.branding_status = 'AP' THEN bl.logo_data_uri END` (and the same for
+  `organiser_tagline`), so a future caller physically cannot forget it. `'PE'` and
+  `'RJ'` both render as no branding. **`GET /camps/access/:token` returns it
+  ungated on purpose** — the organiser has to be able to see their own rejection
+  and the review note.
+- **Any organiser edit resets `branding_status` to `'PE'` in the same UPDATE.**
+  Approval attaches to the bytes that were reviewed, not to the camp; there is no
+  path where an approved status survives new content.
+- **The 50 KB decoded ceiling (`LOGO_MAX_BYTES`, `camps.js:2828`) lives in the
+  route, not a CHECK.** It is a payload budget for rural 4G, not patient safety
+  (hard rule 1), and it wants to be tunable. The CHECK is only a
+  200 000-char backstop, plus `camp_logo_is_data_uri` and a content-type whitelist
+  of `image/jpeg` / `image/png`. Tagline is 280 chars in both Zod and a CHECK.
+- **The upload route takes raw bytes, not multipart** —
+  `POST /camps/access/:token/logo-raw` with
+  `express.raw({ type: ['image/jpeg','image/png'] })`, mirroring the MoU-scan
+  route. The browser does the resize: canvas → `toBlob('image/png')` or
+  `toBlob('image/jpeg', q)`, so a 4 MB phone photo becomes a few KB **before** it
+  leaves the handset. Four routes total — `POST /:id/branding/approve`,
+  `POST /:id/branding/reject` (note mandatory), `POST /access/:token/logo-raw`,
+  `PATCH /access/:token/branding`.
+- **The admin list carries `branding_status` only, never the blob** — 50 camps at
+  67 KB is a 3 MB response (`camps.js:125` says so). The blob is fetched only when
+  an admin opens the review panel.
+- **An emptied tagline field clears the tagline and is never stored as `''`.**
+  `CampOrganizerDashboard` holds `useState(null)` so the saved value shows until
+  the organiser types — `''` would render an empty branded strip on the public
+  page.
+- **18 `camp_brand_*` i18n keys in MR + EN, no Hindi** — the standing `camp_`/`bb_`
+  carve-out, not an omission. See **Marathi i18n**.
+- **`poster_storage_key` (migration 033) is untouched.** It predates this and is a
+  different thing (the generated poster PDF, not organiser identity).
+- **Gate: `npm run smoke:camps` → 140** (was 117). Section 16 mints its own
+  `camp_access_tokens` row and moves camp1 to `'PL'` **first**, because
+  `GET /camps/public/:slug` filters `status IN ('PL','LV')` and a 404 body has no
+  `logo_data_uri` — an "absent" assertion would otherwise pass for the wrong
+  reason. **Any new "field is hidden" assertion on a public camp route needs the
+  same care.**
+
 ## Pilot scope — Donor + Camp modules only (Aug 2026)
 
 PDMC (blood bank in-charge + Dean) agreed to run the **donor and camp modules
@@ -559,8 +653,11 @@ accept/decline is the exception path, not the normal one.
 | 8 — Admin + reporting + deploy | ✅ core (code-complete) | `npm run lint && npm run smoke:frontend` | See **Phase 8 status** below |
 | Post-8 — Live deploy + feature gap-close | ✅ live on Azure (single-env `raktify` RG) | `npm run lint && npm run smoke:frontend` | See **Post-Phase-8 status** below |
 
-> **Current totals (2026-08-28):** 97 migrations (latest `318_bb_camp_settings_audit_id`),
-> 215 route handlers across 22 resource routers, 6 frontend role-portals + public
+> **Current totals (2026-09-01):** 98 migrations (latest `319_camp_branding`, applied
+> to Neon dev only — it reaches prod on the next push to `main`),
+> **221** route handlers across 22 resource routers (measured:
+> `grep -rhoE "^\s*router\.(get|post|put|patch|delete)\(" backend/src/routes/*.js | wc -l`
+> — the older "215" here was not reproducible, so prefer the command), 6 frontend role-portals + public
 > surfaces, 3 notification providers (console / MSG91 / WhatsApp Cloud). Phases 0–8
 > **and** all post-Phase-8 additions are code-complete and live on Azure
 > (`raktify.choudhari.ngo` + `raktify-api` App Service). Single environment
@@ -806,19 +903,63 @@ healthy and sends nothing.** That is exactly how three shipped camp reminders
 (`camp_precheck_2d`, `camp_day_of`, `camp_donor_thankyou`) ran for weeks
 delivering zero messages before commit `dae92d8`.
 
-- **Authored + submitted 2026-08-28 (8):** `camp_precheck_2d`, `camp_day_of`,
-  `camp_donor_thankyou`, `camp_announcement` (`CAMP_ANNC`),
-  `donor_consent_invite`, `camp_bb_request`, `camp_bb_accepted`,
-  `camp_bb_changed`. `camp_bb_changed` carries the neutral line only — never a
-  decline reason.
-- **Submitted earlier, status unconfirmed (7):** `donor_alert_bb_routed`,
-  `donor_alert_community_first`, `donor_alert_replacement`, `bb_donor_incoming`,
-  `coord_prefire_warning`, `coord_critical_new`, `community_leader_mobilise`.
-  **Chase these through the Graph API, not the Business Manager UI.**
-  `donor_alert_replacement`'s Meta record still carries a 28-char button label
-  (ceiling 25) — the script is fixed, the record needs deleting + resubmitting.
-- **Wired, approved, waiting only on a Key Vault key:** `CAMP_LINK` →
-  `camp_organizer_link_v2`. **The cheapest thing to verify first.**
+**Measured 2026-09-01 — trust this over any older claim in this file.** Graph
+API (`GET /<WABA_ID>/message_templates`) returns **52 rows / 21 unique names**;
+App Service `raktify-api` carries **16** `WHATSAPP_TEMPLATE_*` appsettings
+against the **24** `env.js` expects.
+
+- **The gap is not Meta, it is App Service.** Approval and delivery are two
+  different layers, and they fail differently:
+
+  | Layer | Where it lives | How it fails |
+  |---|---|---|
+  | Meta approval | the WABA, per **name × language** | the send is rejected at the API |
+  | Template **name** | an App Service **appsetting**, plain literal | unset → silent `FA`, nothing ever leaves |
+  | Meta **credentials** | Key Vault → appsetting `@Microsoft.KeyVault(...)` | shared by every template at once |
+
+  **Template names are not secrets and are NOT in Key Vault** — all 16 present
+  ones are literal appsettings (`institution_link`, `camp_reminder`,
+  `donor_alert_bb_routed_v2`, …). So "Key Vault is correct" and "OTP and staff
+  invitations arrive" are both true *and* tell you nothing about the 8 missing
+  camp keys: the credentials are shared, the names are per-template. Add them
+  with `az webapp config appsettings set -g raktify -n raktify-api --settings
+  KEY=name` (a restart, ~30s).
+- **4 of the 8 camp keys can be switched on right now** — the template is
+  already APPROVED in all three languages, only the appsetting is absent:
+  `CAMP_LINK`→`camp_organizer_link_v2`,
+  `CAMP_PRECHECK_2D`→`camp_precheck_2d`,
+  `CAMP_DAY_OF`→`camp_day_of`,
+  `CAMP_DONOR_THANKYOU`→`camp_donor_thankyou`.
+  **`CAMP_LINK` is the cheapest and highest-value one** — `camps.js:2250` is the
+  organiser's magic link, so today an organiser is verified and never told.
+- **The other 4 do not exist in the WABA at all** — not pending, *absent*:
+  `camp_announcement` (`CAMP_ANNC`), `camp_bb_request`, `camp_bb_accepted`,
+  `camp_bb_changed`. They were authored in `dae92d8` and either never created or
+  created and deleted. They need `submit_whatsapp_templates_v2.js` + a fresh
+  1–3 day review per language. `camp_bb_changed` carries the neutral line only
+  — never a decline reason.
+- **`camp_day_of` is APPROVED but MARKETING** in all three languages — the only
+  MARKETING template in the WABA. It is one template in 3 languages, **not three
+  templates** (an easy misread of the Graph API listing). Setting its key makes
+  it deliver, but a day-of camp reminder sitting in the MARKETING category is
+  subject to per-user marketing frequency caps and marketing pricing, so a donor
+  who has hit the cap silently gets nothing. **Reword it back to UTILITY**
+  (state a fact about a commitment the donor already made; no invitational
+  phrasing) rather than accepting the category.
+- **Two REJECTED rows, neither of them live:** `institutional_setup_link` (en)
+  is **superseded** — `WHATSAPP_TEMPLATE_SETUP_LINK` holds `institution_link`,
+  APPROVED in all three, which is why staff invitations arrive. `mou_esign_link`
+  (hi) is on the **dormant** eSign path (removed Aug 2026). Delete neither in a
+  hurry; just do not chase them as blockers.
+- **`donor_alert_replacement` is now APPROVED in all three languages** — the
+  28-char-button note that used to sit here is **stale**, nothing to resubmit.
+- **Names in the WABA this file did not previously record:**
+  `camp_organizer_link` (v1, en/hi — superseded by `_v2`),
+  `donor_alert_bb_routed` (v1, en — superseded by `_v2`),
+  `donor_alert_bb_routed_v2`, `donor_alert_community_first_v2`,
+  `community_leader_mobilise_v2`, `institution_link`. The `_v2` ones **are**
+  wired as appsettings. **Chase template state through the Graph API, never the
+  Business Manager UI.**
 - **Submission order:** EN first for each template, let it clear, then MR + HI
   from the approved copy — a rejection is then caught once instead of three
   times. `node scripts/submit_whatsapp_templates_v2.js --lang en`
@@ -826,7 +967,14 @@ delivering zero messages before commit `dae92d8`.
 - **Env keys nothing calls today** (harmless, but do not assume they are wired):
   `community_leader_mobilise`, `community_leader_welcome`, `coord_prefire_warn`,
   `cred`, `emg`, `thk`. `REM` has no explicit handler and falls through to the
-  default positional builder — the gate's single WARN.
+  default positional builder — the gate's single WARN. It **is** set in prod
+  (`camp_reminder`, APPROVED ×3), so the WARN is about a missing handler, not a
+  missing key.
+- **The gate cannot see prod.** `check_whatsapp_templates.js` proves every
+  `templateType` has a handler and an env *key name*; it does not and cannot
+  check that the appsetting is populated or that Meta approved the template.
+  Those two need the `az` and Graph API reads above — **run them before
+  believing any camp notification works.**
 - **`BOT_REPLY` (6 sites in `services/whatsapp/bot.js`) is NOT a template
   problem.** It needs a free-form session-message path (legal inside Meta's
   24-hour customer-service window, since the bot only ever replies to an
@@ -1178,10 +1326,11 @@ Internal-only repo migrations: `010_grant_helper_roles`, `011_grant_schema_to_he
 | `316_bb_camp_capacity` | `bb_camp_settings` (per-BB parent: `staff_total`, `staff_per_camp`, `default_max_camps`, `weekly_closed_days`, `auto_accept_within_capacity`) + `bb_camp_capacity` (per-day child, `UNIQUE (blood_bank_id, capacity_date)`). **`max_camps=0` IS the holiday; no row means NOT PUBLISHED, never closed.** Header records that RLS is inert at runtime, so the handler `WHERE` is the boundary |
 | `317_camp_bb_response` | `donation_camps.bb_response` (`PE`/`AC`/`DC`) + `_at`/`_by` + `bb_decline_reason` (`NC`/`ND`/`DT`/`VE`/`OT`, extending 287's vocabulary) + `bb_decline_note`. **An axis ORTHOGONAL to `status`, which gains no value.** Two CHECKs: `bb_response_needs_partner`, `bb_decline_reason_needs_decline` |
 | `318_bb_camp_settings_audit_id` | Fix: `fn_audit_row()` (025) hardcodes `NEW.id`, and `bb_camp_settings` is keyed on `blood_bank_id` — so 316's own audit trigger threw `record "new" has no field "id"` on every write. 316 was already applied and migrations are immutable, hence a new file. **Any table passed to `attach_audit_trigger()` needs a column literally named `id`** |
+| `319_camp_branding` | `donation_camps` + `organiser_tagline`, `branding_status` (`PE`/`AP`/`RJ`), `branding_reviewed_at`/`_by`, `branding_review_note`; new `camp_branding_logo` holding the logo as a **`data:` URI**, one row per camp. **Deliberately unaudited and deliberately without an `id` column** — the missing `id` is a tripwire that makes `attach_audit_trigger()` throw 318's error rather than silently store a 67 KB blob in an INSERT-only table twice per edit. See **Camp branding** above |
 
 > **⚠ This table is INCOMPLETE — 267–309 are missing.** It lists 220–266 plus
-> 310–318, but the repo holds **97 migration files, latest
-> `318_bb_camp_settings_audit_id`** (next new one is **319**). The undocumented
+> 310–318, but the repo holds **98 migration files, latest
+> `319_camp_branding`** (next new one is **320**). The undocumented
 > span 267–309 includes the vendor webhook (307/308), blood-group HITL (309),
 > citizen-raise (303), community-leader served-districts (304), donor-alert
 > horizon (305), institution eSign state + paired BB (306), staff-cluster mobile

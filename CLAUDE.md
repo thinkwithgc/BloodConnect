@@ -545,10 +545,10 @@ happening to open the `/admin` Camps tab.
   `raktify-api` (25 template appsettings, verified by re-`list`). Copy lives in
   `docs/Raktify_WhatsApp_Templates.md` **Template 23**. So a camp application now
   actually reaches a coordinator's phone. **`mr` + `hi` were submitted 2026-09-01
-  once `en` was APPROVED** (house rule: let EN clear first) and are PENDING as
-  UTILITY. They buy nothing today — `notifyCampReviewPending()` passes
-  `language: 'en'` explicitly — and are pre-positioning for whenever that call
-  site localises. **Do not read their PENDING state as an outage.**
+  once `en` was APPROVED** (house rule: let EN clear first) and are now **APPROVED
+  as UTILITY too** — so this template is complete in all three languages. They buy
+  nothing today (`notifyCampReviewPending()` passes `language: 'en'` explicitly) and
+  are pre-positioning for whenever that call site localises.
 - **Adjacent gap, CLOSED by decision (founder, 2026-09-01): do not build it.**
   A camp **auto-accepted** at apply (`auto_accept_within_capacity` stamps
   `bb_response='AC'`) still tells the blood bank nothing, and
@@ -934,17 +934,18 @@ always present; the **API + UI** landed post-Phase-8.
 4. **Synchronous matching** — `POST /requests` runs the matcher inline inside a
    `withTransaction`. Async queue (BullMQ + Redis) is the right shape past ~1k
    requests/day; deferred until post-CSR-funding.
-5. **WhatsApp template approvals** — largely closed as of 2026-09-01 (`ad84034`):
-   all 25 appsettings are populated and the four camp templates are APPROVED in
-   `en`, which is the language every camp send site actually passes. Remaining,
-   none of it blocking: the `mr`/`hi` records of those four are PENDING review;
-   `camp_review_pending` `mr`/`hi` are PENDING (its `en` is APPROVED and is the
-   only language the call site passes); and **`camp_day_of_v2` (`en`) is PENDING
-   the review that moves the day-of reminder out of MARKETING** — v1 keeps
-   delivering, frequency-capped, until it clears and the appsetting flips.
-   `camp_day_of_v2` `mr`/`hi` go in once `en` clears, and there **both**
-   languages matter: that job sends in `donors.preferred_language`, defaulting
-   to `'mr'`. See **WhatsApp template pipeline** above.
+5. **WhatsApp template approvals** — largely closed as of 2026-09-01. All 25
+   appsettings are populated; the four `ad84034` camp templates and
+   `camp_review_pending` are APPROVED in `en` (the language every camp send site
+   passes), and `camp_review_pending` is now APPROVED in **all three**. Remaining,
+   none of it blocking today: the `mr`/`hi` records of the four `ad84034`
+   templates are PENDING; and **`camp_day_of_v2` `mr` + `hi` are PENDING** — its
+   `en` is APPROVED as UTILITY, but the appsetting still names v1 **on purpose**,
+   because the day-of job sends in `donors.preferred_language` defaulting to
+   `'mr'`, so flipping before `mr`/`hi` clear would trade a frequency-capped
+   delivery for a guaranteed rejection. **The one outstanding action is a single
+   `az` appsettings flip once those two are APPROVED.** See **WhatsApp template
+   pipeline** above.
 6. **Institution-users Stage 2 (staff capabilities)** — not started; begins at
    migration **319**. Stage 1 (staff CRUD, magic-link setup, 2FA reset,
    deactivate-with-reason) is live.
@@ -981,9 +982,9 @@ healthy and sends nothing.** That is exactly how three shipped camp reminders
 (`camp_precheck_2d`, `camp_day_of`, `camp_donor_thankyou`) ran for weeks
 delivering zero messages before commit `dae92d8`.
 
-**Measured 2026-09-01, AFTER `camp_day_of_v2` + `camp_review_pending` mr/hi —
+**Measured 2026-09-01, AFTER `camp_day_of_v2` ×3 + `camp_review_pending` mr/hi —
 trust this over any older claim in this file.** Graph API
-(`GET /<WABA_ID>/message_templates`) returns **68 rows / 27 unique names**; App
+(`GET /<WABA_ID>/message_templates`) returns **70 rows / 27 unique names**; App
 Service `raktify-api` carries all **25** `WHATSAPP_TEMPLATE_*` appsettings
 `env.js` expects (the count did not move — `camp_day_of_v2` reuses the existing
 `WHATSAPP_TEMPLATE_CAMP_DAY_OF` key). Both halves of the old
@@ -1048,10 +1049,16 @@ gap are closed — keep the layering below, it is why the gap was invisible.
   day-of camp reminder sitting in the MARKETING category is
   subject to per-user marketing frequency caps and marketing pricing, so a donor
   who has hit the cap silently gets nothing.
-  **Reworded as `camp_day_of_v2` and SUBMITTED 2026-09-01 — `en` is PENDING,
-  registered by Meta as UTILITY at creation.** `mr` + `hi` are deliberately held
-  until `en` clears (house rule below). The appsetting still names v1, so the
-  capped MARKETING record keeps delivering in the meantime. Three things forced a new *name* rather than an edit or a
+  **Reworded as `camp_day_of_v2`: `en` is APPROVED as UTILITY (2026-09-01), and
+  `mr` + `hi` were submitted once `en` cleared — both PENDING, both registered by
+  Meta as UTILITY at creation.**
+  **The appsetting is DELIBERATELY NOT FLIPPED YET, and flipping it early would be
+  a regression.** `camp-day-of-reminder.js` sends in `donors.preferred_language`,
+  which **defaults to `'mr'`** — so pointing the key at `camp_day_of_v2` while
+  `mr`/`hi` are PENDING would make Meta reject the send outright for most donors
+  (guaranteed nothing), where v1 today delivers to everyone who has not hit the
+  marketing cap. **A capped MARKETING template beats an unapproved language.** Flip
+  only once all three are APPROVED. Three things forced a new *name* rather than an edit or a
   delete-and-recreate, and all three are reusable rules:
   (1) editing an APPROVED template drops it back to PENDING, taking a live
   reminder out of service for 1–3 days; (2) **Meta locks a deleted template's
@@ -1074,9 +1081,8 @@ gap are closed — keep the layering below, it is why the gap was invisible.
   were never the problem, the framing was.
   **Same 4 variables in the same order plus the same slug button, so
   `whatsappCloudProvider.js` and `camp-day-of-reminder.js` need no code change**
-  (comments only). **All three languages are load-bearing here**, unlike the
-  `camps.js` send sites: the job sends in `donors.preferred_language`,
-  **defaulting to `'mr'`** — EN approval alone is not enough.
+  (comments only) — which is why the whole supersession is one `az` command once
+  Meta clears `mr` and `hi`.
 - **Two REJECTED rows, neither of them live:** `institutional_setup_link` (en)
   is **superseded** — `WHATSAPP_TEMPLATE_SETUP_LINK` holds `institution_link`,
   APPROVED in all three, which is why staff invitations arrive. `mou_esign_link`

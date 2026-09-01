@@ -1073,6 +1073,10 @@ delete-and-recreate, because Meta locks a deleted template's name for weeks.
 **v1 is deliberately left in place and keeps delivering (capped) until v2 is
 approved and the appsetting is flipped.**
 
+**State, 2026-09-01 (Graph API):** `camp_day_of_v2` `en` **APPROVED as UTILITY**;
+`mr` + `hi` submitted the same day once `en` cleared, both **PENDING**, both
+registered UTILITY at creation. v1 remains APPROVED-MARKETING in all three.
+
 What changed, and why:
 
 | v1 (MARKETING) | v2 (aiming Utility) | Why |
@@ -1172,7 +1176,7 @@ sites: this job sends in `donors.preferred_language`, defaulting to `'mr'`. So
 EN approval alone is *not* sufficient — submit EN first, then MR + HI from the
 approved copy.
 
-### After approval
+### After approval — and NOT before
 
 ```
 WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of_v2
@@ -1180,6 +1184,15 @@ WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of_v2
 
 The env **key** name does not change — only its value. Same pattern as
 `WHATSAPP_TEMPLATE_CAMP_LINK` → `camp_organizer_link_v2`.
+
+**Wait for all three languages before flipping.** Because the job sends in
+`donors.preferred_language` (default `'mr'`), pointing the key at `camp_day_of_v2`
+while `mr`/`hi` are PENDING would have Meta reject the send outright for most
+donors — a guaranteed `FA` — whereas v1 today delivers to every donor who has not
+hit the marketing cap. **A frequency-capped MARKETING template beats an unapproved
+language.** That is the whole reason the `_v2` pattern buys zero downtime: the
+switch is one `az webapp config appsettings set` at a moment of our choosing, not
+a race.
 
 ---
 
@@ -1646,6 +1659,13 @@ WHATSAPP_TEMPLATE_CAMP_BB_CHANGED=camp_bb_changed
 >
 > **Opens and closes on literal text**, because Meta rejects a body that begins
 > or ends with a variable (`error_subcode: 2388299`).
+>
+> **State, 2026-09-01 (Graph API): APPROVED as UTILITY in all three languages.**
+> `en` cleared first (Graph id `2269421593808401`), then `mr` + `hi` were submitted
+> and approved. The appsetting has been set since the template shipped, so a camp
+> application now reaches a coordinator's phone. `mr`/`hi` buy nothing today —
+> `notifyCampReviewPending()` passes `language: 'en'` explicitly — and are
+> pre-positioning for whenever that call site localises.
 
 | Field | Value |
 |---|---|

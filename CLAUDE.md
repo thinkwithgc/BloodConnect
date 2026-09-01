@@ -15,10 +15,12 @@ older section it contradicts.
 **Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
 `git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
 (fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
-auto-applies migrations to prod**). Last twelve commits, newest first:
+auto-applies migrations to prod**). Last thirteen commits, newest first:
 
 | Commit | What |
 |---|---|
+| `9e4b7cf` | `docs(whatsapp)`: the camp template gap is closed — 24/24 appsettings, 4 templates APPROVED in `en` |
+| `ad84034` | `fix(whatsapp)`: a Meta template body may not **start** with a variable — 9 records reworded. See the leading/trailing-variable bullet under **WhatsApp template pipeline** |
 | `19e3ee3` | `feat(camps)`: an organiser's **own logo + tagline** on the public camp page, NGO-approved (migration **319**). See **Camp branding** below |
 | `b898503` | `docs(brand)`: the QR poster prints the wordmark **vector** (18 positions, one `<symbol>`), one poster per A4 at 130mm |
 | `156eee0` | `feat(portals)`: a hospital / blood bank sees **its own name** on its dashboard, via the session-addressed `GET /institutions/me`. See **A staff portal never knows its own institution** below |
@@ -35,10 +37,11 @@ auto-applies migrations to prod**). Last twelve commits, newest first:
 | `3c4d235` | Camp organiser names a blood bank; NGO admin confirms it (migration 315) |
 
 **Schema head.** **98 migration files, latest `319_camp_branding`.
-Next new migration is `320`.** 319 is applied to **Neon dev only** (2026-08-30
-15:44 UTC) — it reaches prod on the next push to `main`, via the deploy's
-`migrate` job. 315–318 went to prod at 2026-08-28T17:12 UTC (`✓` on all four,
-`Done. Applied 4 migration(s)`). `/health` → 200 `db: ok`. Everything `≤319` is
+Next new migration is `320`.** 319 went to **prod** at 2026-09-01T08:59:49 UTC
+(`✓ 319_camp_branding (1426ms)`, `Done. Applied 1 migration(s)`); 315–318 went at
+2026-08-28T17:12 UTC. `/health` → 200 `db: ok`, and `GET /camps/public/:slug`
+answers 404 rather than 500, which is what proves the new `camp_branding_logo`
+join actually resolves in prod. Everything `≤319` is
 immutable (hard rule 5). **`npm run migrate:status` is the source of
 truth — the numbered table further down this file is incomplete.**
 
@@ -105,15 +108,22 @@ table below, plus per-day BB camp capacity publishing, per-camp
 brief), the post-camp results worklist, the `GET /camps/:id/registrations`
 institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
 
-**Committed but NOT yet in prod:** camp branding (`19e3ee3`) and the QR-poster
-wordmark vector (`b898503`) are on `feat/paper-mou-onboarding` and have not been
-pushed. Pushing deploys them **and applies migration 319 to prod** — that push
-has not been authorised yet. Migration 319 is prod-safe: additive DDL only, all
-10 constraints report `convalidated = true` against **152 real `donation_camps`
-rows** on Neon dev (so the NULL-row CHECK semantics are validated against data,
-with no `NOT VALID` deferral), and prod has **zero camps** so the constraint scan
-is instant. Deploy skew is benign here by construction — the new SPA against the
-old API just reads `undefined` for `logo_data_uri` and renders nothing.
+**Everything on this branch is now in prod.** `30d6ef4..9e4b7cf` was pushed
+2026-09-01T08:58 UTC — 5 commits, all three workflows green (CI 29s, `raktify-web`
+1m47s, `raktify-api` 3m41s), migration 319 applied by the `migrate` job. All four
+branding routes verified live against `raktify-api`: `/branding/approve` and
+`/branding/reject` answer `missing_token`, `PATCH /access/:token/branding` answers
+its own `nothing_to_update`, and `POST /access/:token/logo-raw` answers
+`content_type_mismatch` on a fake PNG — so magic-byte verification is working in
+prod, not just in dev. 319 was prod-safe by construction: additive DDL only, all
+10 constraints `convalidated = true` against **152 real `donation_camps` rows** on
+Neon dev (NULL-row CHECK semantics validated against data, no `NOT VALID`
+deferral), and prod has **zero camps** so the scan was instant. Deploy skew was
+benign here too — a new SPA against the old API just read `undefined` for
+`logo_data_uri` and rendered nothing.
+
+**Nothing has exercised camp branding in prod yet, because prod has zero camps.**
+The manual walk-through below is still the outstanding verification.
 
 **Blocked on other people, not on code:**
 1. **MR / HI review for the four new camp templates** — the only Meta-side wait
@@ -655,7 +665,7 @@ accept/decline is the exception path, not the normal one.
 | Post-8 — Live deploy + feature gap-close | ✅ live on Azure (single-env `raktify` RG) | `npm run lint && npm run smoke:frontend` | See **Post-Phase-8 status** below |
 
 > **Current totals (2026-09-01):** 98 migrations (latest `319_camp_branding`, applied
-> to Neon dev only — it reaches prod on the next push to `main`),
+> to **prod** 2026-09-01),
 > **221** route handlers across 22 resource routers (measured:
 > `grep -rhoE "^\s*router\.(get|post|put|patch|delete)\(" backend/src/routes/*.js | wc -l`
 > — the older "215" here was not reproducible, so prefer the command), 6 frontend role-portals + public

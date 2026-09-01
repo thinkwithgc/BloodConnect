@@ -127,6 +127,14 @@ const env = {
       // camp-donor-thankyou.js. Each fires at a specific point in the
       // camp's lifecycle relative to scheduled_date.
       camp_precheck_2d: optional('WHATSAPP_TEMPLATE_CAMP_PRECHECK_2D', null),
+      // camp_day_of — the KEY name is stable; its VALUE is being moved from
+      // camp_day_of to camp_day_of_v2. Meta approved the original but filed it
+      // MARKETING, which puts a day-of reminder under per-user marketing
+      // frequency caps — a capped donor silently gets nothing on the morning
+      // they were expected. The v2 record is the same 4 variables in the same
+      // order with UTILITY-tuned copy (see scripts/submit_whatsapp_templates_v2.js
+      // §16b). Flip this appsetting to camp_day_of_v2 once Meta approves it;
+      // until then the MARKETING record keeps delivering, capped.
       camp_day_of: optional('WHATSAPP_TEMPLATE_CAMP_DAY_OF', null),
       camp_donor_thankyou: optional('WHATSAPP_TEMPLATE_CAMP_DONOR_THANKYOU', null),
       // camp_organizer_link_v2 — the organiser's magic dashboard link, sent by

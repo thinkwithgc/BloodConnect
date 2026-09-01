@@ -401,7 +401,22 @@ If you cannot make it, tap below to update your registration.`,
     button_text: 'शिविर की जानकारी',
   },
 
-  // ── 16. camp_day_of - job live since 5d5d5aa, could not send (EN/MR/HI) ───────
+  // ── 16. camp_day_of — SUPERSEDED by camp_day_of_v2 below. DO NOT RESUBMIT. ────
+  //
+  // All three records are APPROVED in the WABA, but Meta's classifier filed them
+  // as MARKETING, not UTILITY — and a day-of reminder in MARKETING is subject to
+  // per-user marketing frequency caps, so a donor who has hit the cap silently
+  // gets no reminder on the morning they were expected at the camp.
+  //
+  // They also each OPEN on *{{1}}*, which Meta now rejects outright
+  // (error_subcode 2388299, "Variables can't be at the start or end of the
+  // template"), so they cannot be resubmitted as-is even to fix the category.
+  //
+  // Kept here as the record of what is live in prod until the v2 records clear
+  // review and WHATSAPP_TEMPLATE_CAMP_DAY_OF is repointed. Deliberately NOT
+  // deleted from the WABA: Meta locks a deleted template's NAME for weeks, which
+  // is exactly why the house pattern is a _v2 name (camp_organizer_link_v2,
+  // donor_alert_bb_routed_v2) rather than delete-and-recreate.
   {
     name: 'camp_day_of',
     category: 'UTILITY',
@@ -449,6 +464,84 @@ Eat before you come, carry a photo ID, and allow about 45 minutes. Tap below for
     button_url: `${ACTIVATION_BASE}/c/{{1}}`,
     button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
     button_text: 'दिशा और पंजीकरण',
+  },
+
+  // ── 16b. camp_day_of_v2 — the UTILITY-tuned replacement (EN/MR/HI) ────────────
+  //
+  // FOUR variables in the SAME ORDER as camp_day_of, and the same URL-button
+  // token. buildComponents() fills {{1}}..{{n}} positionally from the caller's
+  // insertion order, so the CAMP_DAY_OF handler in whatsappCloudProvider.js and
+  // camp-day-of-reminder.js need no change at all. Reword freely; never renumber.
+  //
+  // What changed, and why each change is load-bearing:
+  //   • Opens on literal text, not *{{1}}* — a body may not start or end with a
+  //     variable (error_subcode 2388299). This alone made the old records
+  //     un-resubmittable.
+  //   • Anchored on a transaction the donor themselves created ("the camp you
+  //     registered for on Raktify"), which is the strongest UTILITY signal for
+  //     Meta's classifier. The old copy opened "today is your donation day" —
+  //     campaign framing, and it is what read as MARKETING.
+  //   • "Reporting time" + "view your registration" replace "Doors open" +
+  //     "Get directions": appointment- and record-language instead of an
+  //     attendance nudge. The meal/ID/45-minute prep line is kept verbatim from
+  //     camp_precheck_2d, which Meta approved as UTILITY with the same content —
+  //     so the instructions are not the problem, the framing was.
+  //   • Button text stays under Meta's 25-char ceiling and still carries the
+  //     per-recipient camp slug — a CONSTANT URL is what got
+  //     community_leader_welcome re-classified MARKETING.
+  //
+  // All three languages matter here, unlike the camps.js send sites: the job
+  // sends in donors.preferred_language, defaulting to 'mr'.
+  {
+    name: 'camp_day_of_v2',
+    category: 'UTILITY',
+    language: 'en',
+    body: `Hi *{{1}}*, the blood donation camp you registered for on Raktify is scheduled for today.
+
+Camp: *{{2}}*
+Reporting time: *{{3}}*
+Venue: *{{4}}*
+
+Please have a meal before reporting, carry a photo ID, and allow about 45 minutes. Tap below to view your registration.`,
+    body_example: ['Ramesh', 'Shivaji College Blood Donation Camp', '09:00', 'Shivaji College Main Hall, Amravati'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'View your registration',
+  },
+  {
+    name: 'camp_day_of_v2',
+    category: 'UTILITY',
+    language: 'mr',
+    body: `नमस्कार *{{1}}*, तुम्ही Raktify वर नोंदणी केलेले रक्तदान शिबिर आज नियोजित आहे.
+
+शिबिर: *{{2}}*
+हजर राहण्याची वेळ: *{{3}}*
+ठिकाण: *{{4}}*
+
+येण्यापूर्वी जेवण करा, ओळखपत्र सोबत आणा आणि सुमारे ४५ मिनिटे वेळ ठेवा. तुमची नोंदणी पाहण्यासाठी खाली टॅप करा.`,
+    body_example: ['रमेश', 'शिवाजी कॉलेज रक्तदान शिबिर', '09:00', 'शिवाजी कॉलेज मुख्य सभागृह, अमरावती'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'माझी नोंदणी पहा',
+  },
+  {
+    name: 'camp_day_of_v2',
+    category: 'UTILITY',
+    language: 'hi',
+    body: `नमस्ते *{{1}}*, आपने Raktify पर जिस रक्तदान शिविर के लिए पंजीकरण किया था वह आज निर्धारित है।
+
+शिविर: *{{2}}*
+उपस्थिति का समय: *{{3}}*
+स्थान: *{{4}}*
+
+आने से पहले भोजन करें, पहचान पत्र साथ लाएँ और लगभग 45 मिनट का समय रखें। अपना पंजीकरण देखने के लिए नीचे टैप करें।`,
+    body_example: ['रमेश', 'शिवाजी कॉलेज रक्तदान शिविर', '09:00', 'शिवाजी कॉलेज मुख्य सभागृह, अमरावती'],
+    footer: FOOTER_RAKTIFY,
+    button_url: `${ACTIVATION_BASE}/c/{{1}}`,
+    button_example: `${ACTIVATION_BASE}/c/shivaji-college-camp-k2x9f`,
+    button_text: 'मेरा पंजीकरण देखें',
   },
 
   // ── 17. camp_donor_thankyou - body only, no button (EN/MR/HI) ─────────────────

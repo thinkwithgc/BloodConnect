@@ -537,18 +537,17 @@ happening to open the `/admin` Camps tab.
   non-event.
 - **No migration.** `notification_log.template_type` is plain `TEXT` with no
   CHECK — verified against the DB, not assumed. Schema head stays **319**.
-- **It cannot deliver until Meta approves it.** `camp_review_pending` is a
-  brand-new template (UTILITY, 5 body vars, **body-only — an admin link is
-  constant, and a constant URL button is what got `community_leader_welcome`
-  re-classified MARKETING**). Copy lives in
-  `docs/Raktify_WhatsApp_Templates.md` **Template 23**.
-  **`WHATSAPP_TEMPLATE_CAMP_REVIEW_PENDING=camp_review_pending` IS set on
-  `raktify-api`** (25 template appsettings now, verified by re-`list`), and **EN
-  was submitted 2026-09-01 and is PENDING** — so Meta's EN review is the only
-  thing left between a camp application and a coordinator's phone. **MR + HI are
-  deliberately NOT submitted yet:** the house rule is let EN clear first so a
-  rejection costs one round trip instead of three, and the call site passes
-  `language: 'en'` explicitly regardless.
+- **It is live end-to-end.** `camp_review_pending` (UTILITY, 5 body vars,
+  **body-only — an admin link is constant, and a constant URL button is what got
+  `community_leader_welcome` re-classified MARKETING**) is **APPROVED in `en`**
+  (Graph id `2269421593808401`, confirmed 2026-09-01), and
+  `WHATSAPP_TEMPLATE_CAMP_REVIEW_PENDING=camp_review_pending` is set on
+  `raktify-api` (25 template appsettings, verified by re-`list`). Copy lives in
+  `docs/Raktify_WhatsApp_Templates.md` **Template 23**. So a camp application now
+  actually reaches a coordinator's phone. **MR + HI are still deliberately NOT
+  submitted** — the call site passes `language: 'en'` explicitly, so they buy
+  nothing today; the house rule's precondition (let EN clear first) is now met if
+  they are ever wanted.
 - **Adjacent gap, deliberately NOT fixed:** a camp **auto-accepted** at apply
   (`auto_accept_within_capacity` stamps `bb_response='AC'`) still tells the
   blood bank nothing, and `camp_bb_request`'s *"accept or decline"* copy is the
@@ -972,11 +971,11 @@ healthy and sends nothing.** That is exactly how three shipped camp reminders
 (`camp_precheck_2d`, `camp_day_of`, `camp_donor_thankyou`) ran for weeks
 delivering zero messages before commit `dae92d8`.
 
-**Measured 2026-09-01, AFTER commit `ad84034` — trust this over any older claim
-in this file.** Graph API (`GET /<WABA_ID>/message_templates`) returns **60 rows
-/ 25 unique names**; App Service `raktify-api` carries all **24**
-`WHATSAPP_TEMPLATE_*` appsettings `env.js` expects. Both halves of the old gap
-are closed — keep the layering below, it is why the gap was invisible.
+**Measured 2026-09-01, AFTER `ad84034` + `camp_review_pending` — trust this over
+any older claim in this file.** Graph API (`GET /<WABA_ID>/message_templates`)
+returns **65 rows / 26 unique names**; App Service `raktify-api` carries all
+**25** `WHATSAPP_TEMPLATE_*` appsettings `env.js` expects. Both halves of the old
+gap are closed — keep the layering below, it is why the gap was invisible.
 
 - **The gap was not Meta, it was App Service.** Approval and delivery are two
   different layers, and they fail differently — this table is why the outage was
@@ -1036,9 +1035,34 @@ are closed — keep the layering below, it is why the gap was invisible.
   and self-corrected on 2026-09-01). Its key is set, so it delivers — but a
   day-of camp reminder sitting in the MARKETING category is
   subject to per-user marketing frequency caps and marketing pricing, so a donor
-  who has hit the cap silently gets nothing. **Reword it back to UTILITY**
-  (state a fact about a commitment the donor already made; no invitational
-  phrasing) rather than accepting the category.
+  who has hit the cap silently gets nothing.
+  **Reworded as `camp_day_of_v2` (2026-09-01) — authored, submission still
+  outstanding.** Three things forced a new *name* rather than an edit or a
+  delete-and-recreate, and all three are reusable rules:
+  (1) editing an APPROVED template drops it back to PENDING, taking a live
+  reminder out of service for 1–3 days; (2) **Meta locks a deleted template's
+  name for weeks**, and the repo has already been burned by that —
+  `reword_marketing_templates.js` tried a same-name recreate for
+  `camp_organizer_link` (mr) and `env.js` still maps `camp_link` to
+  `camp_organizer_link_v2`; (3) a `_v2` name gives **zero downtime** — the
+  capped MARKETING record keeps delivering until v2 clears, then one appsetting
+  flip switches it. **The env KEY name never changes, only its value** —
+  `WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of_v2`. That decoupling is what the
+  key/value split exists for.
+  The copy fix is two defects in one pass: v1 also **opens on `*{{1}}*`**, so it
+  would have been rejected on resubmission regardless of category. v2 opens on
+  literal text and is anchored on the donor's own registration (*"the blood
+  donation camp you registered for on Raktify"*) instead of *"today is your
+  donation day"*; `Doors open` → `Reporting time`, and the button `Get
+  directions` → `View your registration` — record language, not an attendance
+  nudge. **The meal / photo-ID / 45-minute prep line is kept verbatim from
+  `camp_precheck_2d`, which Meta approved as UTILITY** — proof the instructions
+  were never the problem, the framing was.
+  **Same 4 variables in the same order plus the same slug button, so
+  `whatsappCloudProvider.js` and `camp-day-of-reminder.js` need no code change**
+  (comments only). **All three languages are load-bearing here**, unlike the
+  `camps.js` send sites: the job sends in `donors.preferred_language`,
+  **defaulting to `'mr'`** — EN approval alone is not enough.
 - **Two REJECTED rows, neither of them live:** `institutional_setup_link` (en)
   is **superseded** — `WHATSAPP_TEMPLATE_SETUP_LINK` holds `institution_link`,
   APPROVED in all three, which is why staff invitations arrive. `mou_esign_link`

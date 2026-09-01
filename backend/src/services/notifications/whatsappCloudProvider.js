@@ -340,8 +340,17 @@ const TEMPLATE_HANDLERS = {
     },
   ],
 
-  // camp_day_of — Utility. Morning of the camp. "The camp is starting today —
-  // come donate". Body vars: donor_first_name, camp_name, start_time, venue.
+  // camp_day_of — Utility. Morning of the camp: "the camp you registered for is
+  // scheduled for today, here is when and where". Body vars: donor_first_name,
+  // camp_name, start_time, venue.
+  //
+  // Do NOT reintroduce "come donate" framing in the template copy. The original
+  // camp_day_of record said "today is your donation day" and Meta's classifier
+  // filed it MARKETING, which subjects a day-of reminder to per-user marketing
+  // frequency caps — a capped donor silently gets nothing. The replacement
+  // (camp_day_of_v2) is anchored on the registration the donor already made.
+  // Same 4 variables in the same order and the same slug button, so this handler
+  // serves both records unchanged — only the appsetting VALUE moves.
   CAMP_DAY_OF: (vars) => [
     {
       type: 'body',

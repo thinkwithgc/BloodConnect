@@ -129,6 +129,10 @@ WHATSAPP_TEMPLATE_COMMUNITY_LEADER_MOBILISE=community_leader_mobilise
 # scheduler jobs that are ALREADY DEPLOYED and silently sending nothing until
 # these are set.
 WHATSAPP_TEMPLATE_CAMP_PRECHECK_2D=camp_precheck_2d
+# CAMP_DAY_OF: v1 is APPROVED but Meta filed it MARKETING, so it is frequency-
+# capped per user and a capped donor silently gets no day-of reminder. Flip this
+# to camp_day_of_v2 (same 4 vars, Utility-tuned copy) once Meta approves v2;
+# leave it on camp_day_of until then so the capped record keeps delivering.
 WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of
 WHATSAPP_TEMPLATE_CAMP_DONOR_THANKYOU=camp_donor_thankyou
 WHATSAPP_TEMPLATE_CAMP_ANNC=camp_announcement

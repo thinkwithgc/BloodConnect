@@ -1053,15 +1053,43 @@ WHATSAPP_TEMPLATE_CAMP_PRECHECK_2D=camp_precheck_2d
 
 ---
 
-## Template 16 · `camp_day_of`
+## Template 16 · `camp_day_of_v2`  *(supersedes `camp_day_of`)*
 
-> The morning-of nudge. Registration-to-turnout is where camps are won or
-> lost; this carries the two facts a donor actually needs on the day — when
-> the doors open and where the hall is.
+> The morning-of message. It carries the two facts a donor actually needs on
+> the day — when to report and where the hall is — framed as a reminder about
+> a registration they already made, not as an invitation to come.
+
+**`camp_day_of` (v1) is APPROVED in all three languages but Meta filed it as
+MARKETING, not Utility.** That is not cosmetic: a MARKETING template is subject
+to per-user marketing frequency caps, so a donor who has hit their cap silently
+gets **no** reminder on the morning they were expected at the camp. It is the
+only MARKETING template in the WABA.
+
+The v1 records also each **open with `*{{1}}*`**, which Meta now rejects
+outright (`error_subcode: 2388299`, *"Variables can't be at the start or end of
+the template"*), so they cannot be resubmitted as-is even just to correct the
+category. Hence a new name rather than an edit — and a `_v2` name rather than
+delete-and-recreate, because Meta locks a deleted template's name for weeks.
+**v1 is deliberately left in place and keeps delivering (capped) until v2 is
+approved and the appsetting is flipped.**
+
+What changed, and why:
+
+| v1 (MARKETING) | v2 (aiming Utility) | Why |
+|---|---|---|
+| opens `*{{1}}*, today is your donation day` | opens `Hi *{{1}}*, the blood donation camp you registered for on Raktify` | literal opening fixes 2388299; anchoring on the donor's own registration is the strongest Utility signal |
+| `Doors open:` | `Reporting time:` | appointment language, not event language |
+| `Eat before you come` | `Please have a meal before reporting` | same instruction, no invitation to attend |
+| `Tap below for directions and your registration` | `Tap below to view your registration` | record lookup, not an attendance nudge |
+| button `Get directions` | button `View your registration` | same |
+
+The meal / photo-ID / 45-minute preparation line is kept, near-verbatim from
+**Template 15 `camp_precheck_2d`**, which Meta approved as **Utility** with the
+same content — so the instructions were never the problem, the framing was.
 
 | Field | Value |
 |---|---|
-| **Name** | `camp_day_of` |
+| **Name** | `camp_day_of_v2` |
 | **Category** | **Utility** |
 | **Languages** | English, Marathi, Hindi |
 | **Header** | None |
@@ -1070,37 +1098,44 @@ WHATSAPP_TEMPLATE_CAMP_PRECHECK_2D=camp_precheck_2d
 ### Body (English)
 
 ```
-*{{1}}*, today is your donation day at *{{2}}*.
+Hi *{{1}}*, the blood donation camp you registered for on Raktify is scheduled for today.
 
-Doors open: *{{3}}*
+Camp: *{{2}}*
+Reporting time: *{{3}}*
 Venue: *{{4}}*
 
-Eat before you come, carry a photo ID, and allow about 45 minutes. Tap below for directions and your registration.
+Please have a meal before reporting, carry a photo ID, and allow about 45 minutes. Tap below to view your registration.
 ```
 
 ### Body (Marathi)
 
 ```
-*{{1}}*, आज *{{2}}* येथे तुमचा रक्तदानाचा दिवस आहे.
+नमस्कार *{{1}}*, तुम्ही Raktify वर नोंदणी केलेले रक्तदान शिबिर आज नियोजित आहे.
 
-सुरुवात: *{{3}}*
+शिबिर: *{{2}}*
+हजर राहण्याची वेळ: *{{3}}*
 ठिकाण: *{{4}}*
 
-येण्यापूर्वी जेवण करा, ओळखपत्र सोबत आणा आणि सुमारे ४५ मिनिटे वेळ ठेवा. मार्ग व तुमची नोंदणी पाहण्यासाठी खाली टॅप करा.
+येण्यापूर्वी जेवण करा, ओळखपत्र सोबत आणा आणि सुमारे ४५ मिनिटे वेळ ठेवा. तुमची नोंदणी पाहण्यासाठी खाली टॅप करा.
 ```
 
 ### Body (Hindi)
 
 ```
-*{{1}}*, आज *{{2}}* में आपके रक्तदान का दिन है।
+नमस्ते *{{1}}*, आपने Raktify पर जिस रक्तदान शिविर के लिए पंजीकरण किया था वह आज निर्धारित है।
 
-शुरुआत: *{{3}}*
+शिविर: *{{2}}*
+उपस्थिति का समय: *{{3}}*
 स्थान: *{{4}}*
 
-आने से पहले भोजन करें, पहचान पत्र साथ लाएँ और लगभग 45 मिनट का समय रखें। रास्ता और अपना पंजीकरण देखने के लिए नीचे टैप करें।
+आने से पहले भोजन करें, पहचान पत्र साथ लाएँ और लगभग 45 मिनट का समय रखें। अपना पंजीकरण देखने के लिए नीचे टैप करें।
 ```
 
 ### Variables
+
+**Unchanged from v1 — same four, same order.** `buildComponents()` fills them
+positionally from the caller's insertion order, so the `CAMP_DAY_OF` handler and
+the scheduler job need no change at all. Reword freely; **never renumber.**
 
 - `{{1}}` — Donor first name (e.g. `Ramesh`)
 - `{{2}}` — Camp name (e.g. `Shivaji College Blood Donation Camp`)
@@ -1109,24 +1144,35 @@ Eat before you come, carry a photo ID, and allow about 45 minutes. Tap below for
 
 ### Buttons
 
-- **One button: Get directions**
+- **One button: View your registration** (22 chars — Meta's ceiling is 25)
   - Type: `URL` (dynamic)
-  - URL: `https://raktify.choudhari.ngo/c/{{1}}`
+  - URL: `https://raktify.choudhari.ngo/c/{{1}}` — `{{1}}` is `camp_slug`
   - Sample: `https://raktify.choudhari.ngo/c/shivaji-college-camp-k2x9f`
+  - Marathi `माझी नोंदणी पहा` · Hindi `मेरा पंजीकरण देखें`
+  - The per-recipient slug is load-bearing: a **constant** URL is what got
+    `community_leader_welcome` re-classified MARKETING.
 
 ### Fires when
 
 Scheduler job `camp_day_of_reminder`
-(`services/scheduler/jobs/camp-day-of-reminder.js`) at 06:40 IST on the camp
-date. Backend `templateType: 'CAMP_DAY_OF'`; handler variable order is
-`donor_first_name, camp_name, start_time, venue`, then `camp_slug` in the
-button.
+(`services/scheduler/jobs/camp-day-of-reminder.js`, cron `0 7 * * *` = **07:00
+IST**) on the camp date. Backend `templateType: 'CAMP_DAY_OF'`; handler variable
+order is `donor_first_name, camp_name, start_time, venue`, then `camp_slug` in
+the button.
+
+**All three languages are load-bearing here**, unlike the `routes/camps.js` send
+sites: this job sends in `donors.preferred_language`, defaulting to `'mr'`. So
+EN approval alone is *not* sufficient — submit EN first, then MR + HI from the
+approved copy.
 
 ### After approval
 
 ```
-WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of
+WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of_v2
 ```
+
+The env **key** name does not change — only its value. Same pattern as
+`WHATSAPP_TEMPLATE_CAMP_LINK` → `camp_organizer_link_v2`.
 
 ---
 

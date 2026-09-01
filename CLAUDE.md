@@ -116,22 +116,23 @@ is instant. Deploy skew is benign here by construction — the new SPA against t
 old API just reads `undefined` for `logo_data_uri` and renders nothing.
 
 **Blocked on other people, not on code:**
-1. **Every camp WhatsApp message in prod sends nothing** — and this one is *not*
-   blocked on Meta. Measured 2026-09-01, against the Graph API and App Service
-   directly: **`env.js` expects 24 `WHATSAPP_TEMPLATE_*` keys; prod has 16, and
-   the 8 missing ones are exactly the camp keys** — `CAMP_LINK`,
-   `CAMP_PRECHECK_2D`, `CAMP_DAY_OF`, `CAMP_DONOR_THANKYOU`, `CAMP_ANNC`,
-   `CAMP_BB_REQUEST`, `CAMP_BB_ACCEPTED`, `CAMP_BB_CHANGED`. With
-   `SCHEDULER_ENABLED=true`, the three camp reminder jobs tick nightly and
-   deliver zero messages, and the **organiser magic link is not WhatsApp'd at
-   all** (`camps.js:2250` sends `templateType:'CAMP_LINK'`;
-   `whatsappCloudProvider.js:574-583` finds no name, warns, and returns
-   `{success:false, reason:'template_not_configured'}` while still writing the
-   `FA` row). See **WhatsApp template pipeline** below for what to add and where.
-   **Do not read "OTP / staff invitation / other messages arrive" as evidence
-   these keys are set** — those template names are among the 16 that *are*
-   present, and the Meta credentials they all share do live in Key Vault. The
-   credentials being right is exactly what makes this failure invisible.
+1. **MR / HI review for the four new camp templates** — the only Meta-side wait
+   left on camps, and **it blocks nothing today**. Camp WhatsApp went from
+   silent to delivering on 2026-09-01: all **24** `WHATSAPP_TEMPLATE_*`
+   appsettings are now populated on `raktify-api`, and all four
+   previously-absent templates — `camp_announcement`, `camp_bb_request`,
+   `camp_bb_accepted`, `camp_bb_changed` — are **APPROVED in `en`**. Every camp
+   send site passes `language: 'en'` **explicitly** (`camps.js:1353`, `:2261`,
+   `:2284`, `:2454`), so the EN approval *is* the whole requirement; the `mr`
+   and `hi` records are submitted and PENDING purely as pre-positioning for
+   whenever those call sites localise. See **WhatsApp template pipeline** below.
+   Two things worth keeping from the failure this replaced: **an unset
+   `WHATSAPP_TEMPLATE_*` key is invisible** (`whatsappCloudProvider.js:574-583`
+   warns, returns `{success:false, reason:'template_not_configured'}` and still
+   writes the `FA` row, so a nightly job looks healthy and sends nothing), and
+   **"OTP / staff invitations arrive" was never evidence the camp keys were
+   set** — the Meta credentials in Key Vault are shared by every template,
+   which is exactly what made it invisible.
 2. **Legal review of the MoU template** — the last sign-off before onboarding
    institutions at scale. Medical sign-off is done (10-Jul-2026).
 3. **Manual prod walk-through of the camp lifecycle.** Prod has **zero camps**,
@@ -864,9 +865,12 @@ always present; the **API + UI** landed post-Phase-8.
 4. **Synchronous matching** — `POST /requests` runs the matcher inline inside a
    `withTransaction`. Async queue (BullMQ + Redis) is the right shape past ~1k
    requests/day; deferred until post-CSR-funding.
-5. **WhatsApp template approvals** — 15 templates awaiting Meta review (8 newly
-   submitted, 7 unconfirmed) plus the `raktify-kv` keys. The largest open item and
-   the only one that silently degrades: see **WhatsApp template pipeline** above.
+5. **WhatsApp template approvals** — largely closed as of 2026-09-01 (`ad84034`):
+   all 24 appsettings are populated and the four camp templates are APPROVED in
+   `en`, which is the language every camp send site actually passes. Remaining:
+   the `mr`/`hi` records of those four are PENDING review (blocking nothing), and
+   `camp_day_of` wants rewording from MARKETING back to UTILITY. See **WhatsApp
+   template pipeline** above.
 6. **Institution-users Stage 2 (staff capabilities)** — not started; begins at
    migration **319**. Stage 1 (staff CRUD, magic-link setup, 2FA reset,
    deactivate-with-reason) is live.
@@ -903,13 +907,15 @@ healthy and sends nothing.** That is exactly how three shipped camp reminders
 (`camp_precheck_2d`, `camp_day_of`, `camp_donor_thankyou`) ran for weeks
 delivering zero messages before commit `dae92d8`.
 
-**Measured 2026-09-01 — trust this over any older claim in this file.** Graph
-API (`GET /<WABA_ID>/message_templates`) returns **52 rows / 21 unique names**;
-App Service `raktify-api` carries **16** `WHATSAPP_TEMPLATE_*` appsettings
-against the **24** `env.js` expects.
+**Measured 2026-09-01, AFTER commit `ad84034` — trust this over any older claim
+in this file.** Graph API (`GET /<WABA_ID>/message_templates`) returns **60 rows
+/ 25 unique names**; App Service `raktify-api` carries all **24**
+`WHATSAPP_TEMPLATE_*` appsettings `env.js` expects. Both halves of the old gap
+are closed — keep the layering below, it is why the gap was invisible.
 
-- **The gap is not Meta, it is App Service.** Approval and delivery are two
-  different layers, and they fail differently:
+- **The gap was not Meta, it was App Service.** Approval and delivery are two
+  different layers, and they fail differently — this table is why the outage was
+  invisible for weeks, so keep it even though both halves are now fixed:
 
   | Layer | Where it lives | How it fails |
   |---|---|---|
@@ -917,31 +923,53 @@ against the **24** `env.js` expects.
   | Template **name** | an App Service **appsetting**, plain literal | unset → silent `FA`, nothing ever leaves |
   | Meta **credentials** | Key Vault → appsetting `@Microsoft.KeyVault(...)` | shared by every template at once |
 
-  **Template names are not secrets and are NOT in Key Vault** — all 16 present
-  ones are literal appsettings (`institution_link`, `camp_reminder`,
+  **Template names are not secrets and are NOT in Key Vault** — all 24 are
+  literal appsettings (`institution_link`, `camp_reminder`,
   `donor_alert_bb_routed_v2`, …). So "Key Vault is correct" and "OTP and staff
-  invitations arrive" are both true *and* tell you nothing about the 8 missing
-  camp keys: the credentials are shared, the names are per-template. Add them
-  with `az webapp config appsettings set -g raktify -n raktify-api --settings
-  KEY=name` (a restart, ~30s).
-- **4 of the 8 camp keys can be switched on right now** — the template is
-  already APPROVED in all three languages, only the appsetting is absent:
-  `CAMP_LINK`→`camp_organizer_link_v2`,
-  `CAMP_PRECHECK_2D`→`camp_precheck_2d`,
-  `CAMP_DAY_OF`→`camp_day_of`,
-  `CAMP_DONOR_THANKYOU`→`camp_donor_thankyou`.
-  **`CAMP_LINK` is the cheapest and highest-value one** — `camps.js:2250` is the
-  organiser's magic link, so today an organiser is verified and never told.
-- **The other 4 do not exist in the WABA at all** — not pending, *absent*:
-  `camp_announcement` (`CAMP_ANNC`), `camp_bb_request`, `camp_bb_accepted`,
-  `camp_bb_changed`. They were authored in `dae92d8` and either never created or
-  created and deleted. They need `submit_whatsapp_templates_v2.js` + a fresh
-  1–3 day review per language. `camp_bb_changed` carries the neutral line only
-  — never a decline reason.
+  invitations arrive" were both true *and* told you nothing about the then-missing
+  camp keys: the credentials are shared, the names are per-template. Add or change
+  one with `az webapp config appsettings set -g raktify -n raktify-api --settings
+  KEY=name` — **batch every key into ONE call**, each invocation restarts the app
+  (~30s), and the `set` output redacts values as `None`, so always re-`list` to
+  verify rather than trusting what `set` printed.
+- **All 8 camp keys are now set** (`ad84034`). Four were already APPROVED ×3 and
+  only needed the appsetting: `CAMP_LINK`→`camp_organizer_link_v2`,
+  `CAMP_PRECHECK_2D`→`camp_precheck_2d`, `CAMP_DAY_OF`→`camp_day_of`,
+  `CAMP_DONOR_THANKYOU`→`camp_donor_thankyou`. `CAMP_LINK` was the highest-value
+  one — `camps.js:2250` is the organiser's magic link, so an organiser used to be
+  verified and never told.
+  **All 8 were set, not just the 4 ready ones, deliberately:** a key naming a
+  not-yet-approved template fails with a *diagnosable* Meta error, whereas an
+  unset key is an invisible no-op — and approval then flips delivery on with no
+  second `az` step for anyone to forget.
+- **The other 4 now exist and are APPROVED in `en`** — `camp_announcement`
+  (`CAMP_ANNC`), `camp_bb_request`, `camp_bb_accepted`, `camp_bb_changed`. They
+  were authored in `dae92d8` but never actually created in the WABA; created
+  2026-09-01. `mr`/`hi` are submitted and PENDING. **Every camp send site passes
+  `language: 'en'` explicitly** (`camps.js:1353`, `:2261`, `:2284`, `:2454`), so
+  EN approval is sufficient for delivery today and MR/HI are pre-positioning —
+  do not read PENDING there as a live outage. `camp_bb_changed` carries the
+  neutral line only — never a decline reason.
+- **A template body may not START or END with a variable.** Meta answers HTTP
+  400 `Invalid parameter`, and the only place the real reason appears is the
+  nested error object — `error_subcode: 2388299`, *"Variables can't be at the
+  start or end of the template"*. `submit_whatsapp_templates_v2.js` prints only
+  `error.message`, so a bare `Invalid parameter` means **re-POST one payload by
+  hand and print the whole error object**; do not guess at the copy. This
+  rejected `camp_bb_request` / `camp_bb_accepted` / `camp_bb_changed` on first
+  submission (all opened `*{{1}}*`) and cost a round trip. When rewording, the
+  variable **order and count are load-bearing** — `buildComponents()` fills
+  positionally from the caller's insertion order, so changing copy is free and
+  changing an index silently sends the venue as the date. House fix: greet a
+  person (`Hi` / `नमस्कार` / `नमस्ते` — six approved templates already do),
+  restructure the sentence for an institution. **`camp_day_of` (all 3) and
+  `coord_critical_new` (mr/hi) still open with a variable** — APPROVED only
+  because they predate enforcement, and they *will* be rejected on resubmission.
 - **`camp_day_of` is APPROVED but MARKETING** in all three languages — the only
   MARKETING template in the WABA. It is one template in 3 languages, **not three
-  templates** (an easy misread of the Graph API listing). Setting its key makes
-  it deliver, but a day-of camp reminder sitting in the MARKETING category is
+  templates** (an easy misread of the Graph API listing, and one the founder hit
+  and self-corrected on 2026-09-01). Its key is set, so it delivers — but a
+  day-of camp reminder sitting in the MARKETING category is
   subject to per-user marketing frequency caps and marketing pricing, so a donor
   who has hit the cap silently gets nothing. **Reword it back to UTILITY**
   (state a fact about a commitment the donor already made; no invitational

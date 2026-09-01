@@ -402,6 +402,12 @@ If you cannot make it, tap below to update your registration.`,
   },
 
   // ── 16. camp_day_of — SUPERSEDED by camp_day_of_v2 below. DO NOT RESUBMIT. ────
+//
+// NOTE: the three records below have DRIFTED from what the WABA actually holds.
+// Graph API reports the live en button text as "Directions to venue" and the mr
+// one as "दिशानिर्देश", not the "Get directions" written here. Read template
+// state from the Graph API, never from this file — these records are what we last
+// intended to CREATE, not a mirror of what is live.
   //
   // All three records are APPROVED in the WABA, but Meta's classifier filed them
   // as MARKETING, not UTILITY — and a day-of reminder in MARKETING is subject to
@@ -482,7 +488,7 @@ Eat before you come, carry a photo ID, and allow about 45 minutes. Tap below for
   //     Meta's classifier. The old copy opened "today is your donation day" —
   //     campaign framing, and it is what read as MARKETING.
   //   • "Reporting time" + "view your registration" replace "Doors open" +
-  //     "Get directions": appointment- and record-language instead of an
+  //     the directions button: appointment- and record-language instead of an
   //     attendance nudge. The meal/ID/45-minute prep line is kept verbatim from
   //     camp_precheck_2d, which Meta approved as UTILITY with the same content —
   //     so the instructions are not the problem, the framing was.

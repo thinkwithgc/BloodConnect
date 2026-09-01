@@ -1081,7 +1081,14 @@ What changed, and why:
 | `Doors open:` | `Reporting time:` | appointment language, not event language |
 | `Eat before you come` | `Please have a meal before reporting` | same instruction, no invitation to attend |
 | `Tap below for directions and your registration` | `Tap below to view your registration` | record lookup, not an attendance nudge |
-| button `Get directions` | button `View your registration` | same |
+| button `Directions to venue` (en) / `दिशानिर्देश` (mr) | button `View your registration` / `माझी नोंदणी पहा` | same |
+
+> **The v1 button text above is what the WABA actually holds, verified through
+> the Graph API — it is NOT what §16's record in
+> `scripts/submit_whatsapp_templates_v2.js` says** (that record still reads
+> `Get directions`). The live records drifted from the script at some point, so
+> **read template state from the Graph API, never from the submit script** — the
+> script is the record of what we last intended to create, not of what is live.
 
 The meal / photo-ID / 45-minute preparation line is kept, near-verbatim from
 **Template 15 `camp_precheck_2d`**, which Meta approved as **Utility** with the

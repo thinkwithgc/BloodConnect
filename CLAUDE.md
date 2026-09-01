@@ -544,14 +544,19 @@ happening to open the `/admin` Camps tab.
   `WHATSAPP_TEMPLATE_CAMP_REVIEW_PENDING=camp_review_pending` is set on
   `raktify-api` (25 template appsettings, verified by re-`list`). Copy lives in
   `docs/Raktify_WhatsApp_Templates.md` **Template 23**. So a camp application now
-  actually reaches a coordinator's phone. **MR + HI are still deliberately NOT
-  submitted** — the call site passes `language: 'en'` explicitly, so they buy
-  nothing today; the house rule's precondition (let EN clear first) is now met if
-  they are ever wanted.
-- **Adjacent gap, deliberately NOT fixed:** a camp **auto-accepted** at apply
-  (`auto_accept_within_capacity` stamps `bb_response='AC'`) still tells the
-  blood bank nothing, and `camp_bb_request`'s *"accept or decline"* copy is the
-  wrong message for it — that needs its own new template, not a re-use.
+  actually reaches a coordinator's phone. **`mr` + `hi` were submitted 2026-09-01
+  once `en` was APPROVED** (house rule: let EN clear first) and are PENDING as
+  UTILITY. They buy nothing today — `notifyCampReviewPending()` passes
+  `language: 'en'` explicitly — and are pre-positioning for whenever that call
+  site localises. **Do not read their PENDING state as an outage.**
+- **Adjacent gap, CLOSED by decision (founder, 2026-09-01): do not build it.**
+  A camp **auto-accepted** at apply (`auto_accept_within_capacity` stamps
+  `bb_response='AC'`) still tells the blood bank nothing, and
+  `camp_bb_request`'s *"accept or decline"* copy is the wrong message for it —
+  it would need its own new template. It is **not a live problem**, because
+  nothing will be auto-accepted before NGO verification: *"skip auto accept for
+  now. we wont be autoaccepting untill the verification."* Revisit only if
+  `auto_accept_within_capacity` is ever switched on.
 - Gates: `smoke:camps` **139/1** (the failing line is the documented
   `blood-bank-options` `LIMIT 25` dev-state assertion — 25 rows returned),
   `check_whatsapp_templates.js` 0 fail / 1 warn (handlers 21, env keys 25),
@@ -930,11 +935,16 @@ always present; the **API + UI** landed post-Phase-8.
    `withTransaction`. Async queue (BullMQ + Redis) is the right shape past ~1k
    requests/day; deferred until post-CSR-funding.
 5. **WhatsApp template approvals** — largely closed as of 2026-09-01 (`ad84034`):
-   all 24 appsettings are populated and the four camp templates are APPROVED in
-   `en`, which is the language every camp send site actually passes. Remaining:
-   the `mr`/`hi` records of those four are PENDING review (blocking nothing), and
-   `camp_day_of` wants rewording from MARKETING back to UTILITY. See **WhatsApp
-   template pipeline** above.
+   all 25 appsettings are populated and the four camp templates are APPROVED in
+   `en`, which is the language every camp send site actually passes. Remaining,
+   none of it blocking: the `mr`/`hi` records of those four are PENDING review;
+   `camp_review_pending` `mr`/`hi` are PENDING (its `en` is APPROVED and is the
+   only language the call site passes); and **`camp_day_of_v2` (`en`) is PENDING
+   the review that moves the day-of reminder out of MARKETING** — v1 keeps
+   delivering, frequency-capped, until it clears and the appsetting flips.
+   `camp_day_of_v2` `mr`/`hi` go in once `en` clears, and there **both**
+   languages matter: that job sends in `donors.preferred_language`, defaulting
+   to `'mr'`. See **WhatsApp template pipeline** above.
 6. **Institution-users Stage 2 (staff capabilities)** — not started; begins at
    migration **319**. Stage 1 (staff CRUD, magic-link setup, 2FA reset,
    deactivate-with-reason) is live.
@@ -971,10 +981,12 @@ healthy and sends nothing.** That is exactly how three shipped camp reminders
 (`camp_precheck_2d`, `camp_day_of`, `camp_donor_thankyou`) ran for weeks
 delivering zero messages before commit `dae92d8`.
 
-**Measured 2026-09-01, AFTER `ad84034` + `camp_review_pending` — trust this over
-any older claim in this file.** Graph API (`GET /<WABA_ID>/message_templates`)
-returns **65 rows / 26 unique names**; App Service `raktify-api` carries all
-**25** `WHATSAPP_TEMPLATE_*` appsettings `env.js` expects. Both halves of the old
+**Measured 2026-09-01, AFTER `camp_day_of_v2` + `camp_review_pending` mr/hi —
+trust this over any older claim in this file.** Graph API
+(`GET /<WABA_ID>/message_templates`) returns **68 rows / 27 unique names**; App
+Service `raktify-api` carries all **25** `WHATSAPP_TEMPLATE_*` appsettings
+`env.js` expects (the count did not move — `camp_day_of_v2` reuses the existing
+`WHATSAPP_TEMPLATE_CAMP_DAY_OF` key). Both halves of the old
 gap are closed — keep the layering below, it is why the gap was invisible.
 
 - **The gap was not Meta, it was App Service.** Approval and delivery are two
@@ -1036,8 +1048,10 @@ gap are closed — keep the layering below, it is why the gap was invisible.
   day-of camp reminder sitting in the MARKETING category is
   subject to per-user marketing frequency caps and marketing pricing, so a donor
   who has hit the cap silently gets nothing.
-  **Reworded as `camp_day_of_v2` (2026-09-01) — authored, submission still
-  outstanding.** Three things forced a new *name* rather than an edit or a
+  **Reworded as `camp_day_of_v2` and SUBMITTED 2026-09-01 — `en` is PENDING,
+  registered by Meta as UTILITY at creation.** `mr` + `hi` are deliberately held
+  until `en` clears (house rule below). The appsetting still names v1, so the
+  capped MARKETING record keeps delivering in the meantime. Three things forced a new *name* rather than an edit or a
   delete-and-recreate, and all three are reusable rules:
   (1) editing an APPROVED template drops it back to PENDING, taking a live
   reminder out of service for 1–3 days; (2) **Meta locks a deleted template's
@@ -1076,7 +1090,15 @@ gap are closed — keep the layering below, it is why the gap was invisible.
   `donor_alert_bb_routed_v2`, `donor_alert_community_first_v2`,
   `community_leader_mobilise_v2`, `institution_link`. The `_v2` ones **are**
   wired as appsettings. **Chase template state through the Graph API, never the
-  Business Manager UI.**
+  Business Manager UI — and never `submit_whatsapp_templates_v2.js` either.**
+  That script is the record of what we last intended to *create*, and it has
+  measurably drifted: its `camp_day_of` (en) record says the button reads `Get
+  directions` while the live WABA record says `Directions to venue`. A URL
+  button needs a Graph API read for a second reason — a WABA can store a button
+  URL with both an encoded and a literal `{{N}}`, which silently breaks
+  substitution. `camp_day_of_v2` was verified clean
+  (`https://raktify.choudhari.ngo/c/{{1}}`, one literal token) right after
+  submission.
 - **Submission order:** EN first for each template, let it clear, then MR + HI
   from the approved copy — a rejection is then caught once instead of three
   times. `node scripts/submit_whatsapp_templates_v2.js --lang en`

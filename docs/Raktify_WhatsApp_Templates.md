@@ -1070,12 +1070,15 @@ outright (`error_subcode: 2388299`, *"Variables can't be at the start or end of
 the template"*), so they cannot be resubmitted as-is even just to correct the
 category. Hence a new name rather than an edit — and a `_v2` name rather than
 delete-and-recreate, because Meta locks a deleted template's name for weeks.
-**v1 is deliberately left in place and keeps delivering (capped) until v2 is
-approved and the appsetting is flipped.**
+**v1 was deliberately left in place and kept delivering (capped) until v2 was
+approved and the appsetting flipped.**
 
-**State, 2026-09-01 (Graph API):** `camp_day_of_v2` `en` **APPROVED as UTILITY**;
-`mr` + `hi` submitted the same day once `en` cleared, both **PENDING**, both
-registered UTILITY at creation. v1 remains APPROVED-MARKETING in all three.
+**State, 2026-09-01 (Graph API) — DONE:** `camp_day_of_v2` is **APPROVED as
+UTILITY in `en`, `mr` and `hi`** (`en` first, then `mr` + `hi` once `en` cleared,
+all the same day), and **`WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of_v2` is set on
+`raktify-api`**, verified by re-`list`. The day-of reminder is out of the
+MARKETING frequency cap. v1 remains APPROVED-MARKETING in all three and is now
+unreferenced — leave it, do not delete (Meta locks a deleted name for weeks).
 
 What changed, and why:
 
@@ -1176,7 +1179,7 @@ sites: this job sends in `donors.preferred_language`, defaulting to `'mr'`. So
 EN approval alone is *not* sufficient — submit EN first, then MR + HI from the
 approved copy.
 
-### After approval — and NOT before
+### Appsetting — FLIPPED 2026-09-01
 
 ```
 WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of_v2
@@ -1185,14 +1188,17 @@ WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of_v2
 The env **key** name does not change — only its value. Same pattern as
 `WHATSAPP_TEMPLATE_CAMP_LINK` → `camp_organizer_link_v2`.
 
-**Wait for all three languages before flipping.** Because the job sends in
-`donors.preferred_language` (default `'mr'`), pointing the key at `camp_day_of_v2`
-while `mr`/`hi` are PENDING would have Meta reject the send outright for most
-donors — a guaranteed `FA` — whereas v1 today delivers to every donor who has not
-hit the marketing cap. **A frequency-capped MARKETING template beats an unapproved
-language.** That is the whole reason the `_v2` pattern buys zero downtime: the
-switch is one `az webapp config appsettings set` at a moment of our choosing, not
-a race.
+**The flip waited for all three languages, and that ordering is the reusable
+rule.** Because the job sends in `donors.preferred_language`, pointing the key at
+`camp_day_of_v2` while `mr`/`hi` were PENDING would have had Meta reject the send
+outright for every donor holding those languages — a guaranteed `FA` — whereas v1
+delivered to every donor who had not hit the marketing cap. **A frequency-capped
+MARKETING template beats an unapproved language.** That is the whole reason the
+`_v2` pattern buys zero downtime: the switch is one
+`az webapp config appsettings set` at a moment of our choosing, not a race.
+(Migration 320 has since moved the `preferred_language` default to `'en'`, which
+decouples future flips from per-language approval — but the rule still holds for
+any donor who has actively chosen `mr` or `hi`.)
 
 ---
 

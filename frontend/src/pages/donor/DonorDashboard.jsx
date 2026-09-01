@@ -248,7 +248,7 @@ function EditProfileCard({ donor }) {
       date_of_birth: (donor.date_of_birth || '').slice(0, 10),
       blood_group_self_reported:
         SELF_BLOOD_GROUPS.find((g) => g.code === donor.blood_group?.self_reported?.code)?.id || '',
-      preferred_language: donor.preferred_language || 'mr',
+      preferred_language: donor.preferred_language || 'en',
     }),
     [donor],
   );

@@ -93,7 +93,7 @@ const registerSchema = z.object({
     .string()
     .regex(/^\d{4}$/)
     .optional(),
-  preferred_language: z.enum(['mr', 'hi', 'en']).default('mr'),
+  preferred_language: z.enum(['mr', 'hi', 'en']).default('en'),
   village_id: z.number().int().positive().optional(),
   pincode: z
     .string()

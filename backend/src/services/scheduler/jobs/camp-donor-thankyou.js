@@ -88,7 +88,7 @@ async function run() {
                 // A constant-valued URL button reads as MARKETING to Meta.
               },
               channel: 'WA',
-              language: dr.preferred_language || 'mr',
+              language: dr.preferred_language || 'en',
             }),
         );
         if (r?.success) summary.sent += 1;

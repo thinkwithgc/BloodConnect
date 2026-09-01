@@ -36,8 +36,11 @@ auto-applies migrations to prod**). Last thirteen commits, newest first:
 | `9b0a59f` | BB camp capacity + `bb_response` (migrations 316/317/318, `services/camps/capacity.js`, BB Camps tab, results worklist, roster-PII fix, DOB picker, bounded date inputs) |
 | `3c4d235` | Camp organiser names a blood bank; NGO admin confirms it (migration 315) |
 
-**Schema head.** **98 migration files, latest `319_camp_branding`.
-Next new migration is `320`.** 319 went to **prod** at 2026-09-01T08:59:49 UTC
+**Schema head.** **99 migration files, latest `320_default_language_english`.
+Next new migration is `321`.** 320 ships with this push — a catalogue-only
+`ALTER COLUMN ... SET DEFAULT 'en'` on three tables, no table rewrite, no scan,
+and **no backfill of existing rows** (see **English is the default language**
+below). 319 went to **prod** at 2026-09-01T08:59:49 UTC
 (`✓ 319_camp_branding (1426ms)`, `Done. Applied 1 migration(s)`); 315–318 went at
 2026-08-28T17:12 UTC. `/health` → 200 `db: ok`, and `GET /camps/public/:slug`
 answers 404 rather than 500, which is what proves the new `camp_branding_logo`
@@ -269,7 +272,8 @@ Marathi. Rules that must hold for anything added to them:
   `institutionErrorText` maps `route_not_found` / `not_found`.
 - **`donors.preferred_language` is the WhatsApp language and is now ASKED, not
   inherited** (`c9a8c85`). The column has existed since `008_donors.sql:33`
-  (`CHAR(2) NOT NULL DEFAULT 'mr'`, CHECK `mr`/`hi`/`en`) and every donor
+  (`CHAR(2) NOT NULL`, CHECK `mr`/`hi`/`en`; **the default is `'en'` since
+  migration 320** — it was `'mr'` before) and every donor
   notification path already reads it — `dispatchDonorAlerts`, the three camp
   reminders, `services/matching/donors.js`, `routes/donorAlerts.js` — with
   `whatsappCloudProvider` mapping it to Meta's `language.code`. **It is NOT the
@@ -562,6 +566,48 @@ happening to open the `/admin` Camps tab.
   `check_whatsapp_templates.js` 0 fail / 1 warn (handlers 21, env keys 25),
   lint + `format:check` clean.
 
+## English is the default language, Marathi is a CHOICE (shipped 2026-09-01, migration 320)
+
+`preferred_language` defaulted to `'mr'` on three tables. Migration **320** moves all
+three defaults to `'en'`. Read this before touching any language default.
+
+- **`preferred_language` is the WHATSAPP language, not the UI language.** Nothing about
+  320 changes what a screen renders. The UI default is a separate decision and is still
+  Marathi-first (`frontend/src/i18n/strings.js:1`, Spec §7) — **deliberately unchanged**,
+  because a rural-Maharashtra pilot should open in Marathi.
+- **A `'mr'` default was a GUESS that becomes indistinguishable from a CHOICE.** Three
+  write paths never ask — the vendor webhook, the admin bulk upload and the admin create
+  form — so a stored `'mr'` could equally mean "this donor asked for Marathi" or "nobody
+  asked". `'en'` is not a better guess about the donor; it is the one that **cannot make
+  delivery depend on a per-language Meta approval**. Every template is APPROVED in `en`.
+- **That coupling is not hypothetical — it is exactly what held the `camp_day_of_v2`
+  appsetting flip** for a day. The job sends in `preferred_language`, the default was
+  `'mr'`, so a `_v2` approved only in `en` would have been rejected for most donors. See
+  **WhatsApp template pipeline**.
+- **EXISTING ROWS ARE DELIBERATELY NOT BACKFILLED.** A stored `'mr'` cannot be told apart
+  from a chosen `'mr'`, and rewriting a real donor's stated preference to English is the
+  worse error. There is also no delivery benefit any more: `camp_day_of_v2` and
+  `camp_review_pending` are APPROVED in all three languages. Dev holds `mr 266` / `hi 5`.
+- **Three tables, all catalogue-only.** `donors` (`008:33`), `coordinators` (`006:24`),
+  `community_leaders` (`271:35`). `ALTER COLUMN ... SET DEFAULT` in Postgres rewrites no
+  rows and scans nothing — a brief ACCESS EXCLUSIVE lock only — so it is safe on a live
+  `donors` table.
+- **Write-time defaults changed (what is STORED when the caller is silent):**
+  `routes/donors.js` (`z.enum(...).default('en')`), `routes/admin.js` x2,
+  `routes/vendor-webhooks.js` x2, plus `DonorDashboard.jsx` and
+  `CommunityLeadersTab.jsx`'s invite modal.
+- **Send-time fallbacks changed too** — `|| 'en'` where it was `|| 'mr'`:
+  `dispatchDonorAlerts.js`, the three camp reminder jobs
+  (`camp-day-of-reminder`, `camp-donor-thankyou`, `camp-precheck-reminder-2d`) and
+  `eligibility-reminder.js`. These fire only when the row holds no value at all
+  (first contact), and `routes/auth.js:162`'s OTP lookup already fell back to `'en'`.
+- **`DonorRegister.jsx:85`'s `preferred_language: lang` pre-fill is NOT a default and was
+  left alone.** It is a visible, editable `<select>` seeded from the language the donor is
+  actually reading the page in — a real signal, and the deliberate design of `c9a8c85`. A
+  donor who registers in Marathi still gets Marathi WhatsApp; that is the whole point.
+- **Grep gate:** `preferred_language || 'mr'` and `.default('mr')` must both return
+  nothing in `backend/src`.
+
 ## Pilot scope — Donor + Camp modules only (Aug 2026)
 
 PDMC (blood bank in-charge + Dean) agreed to run the **donor and camp modules
@@ -723,8 +769,8 @@ accept/decline is the exception path, not the normal one.
 | 8 — Admin + reporting + deploy | ✅ core (code-complete) | `npm run lint && npm run smoke:frontend` | See **Phase 8 status** below |
 | Post-8 — Live deploy + feature gap-close | ✅ live on Azure (single-env `raktify` RG) | `npm run lint && npm run smoke:frontend` | See **Post-Phase-8 status** below |
 
-> **Current totals (2026-09-01):** 98 migrations (latest `319_camp_branding`, applied
-> to **prod** 2026-09-01),
+> **Current totals (2026-09-01):** 99 migrations (latest
+> `320_default_language_english`; 319 applied to **prod** 2026-09-01),
 > **221** route handlers across 22 resource routers (measured:
 > `grep -rhoE "^\s*router\.(get|post|put|patch|delete)\(" backend/src/routes/*.js | wc -l`
 > — the older "215" here was not reproducible, so prefer the command), 6 frontend role-portals + public
@@ -934,18 +980,16 @@ always present; the **API + UI** landed post-Phase-8.
 4. **Synchronous matching** — `POST /requests` runs the matcher inline inside a
    `withTransaction`. Async queue (BullMQ + Redis) is the right shape past ~1k
    requests/day; deferred until post-CSR-funding.
-5. **WhatsApp template approvals** — largely closed as of 2026-09-01. All 25
+5. **WhatsApp template approvals** — **closed as of 2026-09-01.** All 25
    appsettings are populated; the four `ad84034` camp templates and
    `camp_review_pending` are APPROVED in `en` (the language every camp send site
-   passes), and `camp_review_pending` is now APPROVED in **all three**. Remaining,
-   none of it blocking today: the `mr`/`hi` records of the four `ad84034`
-   templates are PENDING; and **`camp_day_of_v2` `mr` + `hi` are PENDING** — its
-   `en` is APPROVED as UTILITY, but the appsetting still names v1 **on purpose**,
-   because the day-of job sends in `donors.preferred_language` defaulting to
-   `'mr'`, so flipping before `mr`/`hi` clear would trade a frequency-capped
-   delivery for a guaranteed rejection. **The one outstanding action is a single
-   `az` appsettings flip once those two are APPROVED.** See **WhatsApp template
-   pipeline** above.
+   passes), `camp_review_pending` is APPROVED in **all three**, and
+   **`camp_day_of_v2` is APPROVED as UTILITY in all three — the appsetting has
+   been flipped** (`WHATSAPP_TEMPLATE_CAMP_DAY_OF=camp_day_of_v2`, verified by
+   re-`list` 2026-09-01), so the day-of reminder is out of the MARKETING
+   frequency cap. Only leftover, blocking nothing: the `mr`/`hi` records of the
+   four `ad84034` templates are PENDING, and every camp send site passes
+   `language: 'en'` explicitly. See **WhatsApp template pipeline** above.
 6. **Institution-users Stage 2 (staff capabilities)** — not started; begins at
    migration **319**. Stage 1 (staff CRUD, magic-link setup, 2FA reset,
    deactivate-with-reason) is live.
@@ -1049,16 +1093,17 @@ gap are closed — keep the layering below, it is why the gap was invisible.
   day-of camp reminder sitting in the MARKETING category is
   subject to per-user marketing frequency caps and marketing pricing, so a donor
   who has hit the cap silently gets nothing.
-  **Reworded as `camp_day_of_v2`: `en` is APPROVED as UTILITY (2026-09-01), and
-  `mr` + `hi` were submitted once `en` cleared — both PENDING, both registered by
-  Meta as UTILITY at creation.**
-  **The appsetting is DELIBERATELY NOT FLIPPED YET, and flipping it early would be
-  a regression.** `camp-day-of-reminder.js` sends in `donors.preferred_language`,
-  which **defaults to `'mr'`** — so pointing the key at `camp_day_of_v2` while
-  `mr`/`hi` are PENDING would make Meta reject the send outright for most donors
-  (guaranteed nothing), where v1 today delivers to everyone who has not hit the
-  marketing cap. **A capped MARKETING template beats an unapproved language.** Flip
-  only once all three are APPROVED. Three things forced a new *name* rather than an edit or a
+  **Reworded as `camp_day_of_v2`, now APPROVED as UTILITY in all three languages
+  (`en` first, then `mr` + `hi` once `en` cleared — all 2026-09-01), and
+  `WHATSAPP_TEMPLATE_CAMP_DAY_OF` HAS BEEN FLIPPED to it** (verified by
+  re-`list`). **The flip deliberately waited for all three, and flipping early
+  would have been a regression, not a head start** — keep this rule, it is the
+  reusable part. `camp-day-of-reminder.js` sends in `donors.preferred_language`,
+  so pointing the key at a `_v2` whose `mr`/`hi` were still PENDING would have
+  made Meta reject the send outright for every donor holding those languages
+  (guaranteed nothing), where v1 delivered to everyone who had not hit the
+  marketing cap. **A capped MARKETING template beats an unapproved language.**
+  Three things forced a new *name* rather than an edit or a
   delete-and-recreate, and all three are reusable rules:
   (1) editing an APPROVED template drops it back to PENDING, taking a live
   reminder out of service for 1–3 days; (2) **Meta locks a deleted template's
@@ -1471,11 +1516,12 @@ Internal-only repo migrations: `010_grant_helper_roles`, `011_grant_schema_to_he
 | `316_bb_camp_capacity` | `bb_camp_settings` (per-BB parent: `staff_total`, `staff_per_camp`, `default_max_camps`, `weekly_closed_days`, `auto_accept_within_capacity`) + `bb_camp_capacity` (per-day child, `UNIQUE (blood_bank_id, capacity_date)`). **`max_camps=0` IS the holiday; no row means NOT PUBLISHED, never closed.** Header records that RLS is inert at runtime, so the handler `WHERE` is the boundary |
 | `317_camp_bb_response` | `donation_camps.bb_response` (`PE`/`AC`/`DC`) + `_at`/`_by` + `bb_decline_reason` (`NC`/`ND`/`DT`/`VE`/`OT`, extending 287's vocabulary) + `bb_decline_note`. **An axis ORTHOGONAL to `status`, which gains no value.** Two CHECKs: `bb_response_needs_partner`, `bb_decline_reason_needs_decline` |
 | `318_bb_camp_settings_audit_id` | Fix: `fn_audit_row()` (025) hardcodes `NEW.id`, and `bb_camp_settings` is keyed on `blood_bank_id` — so 316's own audit trigger threw `record "new" has no field "id"` on every write. 316 was already applied and migrations are immutable, hence a new file. **Any table passed to `attach_audit_trigger()` needs a column literally named `id`** |
+| `320_default_language_english` | `preferred_language` defaults `'mr'` -> `'en'` on `donors` / `coordinators` / `community_leaders`. Catalogue-only (`SET DEFAULT`) — no rewrite, no scan. **Existing rows deliberately NOT backfilled**: a stored `'mr'` cannot be told apart from a chosen `'mr'`. See **English is the default language** above |
 | `319_camp_branding` | `donation_camps` + `organiser_tagline`, `branding_status` (`PE`/`AP`/`RJ`), `branding_reviewed_at`/`_by`, `branding_review_note`; new `camp_branding_logo` holding the logo as a **`data:` URI**, one row per camp. **Deliberately unaudited and deliberately without an `id` column** — the missing `id` is a tripwire that makes `attach_audit_trigger()` throw 318's error rather than silently store a 67 KB blob in an INSERT-only table twice per edit. See **Camp branding** above |
 
 > **⚠ This table is INCOMPLETE — 267–309 are missing.** It lists 220–266 plus
-> 310–318, but the repo holds **98 migration files, latest
-> `319_camp_branding`** (next new one is **320**). The undocumented
+> 310–320, but the repo holds **99 migration files, latest
+> `320_default_language_english`** (next new one is **321**). The undocumented
 > span 267–309 includes the vendor webhook (307/308), blood-group HITL (309),
 > citizen-raise (303), community-leader served-districts (304), donor-alert
 > horizon (305), institution eSign state + paired BB (306), staff-cluster mobile

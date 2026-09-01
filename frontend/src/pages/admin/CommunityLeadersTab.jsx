@@ -273,14 +273,17 @@ function StatusBadge({ l }) {
 
 function InviteModal({ onClose }) {
   const qc = useQueryClient();
-  // Default: Marathi. As of 2026-06-29 the community_leader_signin
-  // template has Meta-approved MR + HI + EN translations, so the leader's
-  // preferred_language picks the right WhatsApp template at send time.
+  // Default: English (migration 320). preferred_language is the WhatsApp
+  // language, not the UI language, and an admin inviting a leader is guessing
+  // it -- so the safe guess is the one language every template is approved in.
+  // community_leader_signin has Meta-approved MR + HI + EN, so switching this
+  // select to Marathi or Hindi still delivers; it just has to be a real answer.
+  // Any explicit pick here overrides the column default at send time.
   const [form, setForm] = useState({
     mobile: '+91',
     full_name: '',
     display_name: '',
-    preferred_language: 'mr',
+    preferred_language: 'en',
     email: '',
     invitation_notes: '',
   });

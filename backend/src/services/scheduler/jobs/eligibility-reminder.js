@@ -36,7 +36,7 @@ async function run() {
           templateType: 'REM',
           variables: { next_eligible_date: d.next_eligible_date.toISOString().slice(0, 10) },
           channel,
-          language: d.preferred_language || 'mr',
+          language: d.preferred_language || 'en',
         });
         sent++;
       }

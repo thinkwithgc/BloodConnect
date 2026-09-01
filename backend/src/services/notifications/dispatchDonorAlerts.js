@@ -110,7 +110,7 @@ async function dispatchOne(client, ctx, alertRow, { attributedCommunityId, mode 
     String(donor.full_name || '')
       .trim()
       .split(/\s+/)[0] || 'दाता';
-  const language = donor.preferred_language || 'mr';
+  const language = donor.preferred_language || 'en';
   const bloodGroupComponent = `${ctx.blood_group} ${ctx.component}`.trim();
 
   const bb = await findClosestBB(client, {

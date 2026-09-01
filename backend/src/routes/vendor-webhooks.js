@@ -470,7 +470,7 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
             data.gender,
             data.abha_id || null,
             data.aadhaar_last4 || null,
-            data.preferred_language || 'mr',
+            data.preferred_language || 'en',
             data.village_id || null,
             sealedAddr,
             data.pincode || null,
@@ -528,7 +528,7 @@ router.post('/donor-registration', verifyVendorHmacMw, async (req, res) => {
             consent_token: result.consentToken,
           },
           channel: 'WA',
-          language: data.preferred_language || 'mr',
+          language: data.preferred_language || 'en',
         });
       } catch (err) {
         logger.error(

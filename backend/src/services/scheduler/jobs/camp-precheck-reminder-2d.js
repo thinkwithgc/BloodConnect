@@ -117,7 +117,7 @@ async function run() {
                 camp_slug: camp.slug,
               },
               channel: 'WA',
-              language: dr.preferred_language || 'mr',
+              language: dr.preferred_language || 'en',
             }),
         );
         if (r?.success) summary.sent += 1;

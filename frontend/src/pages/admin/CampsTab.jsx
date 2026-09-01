@@ -28,6 +28,10 @@ const FILTERS = [
   // happening (migration 317 is an orthogonal axis), so it would otherwise sit
   // invisibly among the planned camps with nobody coming to collect.
   { id: 'BBDC',  label: 'BB declined — reassign' },
+  // Also not a status, for the same reason: branding_status is its own axis, so
+  // these camps are still 'PL' or 'LV' and would otherwise stay invisible until
+  // somebody happened to open each one.
+  { id: 'BRAND', label: 'Branding to check' },
   { id: 'PL',    label: 'Planned' },
   { id: '',      label: 'Upcoming (PL + LV)' },
   { id: 'STALE', label: 'Stale (needs update)' },
@@ -54,6 +58,18 @@ const BB_RESPONSE = {
   AC: { label: 'BB accepted', cls: 'bg-green-100 text-green-800' },
   PE: { label: 'Awaiting BB', cls: 'bg-amber-100 text-amber-800' },
   DC: { label: 'BB declined', cls: 'bg-rk-700/80 text-white' },
+};
+
+// What the organiser put on their own camp page, and where the review of it
+// stands (migration 319). A THIRD orthogonal axis: branding_status touches
+// neither status nor bb_response, and it is non-NULL only on an already-verified
+// camp, because the organiser cannot upload anything before the magic link
+// exists. Colours match BRAND_PILL on the organiser's own dashboard so the two
+// screens describe the same state the same way.
+const BRANDING = {
+  PE: { label: 'Branding to check', cls: 'bg-amber-100 text-amber-800' },
+  AP: { label: 'Branding approved', cls: 'bg-green-100 text-green-800' },
+  RJ: { label: 'Branding rejected', cls: 'bg-rk-100 text-rk-900' },
 };
 
 /**
@@ -165,6 +181,7 @@ export function CampsTab() {
   const [reassignCamp, setReassignCamp] = useState(null);
   const [filter, setFilter] = useState('PE');
   const [statusAction, setStatusAction] = useState(null); // { camp, kind: 'complete' | 'cancel' }
+  const [brandingCamp, setBrandingCamp] = useState(null);
 
   const listQ = useQuery({
     queryKey: ['admin', 'camps', filter],
@@ -174,6 +191,9 @@ export function CampsTab() {
       // so these camps are still 'PL' and the backend has to escape its own
       // future-only default to return them.
       if (filter === 'BBDC') return apiRequest('GET', '/camps?bb_declined=true');
+      // Same shape again: an orthogonal axis needs its own query param, and the
+      // backend has to escape its own future-only default to return these.
+      if (filter === 'BRAND') return apiRequest('GET', '/camps?branding=pending');
       return apiRequest('GET', filter ? `/camps?status=${filter}` : '/camps');
     },
     staleTime: 15_000,
@@ -236,6 +256,15 @@ export function CampsTab() {
         </p>
       ) : null}
 
+      {filter === 'BRAND' && rows.length > 0 ? (
+        <p className="text-xs text-slate-500">
+          {rows.length} organiser{rows.length === 1 ? ' has' : 's have'} added a logo or a
+          line of their own words to the camp page they are sharing. None of it is visible
+          to donors until it is approved here. Open <strong>Branding</strong> on the row to
+          see it.
+        </p>
+      ) : null}
+
       {showForm ? (
         <CreateCampForm
           onCreated={() => {
@@ -278,6 +307,16 @@ export function CampsTab() {
                         {c.expected_volunteer_count
                           ? ` · ${c.expected_volunteer_count} vols`
                           : ''}
+                      </div>
+                    ) : null}
+                    {c.branding_status ? (
+                      <div
+                        className={`mt-0.5 inline-block rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                          (BRANDING[c.branding_status] || {}).cls ||
+                          'bg-slate-100 text-slate-700'
+                        }`}
+                      >
+                        {(BRANDING[c.branding_status] || {}).label || c.branding_status}
                       </div>
                     ) : null}
                   </td>
@@ -351,6 +390,16 @@ export function CampsTab() {
                             </button>
                           </>
                         ) : null}
+                        {c.branding_status === 'PE' ? (
+                          <button
+                            type="button"
+                            className="text-xs font-semibold text-rk-700 hover:underline"
+                            onClick={() => setBrandingCamp(c)}
+                            title="Check the logo and the line this organiser uploaded"
+                          >
+                            Branding
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           className="text-xs font-medium text-rk-700 hover:underline"
@@ -373,7 +422,9 @@ export function CampsTab() {
                       ? 'No blood bank has declined a camp — nothing to reassign.'
                       : filter === 'STALE'
                         ? 'No stale camps — every past-dated camp has been completed or cancelled.'
-                        : 'No camps in this filter.'}
+                        : filter === 'BRAND'
+                          ? 'No organiser branding is waiting to be checked.'
+                          : 'No camps in this filter.'}
                 </td>
               </tr>
             ) : null}
@@ -412,6 +463,17 @@ export function CampsTab() {
           onClose={() => setReviewCamp(null)}
           onActioned={() => {
             setReviewCamp(null);
+            qc.invalidateQueries({ queryKey: ['admin', 'camps'] });
+          }}
+        />
+      ) : null}
+
+      {brandingCamp ? (
+        <BrandingPanel
+          camp={brandingCamp}
+          onClose={() => setBrandingCamp(null)}
+          onDone={() => {
+            setBrandingCamp(null);
             qc.invalidateQueries({ queryKey: ['admin', 'camps'] });
           }}
         />
@@ -696,6 +758,183 @@ function RepartnerPanel({ camp, onClose, onDone }) {
           >
             {m.isPending ? '…' : 'Partner this blood bank'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * BrandingPanel - approve or reject what an organiser put on their camp page.
+ *
+ * Its own surface rather than a section of ReviewPanel, for exactly the reason
+ * RepartnerPanel gives above: ReviewPanel only ever opens for a 'PE' camp
+ * (isPending), and branding_status is non-NULL only on a camp that has ALREADY
+ * been verified - the organiser cannot upload anything until
+ * POST /camps/:id/verify issues the magic link. So a branding-pending camp is
+ * always 'PL' or 'LV', which ReviewPanel is physically unreachable for.
+ *
+ * It also keeps two unrelated rejections apart. Declining a camp application and
+ * rejecting a logo are not the same act, and on a camp with 200 RSVPs they must
+ * never sit side by side under buttons that read alike.
+ *
+ * The bytes are fetched one camp at a time from GET /camps/:id, which returns
+ * them UNGATED for a reviewer role and strips them for everyone else. The list
+ * deliberately carries branding_status only - 50 camps x 67 KB would be a 3 MB
+ * payload. Note that endpoint answers with the BARE camp row, not { camp: ... }
+ * like the two branding endpoints below, so its fields are read straight off it.
+ */
+function BrandingPanel({ camp, onClose, onDone }) {
+  const [showReject, setShowReject] = useState(false);
+  const [note, setNote] = useState('');
+
+  const detailQ = useQuery({
+    queryKey: ['admin', 'camp-branding', camp.id],
+    queryFn: () => apiRequest('GET', `/camps/${camp.id}`),
+  });
+  const d = detailQ.data || {};
+
+  const approve = useMutation({
+    mutationFn: () => apiRequest('POST', `/camps/${camp.id}/branding/approve`),
+    onSuccess: () => onDone(),
+  });
+  const reject = useMutation({
+    mutationFn: () =>
+      apiRequest('POST', `/camps/${camp.id}/branding/reject`, { note: note.trim() }),
+    onSuccess: () => onDone(),
+  });
+
+  // Both endpoints answer 409 no_branding_pending when the camp is no longer
+  // 'PE' - another admin got there first, or the organiser replaced the logo
+  // while this was open. Worth its own sentence: the row just needs reloading.
+  const err = approve.error || reject.error;
+  const errCode = err?.response?.data?.error;
+  const busy = approve.isPending || reject.isPending;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
+      <div className="mt-16 w-full max-w-lg space-y-4 rounded-xl bg-white p-6 shadow-lift">
+        <h3 className="text-lg font-semibold text-slate-900">Organiser branding</h3>
+        <p className="text-sm text-slate-600">
+          <strong>{camp.name}</strong> {'\u00b7'} {camp.venue} {'\u00b7'}{' '}
+          {fmtDate(camp.scheduled_date)}
+        </p>
+
+        <div className="rounded-md border border-rk-100 bg-rk-50/60 p-3 text-sm text-slate-700">
+          None of this is visible to donors yet. Approving publishes it on the camp page the
+          organiser is sharing; rejecting sends the note straight back to their dashboard.
+          Any later edit comes back here for a fresh check.
+        </div>
+
+        {detailQ.isLoading ? (
+          <p className="text-sm text-slate-500">Loading what they uploaded…</p>
+        ) : null}
+        {detailQ.error ? (
+          <p className="text-sm text-rk-700">Could not load what the organiser uploaded.</p>
+        ) : null}
+
+        {detailQ.data ? (
+          <div className="space-y-3">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Organiser
+              </div>
+              <div className="text-sm font-semibold text-slate-900">{d.organiser_name}</div>
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Logo or photo
+              </div>
+              {d.logo_data_uri ? (
+                <div className="mt-1 flex items-center gap-3">
+                  <img
+                    src={d.logo_data_uri}
+                    alt="Logo submitted by the organiser"
+                    className="h-24 w-24 shrink-0 rounded-lg object-contain ring-1 ring-slate-200"
+                  />
+                  <div className="text-xs text-slate-500">
+                    {d.logo_content_type} {'\u00b7'} {Math.round((d.logo_bytes || 0) / 1024)} KB
+                  </div>
+                </div>
+              ) : (
+                <p className="text-sm text-slate-500">None uploaded.</p>
+              )}
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-400">
+                Their own line
+              </div>
+              {d.organiser_tagline ? (
+                <p className="text-sm italic text-slate-700">
+                  &ldquo;{d.organiser_tagline}&rdquo;
+                </p>
+              ) : (
+                <p className="text-sm text-slate-500">None written.</p>
+              )}
+            </div>
+          </div>
+        ) : null}
+
+        {showReject ? (
+          <div>
+            <label className="rk-label" htmlFor="branding-reject-note">
+              Why not? The organiser reads this word for word
+            </label>
+            <textarea
+              id="branding-reject-note"
+              className="rk-input min-h-[70px]"
+              maxLength={280}
+              placeholder="e.g. That photo is of a person, not the organisation. Please upload your society logo instead."
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+            <p className="mt-1 text-xs text-slate-400">{note.length}/280</p>
+          </div>
+        ) : null}
+
+        {errCode === 'no_branding_pending' ? (
+          <p className="text-sm text-rk-700">
+            This is no longer waiting on a check. Someone else acted on it, or the organiser
+            changed it. Close this and reopen the row.
+          </p>
+        ) : err ? (
+          <p className="text-sm text-rk-700">That did not go through. Please try again.</p>
+        ) : null}
+
+        <div className="flex items-center justify-end gap-3">
+          <button type="button" className="rk-button-secondary text-sm" onClick={onClose}>
+            Close
+          </button>
+          {showReject ? (
+            <button
+              type="button"
+              className="rk-button-primary text-sm"
+              disabled={busy || note.trim().length === 0}
+              onClick={() => reject.mutate()}
+            >
+              {reject.isPending ? '…' : 'Send rejection'}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                className="text-sm font-medium text-rk-700 hover:underline"
+                onClick={() => setShowReject(true)}
+              >
+                Reject with a note
+              </button>
+              <button
+                type="button"
+                className="rk-button-primary text-sm"
+                disabled={busy || !detailQ.data}
+                onClick={() => approve.mutate()}
+              >
+                {approve.isPending ? '…' : 'Approve'}
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

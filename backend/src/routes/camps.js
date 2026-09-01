@@ -84,6 +84,9 @@ const router = express.Router();
 // Optional flags:
 //   ?district_id=…  scope to one district
 //   ?status=…       exact status filter (PL/LV/PE/CO/CA/DC)
+//   ?branding=pending  camps whose organiser branding is awaiting review.
+//                   Like bb_declined this is not necessarily in the future, so
+//                   it escapes the default window too.
 //   ?stale=true     "PL or LV" camps whose scheduled_date is at least a
 //                   day in the past — these are the ones the admin needs
 //                   to complete-or-cancel. 1-day grace so a same-day camp
@@ -96,6 +99,7 @@ router.get('/', verifyJWT, async (req, res) => {
   // an admin to find another BB, and unlike `stale` they are not necessarily in
   // the past, so the filter has to escape the default future-only window too.
   const bbDeclined = req.query.bb_declined === 'true';
+  const brandingPending = req.query.branding === 'pending';
   const isReviewer = ['ngo_admin', 'super_admin', 'coordinator'].includes(req.user.role);
 
   const r = await withRlsContext(req, (c) =>
@@ -118,6 +122,10 @@ router.get('/', verifyJWT, async (req, res) => {
               c.volunteer_training_requested, c.expected_volunteer_count,
               c.review_notes, c.declined_reason, c.cancelled_reason,
               c.verified_at, c.declined_at,
+              -- Status only. logo_data_uri is NEVER selected here: 50 camps x
+              -- ~67 KB of base64 is a 3 MB list payload. The bytes are on the
+              -- detail route, which is where a review actually happens.
+              c.branding_status,
               (c.status IN ('PL','LV')
                  AND c.scheduled_date < CURRENT_DATE - INTERVAL '1 day') AS is_stale
          FROM donation_camps c
@@ -128,15 +136,17 @@ router.get('/', verifyJWT, async (req, res) => {
           AND ($2::text IS NULL OR c.status = $2)
           AND ($3::boolean IS TRUE
                  OR $4::boolean IS TRUE
+                 OR $5::boolean IS TRUE
                  OR $2::text IS NOT NULL
                  OR (c.status IN ('PL','LV') AND c.scheduled_date >= CURRENT_DATE))
           AND ($3::boolean IS NOT TRUE
                  OR (c.status IN ('PL','LV')
                      AND c.scheduled_date < CURRENT_DATE - INTERVAL '1 day'))
           AND ($4::boolean IS NOT TRUE OR c.bb_response = 'DC')
+          AND ($5::boolean IS NOT TRUE OR c.branding_status = 'PE')
      ORDER BY c.scheduled_date ASC, c.start_time ASC
         LIMIT 100`,
-      [districtId, status, stale, bbDeclined],
+      [districtId, status, stale, bbDeclined, brandingPending],
     ),
   );
 
@@ -151,6 +161,7 @@ router.get('/', verifyJWT, async (req, res) => {
     'bb_decline_note',
     'bb_response',
     'bb_response_at',
+    'branding_status',
   ];
   const camps = isReviewer
     ? r.rows
@@ -487,6 +498,15 @@ router.get('/public/:slug', async (req, res) => {
               c.organiser_name, c.organiser_type,
               c.target_donor_count, c.registered_donor_count,
               c.status, c.poster_storage_key,
+              -- THE APPROVAL GATE, IN SQL ON PURPOSE (migration 319).
+              -- Organiser-supplied branding is invisible to the public until an
+              -- NGO admin approves it. Gating here rather than in JS means a
+              -- future caller physically cannot forget it, and there is exactly
+              -- one place to audit. 'PE' and 'RJ' both render as no branding.
+              CASE WHEN c.branding_status = 'AP' THEN bl.logo_data_uri END
+                AS logo_data_uri,
+              CASE WHEN c.branding_status = 'AP' THEN c.organiser_tagline END
+                AS organiser_tagline,
               d.name AS district_name,
               s.name AS state_name,
               i.display_name AS partnered_blood_bank_name
@@ -494,6 +514,7 @@ router.get('/public/:slug', async (req, res) => {
          JOIN districts d ON d.id = c.district_id
          JOIN states s    ON s.id = c.state_id
     LEFT JOIN institutions i ON i.id = c.partnered_blood_bank_id
+    LEFT JOIN camp_branding_logo bl ON bl.camp_id = c.id
         WHERE c.slug = $1
           AND c.status IN ('PL', 'LV')
         LIMIT 1`,
@@ -1454,11 +1475,18 @@ router.get('/:id', verifyJWT, async (req, res) => {
     c.query(
       `SELECT c.*, d.name AS district_name,
               i.display_name AS partnered_blood_bank_name,
-              rb.display_name AS requested_blood_bank_name
+              rb.display_name AS requested_blood_bank_name,
+              -- UNGATED, and only on this route: the reviewer has to SEE the
+              -- logo to approve it. Stripped below for every other viewer, so
+              -- the bytes reach the admin screen and nowhere else. The public
+              -- gate lives in GET /camps/public/:slug (migration 319).
+              bl.logo_data_uri, bl.logo_bytes, bl.logo_content_type,
+              bl.uploaded_at AS logo_uploaded_at
          FROM donation_camps c
          JOIN districts d ON d.id = c.district_id
     LEFT JOIN institutions i ON i.id = c.partnered_blood_bank_id
     LEFT JOIN institutions rb ON rb.id = c.requested_blood_bank_id
+    LEFT JOIN camp_branding_logo bl ON bl.camp_id = c.id
         WHERE c.id = $1`,
       [req.params.id],
     ),
@@ -1479,6 +1507,15 @@ router.get('/:id', verifyJWT, async (req, res) => {
   // not even the accepting BB. Its OWN decline note it may keep.
   delete safe.review_notes;
   delete safe.declined_reason;
+  // Unapproved branding, and the reviewer's own notes on it, are as internal as
+  // review_notes. The approved copy reaches the public through
+  // GET /camps/public/:slug, which is the only route that should serve it.
+  delete safe.logo_data_uri;
+  delete safe.logo_bytes;
+  delete safe.logo_content_type;
+  delete safe.logo_uploaded_at;
+  delete safe.branding_review_note;
+  delete safe.branding_reviewed_by;
   if (!acceptedPartner) {
     delete safe.bb_decline_reason;
     delete safe.bb_decline_note;
@@ -2557,6 +2594,81 @@ router.post(
   },
 );
 
+// ── POST /camps/:id/branding/approve · /branding/reject ────────────
+//
+// The same person who verified the camp vets what the organiser put on it — the
+// founder's decision. Until approve lands, GET /camps/public/:slug returns no
+// logo and no tagline; that gate is in SQL, in that route (migration 319).
+//
+// Both stamp branding_reviewed_at/_by because 319's
+// camp_branding_review_needs_reviewer CHECK refuses an outcome with nobody
+// attached to it, and reject requires a note for the same structural reason
+// (camp_branding_reject_needs_note): an organiser who reads "नाकारले" with no
+// reason has nothing to act on.
+//
+// The `branding_status = 'PE'` predicate makes both a no-op rather than a
+// silent re-write on a camp with nothing pending — a double-click, or a second
+// admin acting on a stale list.
+const rejectBrandingSchema = z.object({
+  note: z.string().trim().min(1).max(280),
+});
+
+router.post(
+  '/:id/branding/approve',
+  verifyJWT,
+  requireRole('ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE donation_camps
+              SET branding_status      = 'AP',
+                  branding_reviewed_at = clock_timestamp(),
+                  branding_reviewed_by = $2,
+                  branding_review_note = NULL
+            WHERE id = $1
+              AND branding_status = 'PE'
+        RETURNING id, branding_status, branding_reviewed_at`,
+          [req.params.id, req.user.userId],
+        ),
+      { change_reason: 'organiser branding approved' },
+    );
+    if (r.rowCount === 0) return res.status(409).json({ error: 'no_branding_pending' });
+    res.json({ camp: r.rows[0] });
+  },
+);
+
+router.post(
+  '/:id/branding/reject',
+  verifyJWT,
+  requireRole('ngo_admin', 'super_admin'),
+  async (req, res) => {
+    const parsed = rejectBrandingSchema.safeParse(req.body || {});
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+    }
+    const r = await withRlsContext(
+      req,
+      (c) =>
+        c.query(
+          `UPDATE donation_camps
+              SET branding_status      = 'RJ',
+                  branding_reviewed_at = clock_timestamp(),
+                  branding_reviewed_by = $2,
+                  branding_review_note = $3
+            WHERE id = $1
+              AND branding_status = 'PE'
+        RETURNING id, branding_status, branding_reviewed_at, branding_review_note`,
+          [req.params.id, req.user.userId, parsed.data.note],
+        ),
+      { change_reason: `organiser branding rejected: ${parsed.data.note.slice(0, 200)}` },
+    );
+    if (r.rowCount === 0) return res.status(409).json({ error: 'no_branding_pending' });
+    res.json({ camp: r.rows[0] });
+  },
+);
+
 // ── GET /camps/access/:token (PUBLIC magic-link) ─────────────────────────
 // Resolves a camp access token to a scoped dashboard payload. The token is
 // the credential — no JWT. Refuses on revoked / expired tokens.
@@ -2604,11 +2716,18 @@ router.get('/access/:token', async (req, res) => {
                   c.attended_donor_count, c.deferred_donor_count, c.units_collected,
                   -- Same boundary as /camps/mine: the answer, never the reason.
                   c.bb_response,
+                  -- UNGATED here, deliberately — this is the organiser's own
+                  -- view of their own upload. They must be able to see what
+                  -- they sent and, on 'RJ', read why. The public gate lives in
+                  -- GET /camps/public/:slug (migration 319).
+                  bl.logo_data_uri, c.organiser_tagline,
+                  c.branding_status, c.branding_review_note,
                   d.name AS district_name,
                   i.display_name AS partnered_blood_bank_name
              FROM donation_camps c
              JOIN districts d ON d.id = c.district_id
         LEFT JOIN institutions i ON i.id = c.partnered_blood_bank_id
+        LEFT JOIN camp_branding_logo bl ON bl.camp_id = c.id
             WHERE c.id = $1`,
           [t.camp_id],
         )
@@ -2662,6 +2781,193 @@ router.get('/access/:token', async (req, res) => {
     expires_at: t.expires_at,
     ...dashboard,
   });
+});
+
+// ── Organiser branding: logo + tagline (PUBLIC magic-link) ──────────
+//
+// The organiser's own identity on the page they share. Both endpoints
+// authenticate through loadToken() — the magic-link token IS the credential; an
+// organiser has no JWT and no session.
+//
+//   ⚠ NOTHING WRITTEN HERE IS PUBLIC UNTIL AN NGO ADMIN APPROVES IT.
+//   Every write below sets branding_status='PE' and clears the review columns
+//   IN THE SAME STATEMENT that writes the new value (migration 319's header).
+//   A second statement could drift, and an organiser would then be able to get
+//   a benign logo approved and swap it for something else afterwards.
+//
+// The bytes go into camp_branding_logo, not donation_camps: fn_audit_row()
+// writes the full old AND new value of every changed field, audit_log is
+// INSERT-only by hard rule 2, and a ~67 KB base64 string re-uploaded a few
+// times would bloat a table nobody can ever prune. camp_branding_logo is
+// deliberately un-audited and deliberately has no `id` column, so
+// attach_audit_trigger() on it fails loudly. See migration 319.
+//
+// camp_branding_logo has no RLS policies and that is deliberate too: no
+// migration in this repo GRANTs anything (the app connects as the DB owner, and
+// RLS is inert at runtime — see the note in 316's header). Enabling RLS with no
+// policies would deny every read the day the app moves to `app_user`, silently
+// breaking this feature. The handler's own WHERE is the security boundary, as
+// everywhere else in this router.
+const LOGO_TYPES = {
+  'image/jpeg': {
+    magic: (b) => b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff,
+  },
+  'image/png': {
+    magic: (b) =>
+      b.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])),
+  },
+};
+
+// 50 KB DECODED. This lives here and not in a CHECK constraint because it is a
+// payload-budget decision about rural 4G, not a patient-safety invariant —
+// hard rule 1 cuts the other way. 50 KB becomes ~67 KB of base64 riding the
+// JSON the RSVP page already fetches; 100 KB would be ~133 KB, a 25x jump on
+// today's payload. The client resizes to a 400 px max edge first, so a real
+// logo lands well inside this. migration 319's 200000-char CHECK is a loose
+// backstop against something pathological, not this cap.
+const LOGO_MAX_BYTES = 50000;
+
+// ⚠ express.raw() runs BEFORE loadToken(), because loadToken is a plain
+//   function and not middleware. An unauthenticated request therefore gets its
+//   body parsed — bounded by the limit below and by the global 100/IP/min rate
+//   limiter. Keep that limit tight; it is the only thing in front of the token
+//   check. A raw Buffer body also passes through sanitizeInput untouched (it
+//   only walks strings), which is why the magic-byte test IS the validation
+//   here — the same reasoning as POST /onboarding/:id/mou-scan.
+router.post(
+  '/access/:token/logo-raw',
+  express.raw({ type: Object.keys(LOGO_TYPES), limit: '100kb' }),
+  async (req, res) => {
+    const contentType = (req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
+    const spec = LOGO_TYPES[contentType];
+    if (!spec) {
+      return res
+        .status(415)
+        .json({ error: 'unsupported_media_type', accepted: Object.keys(LOGO_TYPES) });
+    }
+    const buf = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!buf || buf.length === 0) return res.status(400).json({ error: 'empty_body' });
+    if (buf.length > LOGO_MAX_BYTES) {
+      return res
+        .status(413)
+        .json({ error: 'logo_too_large', bytes: buf.length, max_bytes: LOGO_MAX_BYTES });
+    }
+    // A .txt renamed .jpg, or a PNG sent as image/jpeg, stops here.
+    if (!spec.magic(buf)) {
+      return res.status(400).json({ error: 'content_type_mismatch', declared: contentType });
+    }
+
+    const v = await loadToken(req.params.token);
+    if (!v.ok) return res.status(403).json({ error: v.reason });
+
+    const dataUri = `data:${contentType};base64,${buf.toString('base64')}`;
+    const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+
+    // ONE statement: the bytes land in the child table and the parent's review
+    // state resets together, so the two can never disagree.
+    const r = await withRlsContextRaw(
+      {
+        actor_role: 'camp_organizer',
+        actor_system_process: `camp:${v.token.token.slice(0, 12)}`,
+        camp_token: v.token.token,
+        actor_ip_address: cleanClientIp(req),
+        change_reason: `organizer uploaded branding logo (${buf.length} bytes)`,
+      },
+      (c) =>
+        c.query(
+          `WITH b AS (
+             INSERT INTO camp_branding_logo
+                    (camp_id, logo_data_uri, logo_bytes, logo_content_type, logo_sha256)
+             VALUES ($1, $2, $3, $4, $5)
+                 ON CONFLICT (camp_id) DO UPDATE
+                    SET logo_data_uri     = EXCLUDED.logo_data_uri,
+                        logo_bytes        = EXCLUDED.logo_bytes,
+                        logo_content_type = EXCLUDED.logo_content_type,
+                        logo_sha256       = EXCLUDED.logo_sha256,
+                        uploaded_at       = clock_timestamp()
+               RETURNING camp_id
+           )
+           UPDATE donation_camps c
+              SET branding_status      = 'PE',
+                  branding_reviewed_at = NULL,
+                  branding_reviewed_by = NULL,
+                  branding_review_note = NULL
+             FROM b
+            WHERE c.id = b.camp_id
+        RETURNING c.id, c.branding_status`,
+          [v.token.camp_id, dataUri, buf.length, contentType, sha256],
+        ),
+    );
+    if (r.rowCount === 0) return res.status(404).json({ error: 'camp_not_found' });
+
+    // Never echo the data URI back — the caller already holds the bytes, and the
+    // organiser dashboard re-reads GET /camps/access/:token anyway.
+    res.json({
+      bytes: buf.length,
+      content_type: contentType,
+      branding_status: r.rows[0].branding_status,
+    });
+  },
+);
+
+// PATCH /camps/access/:token/branding — the one line of the organiser's own words.
+//
+// The tagline rides the SAME approval gate as the logo. The founder's decision
+// was about the logo, but 280 characters of free text on a public page beside a
+// PENDING trade mark is the larger abuse surface of the two, and one review
+// action covering both is less admin work than two.
+const brandingSchema = z.object({
+  tagline: z.string().trim().max(280).nullable().optional(),
+});
+
+router.patch('/access/:token/branding', async (req, res) => {
+  const parsed = brandingSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+  }
+  if (!('tagline' in parsed.data)) {
+    return res.status(400).json({ error: 'nothing_to_update' });
+  }
+
+  const v = await loadToken(req.params.token);
+  if (!v.ok) return res.status(403).json({ error: v.reason });
+
+  // '' is a clear, not a stored empty string.
+  const tagline = parsed.data.tagline ? parsed.data.tagline : null;
+
+  const r = await withRlsContextRaw(
+    {
+      actor_role: 'camp_organizer',
+      actor_system_process: `camp:${v.token.token.slice(0, 12)}`,
+      camp_token: v.token.token,
+      actor_ip_address: cleanClientIp(req),
+      change_reason: tagline
+        ? 'organizer set branding tagline'
+        : 'organizer cleared branding tagline',
+    },
+    (c) =>
+      c.query(
+        `UPDATE donation_camps c
+            SET organiser_tagline = $2,
+                -- Nothing submitted at all goes back to NULL rather than sitting
+                -- in the admin's review queue forever; anything submitted is 'PE'.
+                branding_status = CASE
+                                    WHEN $2::text IS NULL
+                                     AND NOT EXISTS (SELECT 1 FROM camp_branding_logo bl
+                                                      WHERE bl.camp_id = c.id)
+                                    THEN NULL
+                                    ELSE 'PE'
+                                  END,
+                branding_reviewed_at = NULL,
+                branding_reviewed_by = NULL,
+                branding_review_note = NULL
+          WHERE c.id = $1
+      RETURNING c.id, c.organiser_tagline, c.branding_status`,
+        [v.token.camp_id, tagline],
+      ),
+  );
+  if (r.rowCount === 0) return res.status(404).json({ error: 'camp_not_found' });
+  res.json({ updated: true, ...r.rows[0] });
 });
 
 // ── POST /camps/access/:token/registrations/:regId/status ────────────────

@@ -74,12 +74,108 @@ async function tokenFetch(path, opts = {}) {
   return body;
 }
 
+// tokenFetch above cannot carry an image. It hardcodes the JSON content type and
+// JSON.stringify()s whatever body it is handed, which would turn a Blob into the
+// two characters "{}". POST /camps/access/:token/logo-raw is
+// express.raw({ type: ['image/jpeg', 'image/png'] }) and needs the bytes
+// untouched, so it gets its own sibling rather than a flag on tokenFetch - the
+// four existing callers stay exactly as they were.
+async function tokenUpload(path, blob) {
+  const url = path.startsWith('http') ? path : `${apiBase}${path}`;
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': blob.type },
+    body: blob,
+  });
+  const body = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    const err = new Error(body.error || r.statusText);
+    err.response = { data: body, status: r.status };
+    throw err;
+  }
+  return body;
+}
+
+// The server refuses anything over 50 KB decoded (413 logo_too_large) and that
+// stays the hard gate - this shrink is a courtesy, not the enforcement. An
+// organiser photographing their signboard on a phone should not have to work out
+// why a 4 MB JPEG was rejected. 400 px is generous: the logo renders at 56 px on
+// the camp page.
+const LOGO_MAX_EDGE = 400;
+const LOGO_MAX_BYTES = 50000;
+
+// Amber = waiting on someone else, green = live, red = needs the organiser back.
+// Same reading as campStatus.js.
+const BRAND_PILL = {
+  PE: 'bg-amber-100 text-amber-800',
+  AP: 'bg-green-100 text-green-800',
+  RJ: 'bg-rk-100 text-rk-900',
+};
+
+function loadImage(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('decode_failed'));
+    };
+    img.src = url;
+  });
+}
+
+// A PNG stays a PNG for as long as it fits the budget, so a logo with a
+// transparent background does not gain a white box. Only if PNG blows the budget
+// do we drop to JPEG - and JPEG has no alpha channel, so transparency would
+// render BLACK. White is painted BEHIND the already-drawn image first.
+async function encodeBest(canvas, preferPng) {
+  if (preferPng) {
+    const png = await new Promise((res) => canvas.toBlob(res, 'image/png'));
+    if (png && png.size <= LOGO_MAX_BYTES) return png;
+  }
+  const ctx = canvas.getContext('2d');
+  ctx.globalCompositeOperation = 'destination-over';
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  let last = null;
+  for (const q of [0.72, 0.5]) {
+    const blob = await new Promise((res) => canvas.toBlob(res, 'image/jpeg', q));
+    if (!blob) continue;
+    last = blob;
+    if (blob.size <= LOGO_MAX_BYTES) return blob;
+  }
+  return last;
+}
+
+async function resizeLogo(file) {
+  const img = await loadImage(file);
+  const scale = Math.min(1, LOGO_MAX_EDGE / Math.max(img.width, img.height));
+  const w = Math.max(1, Math.round(img.width * scale));
+  const h = Math.max(1, Math.round(img.height * scale));
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+  return encodeBest(canvas, file.type === 'image/png');
+}
+
 export function CampOrganizerDashboard() {
   const { token } = useParams();
   const { t } = useT();
   const qc = useQueryClient();
   const [broadcastText, setBroadcastText] = useState('');
   const [broadcastResult, setBroadcastResult] = useState(null);
+  // tagline stays null until the organiser actually types, which lets the saved
+  // value seed the field without a useEffect and doubles as the Save button
+  // dirty flag.
+  const [tagline, setTagline] = useState(null);
+  const [logoBusy, setLogoBusy] = useState(false);
+  const [brandErr, setBrandErr] = useState(null);
+  const [brandOk, setBrandOk] = useState(null);
 
   const dashQ = useQuery({
     queryKey: ['camp-organizer', token],
@@ -109,6 +205,61 @@ export function CampOrganizerDashboard() {
       setBroadcastText('');
     },
   });
+
+  const uploadLogo = useMutation({
+    mutationFn: (blob) => tokenUpload(`/camps/access/${token}/logo-raw`, blob),
+    onSuccess: () => {
+      setBrandErr(null);
+      setBrandOk('logo');
+      qc.invalidateQueries({ queryKey: ['camp-organizer', token] });
+    },
+  });
+
+  const saveTagline = useMutation({
+    mutationFn: (value) =>
+      tokenFetch(`/camps/access/${token}/branding`, {
+        method: 'PATCH',
+        body: { tagline: value },
+      }),
+    onSuccess: () => {
+      setBrandErr(null);
+      setBrandOk('tagline');
+      // Drop back to the server value, which the refetch is about to bring.
+      setTagline(null);
+      qc.invalidateQueries({ queryKey: ['camp-organizer', token] });
+    },
+  });
+
+  async function onPickLogo(e) {
+    const file = e.target.files && e.target.files[0];
+    // Clear the input so picking the SAME file again still fires onChange.
+    e.target.value = '';
+    if (!file) return;
+    setBrandOk(null);
+    if (file.type !== 'image/jpeg' && file.type !== 'image/png') {
+      setBrandErr(t('camp_brand_e_type'));
+      return;
+    }
+    setBrandErr(null);
+    setLogoBusy(true);
+    try {
+      const blob = await resizeLogo(file);
+      if (!blob) throw new Error('encode_failed');
+      // Only reachable if even the lowest JPEG quality is still over budget.
+      if (blob.size > LOGO_MAX_BYTES) {
+        setBrandErr(t('camp_brand_e_too_large'));
+        return;
+      }
+      await uploadLogo.mutateAsync(blob);
+    } catch (err) {
+      const code = err?.response?.data?.error;
+      setBrandErr(
+        code === 'logo_too_large' ? t('camp_brand_e_too_large') : t('camp_brand_e_failed'),
+      );
+    } finally {
+      setLogoBusy(false);
+    }
+  }
 
   const regs = dashQ.data?.registrations || [];
 
@@ -229,6 +380,112 @@ export function CampOrganizerDashboard() {
 
       {/* Share toolkit */}
       <ShareToolkit camp={camp} />
+
+      {/* Branding - what the organiser puts on the page they are sharing above.
+          Sits right after the share toolkit because it configures what gets
+          shared. Nothing here reaches the public until an NGO admin approves it
+          (migration 319); branding_status says where it stands. */}
+      <article className="rk-card space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-slate-500">
+            {t('camp_brand_title')}
+          </h2>
+          {camp.branding_status ? (
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                BRAND_PILL[camp.branding_status] || 'bg-slate-100 text-slate-700'
+              }`}
+            >
+              {t(`camp_brand_st_${camp.branding_status}`)}
+            </span>
+          ) : null}
+        </div>
+        <p className="text-xs text-slate-500">{t('camp_brand_hint')}</p>
+
+        {camp.branding_status === 'PE' ? (
+          <p className="text-xs text-slate-500">{t('camp_brand_st_PE_hint')}</p>
+        ) : null}
+        {camp.branding_status === 'AP' ? (
+          <p className="text-xs text-green-700">{t('camp_brand_st_AP_hint')}</p>
+        ) : null}
+        {camp.branding_status === 'RJ' ? (
+          <p className="text-sm text-rk-700">
+            {t('camp_brand_st_RJ_note', { note: camp.branding_review_note || '' })}
+          </p>
+        ) : null}
+
+        <div>
+          <span className="rk-label">{t('camp_brand_logo_label')}</span>
+          <div className="flex items-center gap-3">
+            {camp.logo_data_uri ? (
+              <img
+                src={camp.logo_data_uri}
+                // Decorative here: the organisation name is already on this page.
+                alt=""
+                className="h-16 w-16 shrink-0 rounded-lg object-contain ring-1 ring-slate-200"
+              />
+            ) : null}
+            <label className="rk-button-secondary cursor-pointer text-sm">
+              <input
+                type="file"
+                accept="image/jpeg,image/png"
+                className="hidden"
+                disabled={logoBusy}
+                onChange={onPickLogo}
+              />
+              {logoBusy
+                ? t('camp_brand_uploading')
+                : camp.logo_data_uri
+                  ? t('camp_brand_logo_replace')
+                  : t('camp_brand_logo_pick')}
+            </label>
+          </div>
+          <p className="mt-1 text-xs text-slate-400">{t('camp_brand_logo_help')}</p>
+        </div>
+
+        <div>
+          <label className="rk-label" htmlFor="camp-brand-tagline">
+            {t('camp_brand_tagline_label')}
+          </label>
+          <textarea
+            id="camp-brand-tagline"
+            className="rk-input min-h-[60px]"
+            maxLength={280}
+            placeholder={t('camp_brand_tagline_ph')}
+            value={tagline ?? camp.organiser_tagline ?? ''}
+            onChange={(e) => {
+              setTagline(e.target.value);
+              setBrandOk(null);
+            }}
+          />
+          <div className="mt-1 flex items-center justify-between gap-3">
+            <span className="text-xs text-slate-400">
+              {(tagline ?? camp.organiser_tagline ?? '').length}/280
+            </span>
+            <button
+              type="button"
+              className="rk-button-primary text-sm"
+              // An emptied field clears the tagline; it is never stored as ''.
+              onClick={() => saveTagline.mutate(tagline.trim() || null)}
+              disabled={saveTagline.isPending || tagline === null}
+            >
+              {saveTagline.isPending ? '…' : t('camp_brand_save')}
+            </button>
+          </div>
+        </div>
+
+        <p className="text-xs text-slate-400">{t('camp_brand_recheck_hint')}</p>
+        {brandOk === 'logo' ? (
+          <p className="text-sm text-green-700">{t('camp_brand_logo_saved')}</p>
+        ) : null}
+        {brandOk === 'tagline' ? (
+          <p className="text-sm text-green-700">{t('camp_brand_saved')}</p>
+        ) : null}
+        {brandErr ? <p className="text-sm text-rk-700">{brandErr}</p> : null}
+        {saveTagline.error ? (
+          <p className="text-sm text-rk-700">{t('camp_brand_e_failed')}</p>
+        ) : null}
+      </article>
 
       {/* Where RSVPs came from */}
       <ChannelMix mix={dashQ.data?.channel_mix || []} total={regs.length} />
@@ -390,7 +647,7 @@ export function CampOrganizerDashboard() {
       <footer className="text-center text-xs text-slate-400">
         {t('camp_pub_powered_pre')}
         <Link to="/" className="font-semibold text-rk-700 hover:underline">
-          Raktify
+          <Wordmark tm className="inline-block align-baseline text-[13px]" />
         </Link>
         {t('camp_pub_powered_post')}
         {' · '}

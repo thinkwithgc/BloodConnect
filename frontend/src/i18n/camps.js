@@ -348,6 +348,36 @@ export const mr = {
   camp_od_bc_send: '{n} रक्तदात्यांना पाठवा',
   camp_od_bc_queued: '{n} निरोप पाठवायला दिले.',
 
+  // ---- organiser branding -------------------------------------------------
+  // camp_brand_organiser is the label above the organiser's own name on the
+  // public camp page. Everything else here is the organiser's dashboard block.
+  camp_brand_organiser: 'आयोजक',
+  camp_brand_title: 'शिबिराच्या पानावर तुमची ओळख',
+  camp_brand_hint:
+    'तुमच्या संस्थेचा लोगो आणि तुमच्या शब्दांत थोडक्यात ओळख — तुम्ही जो दुवा रक्तदात्यांना ' +
+    'पाठवता त्या पानावर दिसेल. दोन्ही न दिले तरी चालते.',
+  camp_brand_logo_label: 'संस्थेचा लोगो किंवा फोटो',
+  camp_brand_logo_help: 'JPG किंवा PNG. फोटो पाठवण्याआगोदर आपोआप लहान केला जातो.',
+  camp_brand_logo_pick: 'फाइल निवडा',
+  camp_brand_logo_replace: 'बदला',
+  camp_brand_uploading: 'पाठवत आहे…',
+  camp_brand_logo_saved: 'लोगो पाठवला.',
+  camp_brand_tagline_label: 'तुमच्या शब्दांत एक ओळ',
+  camp_brand_tagline_ph: 'उदा. 1985 पासून अमरावतीत समाजकार्य.',
+  camp_brand_save: 'जतन करा',
+  camp_brand_saved: 'जतन झाले.',
+  camp_brand_st_PE: 'पडताळणी बाकी',
+  camp_brand_st_AP: 'मंजूर',
+  camp_brand_st_RJ: 'नाकारले',
+  camp_brand_st_PE_hint:
+    'पडताळणी होईपर्यंत हे शिबिराच्या पानावर दिसणार नाही. सामान्यतः एक-दोन दिवसांत होते.',
+  camp_brand_st_AP_hint: 'हे शिबिराच्या पानावर दिसत आहे.',
+  camp_brand_st_RJ_note: 'कारण: {note}',
+  camp_brand_recheck_hint: 'येथे काही बदलले तर पुन्हा एकदा पडताळणी होते.',
+  camp_brand_e_too_large: 'फाइल खूप मोठी आहे. लहान फोटो निवडा.',
+  camp_brand_e_type: 'फक्त JPG किंवा PNG फाइल चालेल.',
+  camp_brand_e_failed: 'पाठवता आले नाही. पुन्हा प्रयत्न करा.',
+
   camp_od_roster: 'यादी ({n})',
   camp_od_roster_auto: 'रक्तपेढी नोंद करेल तसे हजेरी आपोआप भरेल.',
   camp_od_note_1:
@@ -728,6 +758,33 @@ export const en = {
     'Light breakfast will be served from 8am.',
   camp_od_bc_send: 'Send to {n} donors',
   camp_od_bc_queued: 'Queued {n} messages.',
+
+  camp_brand_organiser: 'Organiser',
+  camp_brand_title: 'Your identity on the camp page',
+  camp_brand_hint:
+    'Your organisation’s logo and a short line in your own words — both appear on the page ' +
+    'donors see when you share the link. Neither is required.',
+  camp_brand_logo_label: 'Organisation logo or photo',
+  camp_brand_logo_help: 'JPG or PNG. The image is shrunk automatically before it is sent.',
+  camp_brand_logo_pick: 'Choose a file',
+  camp_brand_logo_replace: 'Replace',
+  camp_brand_uploading: 'Sending…',
+  camp_brand_logo_saved: 'Logo sent.',
+  camp_brand_tagline_label: 'One line in your own words',
+  camp_brand_tagline_ph: 'e.g. Serving Amravati since 1985.',
+  camp_brand_save: 'Save',
+  camp_brand_saved: 'Saved.',
+  camp_brand_st_PE: 'Awaiting check',
+  camp_brand_st_AP: 'Approved',
+  camp_brand_st_RJ: 'Not approved',
+  camp_brand_st_PE_hint:
+    'This stays off the camp page until it has been checked, usually within a day or two.',
+  camp_brand_st_AP_hint: 'This is showing on the camp page.',
+  camp_brand_st_RJ_note: 'Reason: {note}',
+  camp_brand_recheck_hint: 'Any change here goes for a fresh check.',
+  camp_brand_e_too_large: 'That file is too large. Choose a smaller image.',
+  camp_brand_e_type: 'Only JPG or PNG files work.',
+  camp_brand_e_failed: 'Could not send that. Please try again.',
 
   camp_od_roster: 'Roster ({n})',
   camp_od_roster_auto: 'Attendance fills itself as the blood bank records donations.',

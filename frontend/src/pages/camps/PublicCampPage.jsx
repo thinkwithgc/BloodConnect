@@ -176,10 +176,8 @@ export function PublicCampPage() {
             {t('camp_pub_eyebrow', { district: camp.district_name })}
           </div>
           <h1 className="mt-1 text-2xl font-bold text-slate-900">{camp.name}</h1>
-          <p className="text-sm text-slate-600">
-            {t('camp_pub_hosted_by', { name: camp.organiser_name })}
-          </p>
         </div>
+        <OrganiserBlock camp={camp} />
         <dl className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
           <Fact
             label={t('camp_pub_f_date')}
@@ -294,6 +292,49 @@ export function PublicCampPage() {
   );
 }
 
+// The organiser's own identity, deliberately INSIDE the body and at a smaller
+// scale than the camp name, which stays the page's <h1>. Raktify keeps visual
+// primacy (founder decision, 30-Aug-2026): this is never a lockup with the
+// wordmark, never an equal-scale pairing, and never says "in partnership with"
+// - Raktify is the platform, not a co-host.
+//
+// logo_data_uri and organiser_tagline arrive NULL unless branding_status='AP'
+// (the gate lives in SQL, in GET /camps/public/:slug), so both are optional and
+// this block must read correctly with neither. On a brand-new camp it is just
+// the label and the name, which is what the page said before branding existed.
+function OrganiserBlock({ camp }) {
+  const { t } = useT();
+  const typeKey = camp.organiser_type ? `camp_org_type_${camp.organiser_type}` : null;
+  const typeLabel = typeKey ? t(typeKey) : '';
+  // tFor falls back to the raw key when a value is missing, and this is a public
+  // page - show nothing rather than a snake_case key.
+  const showType = typeLabel && typeLabel !== typeKey;
+
+  return (
+    <div className="flex items-start gap-3">
+      {camp.logo_data_uri ? (
+        <img
+          src={camp.logo_data_uri}
+          // Decorative: the organisation name sits right beside it, so an alt
+          // text here would only make a screen reader say the name twice.
+          alt=""
+          className="h-14 w-14 shrink-0 rounded-lg object-contain ring-1 ring-slate-200"
+        />
+      ) : null}
+      <div className="min-w-0">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-slate-400">
+          {t('camp_brand_organiser')}
+        </div>
+        <div className="text-sm font-semibold text-slate-900">{camp.organiser_name}</div>
+        {showType ? <div className="text-xs text-slate-500">{typeLabel}</div> : null}
+        {camp.organiser_tagline ? (
+          <p className="mt-1 text-sm italic text-slate-600">{camp.organiser_tagline}</p>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function Fact({ label, big, sub }) {
   return (
     <div>
@@ -324,7 +365,7 @@ function Footer() {
     <footer className="pt-4 text-center text-xs text-slate-400">
       {t('camp_pub_powered_pre')}
       <Link to="/" className="font-semibold text-rk-700 hover:underline">
-        <Wordmark className="inline-block align-baseline text-[13px]" />
+        <Wordmark tm className="inline-block align-baseline text-[13px]" />
       </Link>
       {t('camp_pub_powered_post')}
     </footer>

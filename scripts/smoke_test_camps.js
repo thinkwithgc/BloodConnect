@@ -124,6 +124,21 @@ function fetchJson(method, urlPath, opts = {}) {
   }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
 }
 
+// fetchJson cannot carry an image. Its body line is unconditional -
+// JSON.stringify(opts.body) - so a Buffer would arrive at the server as JSON
+// text, and the ...opts.headers spread can override the content type but not
+// that. So POST /camps/access/:token/logo-raw, which is
+// express.raw({ type: ['image/jpeg', 'image/png'] }), gets its own sibling here,
+// exactly as tokenUpload sits beside tokenFetch on the organiser dashboard.
+// Node's fetch takes a Buffer directly (a Buffer IS a Uint8Array).
+function fetchRaw(method, urlPath, buf, contentType) {
+  return fetch(`http://127.0.0.1:${PORT}${urlPath}`, {
+    method,
+    headers: { 'Content-Type': contentType },
+    body: buf,
+  }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => ({})) }));
+}
+
 const DAY_MS = 86400000;
 function isoDay(offset = 0) {
   return new Date(Date.now() + offset * DAY_MS).toISOString().slice(0, 10);
@@ -1606,6 +1621,234 @@ async function main() {
     assert(
       r.status === 200 && Array.isArray(r.body.registrations),
       `the camp's own blood bank still reads the roster it needs (${r.status})`,
+    );
+
+    console.log('── 16. organiser branding, and the gate in front of it ─────');
+
+    // Migration 319. The organiser uploads a logo and one line of their own
+    // words through their magic link; NOTHING reaches the public camp page
+    // until an NGO admin approves it.
+    //
+    // Two fixture facts, both load-bearing:
+    //
+    //  1. camp1 is created 'PL' at line 415 but is shifted, PATCHed and closed
+    //     by sections 3-13, so its status here is not knowable from reading
+    //     section 1. GET /camps/public/:slug filters
+    //     AND c.status IN ('PL','LV') and answers 404 camp_not_found otherwise -
+    //     and a 404 body has no logo_data_uri, so an "absent" assertion would
+    //     pass for entirely the wrong reason. Hence the UPDATE below, and hence
+    //     every public assertion also asserts status 200.
+    //
+    //  2. Nothing else in this file exercises the organiser magic-link surface,
+    //     so there is no token to borrow. loadToken() checks only revoked_at and
+    //     expires_at - nothing about the camp - so a minted row is enough.
+    await sql(
+      `UPDATE donation_camps SET status = 'PL' WHERE id = $1`,
+      [TEST.camp1],
+      'camp smoke: publish camp1 for the branding gate',
+    );
+    const brandToken = `cmbrand${RUN_TAG}tokenaaaaaaaa`;
+    await sql(
+      `INSERT INTO camp_access_tokens (camp_id, token, expires_at)
+       VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+      [TEST.camp1, brandToken],
+      'camp smoke: mint an organiser magic token',
+    );
+    const brandSlug = (await sql(`SELECT slug FROM donation_camps WHERE id = $1`, [TEST.camp1]))
+      .rows[0].slug;
+
+    r = await fetchJson('GET', `/camps/access/${brandToken}`);
+    assert(
+      r.status === 200 && r.body.camp && r.body.camp.id === TEST.camp1,
+      `the minted magic token opens the organiser dashboard (${r.status})`,
+    );
+    assert(
+      !r.body.camp.branding_status && !r.body.camp.logo_data_uri,
+      'a camp nobody has branded carries no branding_status and no logo',
+    );
+
+    // The four ways the upload route says no, and the ORDER they fire in:
+    // content-type, then empty, then SIZE, then magic bytes. The size check
+    // comes first, so the over-budget buffer below does not need to be a real
+    // JPEG for 413 to be the reason it is refused - the two cases cannot mask
+    // each other.
+    const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+    const goodPng = Buffer.concat([PNG_SIG, Buffer.alloc(64, 0x20)]);
+
+    r = await fetchRaw(
+      'POST',
+      `/camps/access/${brandToken}/logo-raw`,
+      Buffer.from('GIF89a'),
+      'image/gif',
+    );
+    assert(
+      r.status === 415 && r.body.error === 'unsupported_media_type',
+      `a type the route does not accept is 415, not a mismatch (${r.status})`,
+    );
+
+    r = await fetchRaw(
+      'POST',
+      `/camps/access/${brandToken}/logo-raw`,
+      Buffer.alloc(0),
+      'image/png',
+    );
+    assert(
+      r.status === 400 && r.body.error === 'empty_body',
+      `a zero-length body is refused before anything else (${r.status})`,
+    );
+
+    r = await fetchRaw(
+      'POST',
+      `/camps/access/${brandToken}/logo-raw`,
+      Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(60000)]),
+      'image/jpeg',
+    );
+    assert(
+      r.status === 413 && r.body.error === 'logo_too_large' && r.body.max_bytes === 50000,
+      `60 KB is over the 50 KB decoded ceiling (${r.status} ${r.body.error})`,
+    );
+
+    // A .txt renamed .jpg. The raw body never passes through sanitizeInput
+    // (that only walks strings), so this magic-byte test IS the validation.
+    r = await fetchRaw(
+      'POST',
+      `/camps/access/${brandToken}/logo-raw`,
+      Buffer.from('this is not a jpeg, it is a text file with a new name'),
+      'image/jpeg',
+    );
+    assert(
+      r.status === 400 && r.body.error === 'content_type_mismatch',
+      `a text file declared image/jpeg is refused on its bytes (${r.status})`,
+    );
+
+    r = await fetchRaw('POST', `/camps/access/${brandToken}/logo-raw`, goodPng, 'image/png');
+    assert(
+      r.status === 200 &&
+        r.body.bytes === goodPng.length &&
+        r.body.content_type === 'image/png' &&
+        r.body.branding_status === 'PE',
+      `a real PNG lands and goes straight to PE (${r.status} ${r.body.branding_status})`,
+    );
+    // The caller already holds the bytes; echoing ~67 KB of base64 back would be
+    // pure waste, and the dashboard re-reads GET /camps/access/:token anyway.
+    assert(
+      r.body.logo_data_uri === undefined,
+      'the upload response never echoes the data URI back',
+    );
+
+    r = await fetchJson('GET', `/camps/public/${brandSlug}`);
+    assert(
+      r.status === 200 && !r.body.logo_data_uri,
+      `a PE logo is invisible on the public camp page (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/access/${brandToken}`);
+    assert(
+      r.status === 200 && (r.body.camp.logo_data_uri || '').startsWith('data:image/png;base64,'),
+      `the organiser sees their own PE upload (${r.status})`,
+    );
+
+    r = await fetchJson('PATCH', `/camps/access/${brandToken}/branding`, { body: {} });
+    assert(
+      r.status === 400 && r.body.error === 'nothing_to_update',
+      `a branding PATCH with no tagline key changes nothing (${r.status})`,
+    );
+
+    r = await fetchJson('PATCH', `/camps/access/${brandToken}/branding`, {
+      body: { tagline: 'Serving Amravati since 1985.' },
+    });
+    assert(
+      r.status === 200 &&
+        r.body.organiser_tagline === 'Serving Amravati since 1985.' &&
+        r.body.branding_status === 'PE',
+      `the organiser line saves and stays PE (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/public/${brandSlug}`);
+    assert(
+      r.status === 200 && !r.body.organiser_tagline,
+      `the tagline rides the same gate as the logo (${r.status})`,
+    );
+
+    r = await fetchJson('POST', `/camps/${TEST.camp1}/branding/approve`, {
+      headers: { Authorization: `Bearer ${TEST.bb1Token}` },
+    });
+    assert(
+      r.status === 403 && r.body.error === 'forbidden',
+      `a blood bank cannot approve what an organiser uploaded (${r.status})`,
+    );
+
+    r = await fetchJson('POST', `/camps/${TEST.camp1}/branding/approve`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+    });
+    assert(
+      r.status === 200 && r.body.camp.branding_status === 'AP',
+      `the NGO side approves it (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/public/${brandSlug}`);
+    assert(
+      r.status === 200 &&
+        (r.body.logo_data_uri || '').startsWith('data:image/png;base64,') &&
+        r.body.organiser_tagline === 'Serving Amravati since 1985.',
+      `approved branding is what the donor finally sees (${r.status})`,
+    );
+
+    r = await fetchJson('POST', `/camps/${TEST.camp1}/branding/approve`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'no_branding_pending',
+      `approving twice is a 409, not a silent no-op (${r.status})`,
+    );
+
+    // The invariant the whole gate rests on: an approved logo cannot be swapped
+    // for something else behind the admin.
+    r = await fetchJson('PATCH', `/camps/access/${brandToken}/branding`, {
+      body: { tagline: 'Serving Amravati since 1985. Rotary Club.' },
+    });
+    assert(
+      r.status === 200 && r.body.branding_status === 'PE',
+      `an edit after approval goes straight back to PE (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/public/${brandSlug}`);
+    assert(
+      r.status === 200 && !r.body.logo_data_uri && !r.body.organiser_tagline,
+      `and the already-approved LOGO leaves the public page with it (${r.status})`,
+    );
+
+    r = await fetchJson('POST', `/camps/${TEST.camp1}/branding/reject`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: {},
+    });
+    assert(
+      r.status === 400 && r.body.error === 'invalid_input',
+      `a rejection with no note is refused - migration 319 requires one (${r.status})`,
+    );
+
+    r = await fetchJson('POST', `/camps/${TEST.camp1}/branding/reject`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: { note: 'Please upload the society logo, not a photo of a person.' },
+    });
+    assert(
+      r.status === 200 && r.body.camp.branding_status === 'RJ',
+      `a rejection with a note lands (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/access/${brandToken}`);
+    assert(
+      r.status === 200 &&
+        r.body.camp.branding_status === 'RJ' &&
+        r.body.camp.branding_review_note ===
+          'Please upload the society logo, not a photo of a person.',
+      `the organiser reads exactly why, word for word (${r.status})`,
+    );
+
+    r = await fetchJson('GET', `/camps/public/${brandSlug}`);
+    assert(
+      r.status === 200 && !r.body.logo_data_uri && !r.body.organiser_tagline,
+      `rejected branding stays off the public page (${r.status})`,
     );
 
   } catch (err) {

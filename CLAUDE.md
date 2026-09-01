@@ -538,11 +538,17 @@ happening to open the `/admin` Camps tab.
 - **No migration.** `notification_log.template_type` is plain `TEXT` with no
   CHECK — verified against the DB, not assumed. Schema head stays **319**.
 - **It cannot deliver until Meta approves it.** `camp_review_pending` is a
-  brand-new template (UTILITY, 5 body vars, EN/MR/HI, **body-only — an admin
-  link is constant, and a constant URL button is what got
-  `community_leader_welcome` re-classified MARKETING**) and needs the
-  appsetting `WHATSAPP_TEMPLATE_CAMP_REVIEW_PENDING=camp_review_pending`. Copy
-  lives in `docs/Raktify_WhatsApp_Templates.md` **Template 23**.
+  brand-new template (UTILITY, 5 body vars, **body-only — an admin link is
+  constant, and a constant URL button is what got `community_leader_welcome`
+  re-classified MARKETING**). Copy lives in
+  `docs/Raktify_WhatsApp_Templates.md` **Template 23**.
+  **`WHATSAPP_TEMPLATE_CAMP_REVIEW_PENDING=camp_review_pending` IS set on
+  `raktify-api`** (25 template appsettings now, verified by re-`list`), and **EN
+  was submitted 2026-09-01 and is PENDING** — so Meta's EN review is the only
+  thing left between a camp application and a coordinator's phone. **MR + HI are
+  deliberately NOT submitted yet:** the house rule is let EN clear first so a
+  rejection costs one round trip instead of three, and the call site passes
+  `language: 'en'` explicitly regardless.
 - **Adjacent gap, deliberately NOT fixed:** a camp **auto-accepted** at apply
   (`auto_accept_within_capacity` stamps `bb_response='AC'`) still tells the
   blood bank nothing, and `camp_bb_request`'s *"accept or decline"* copy is the

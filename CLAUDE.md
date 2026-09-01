@@ -134,10 +134,49 @@ commit/deploy cycles — get it right the first time by following these:
   colours (those are status-only: green=ok, amber=warning, red=danger).
 - **Typography: Inter + Noto Sans Devanagari fallback, one family.** No
   serif, no second display font. Weight/size make hierarchy.
-- **Wordmark: "Rakt" RED, "ify" BLACK — never reversed.** `<Wordmark/>` renders
-  the finalized SVG vector (`docs/trademark/`); static HTML uses `/wordmark-tm.svg`.
-  Mark is filed/pending → **™ not ®** (opt-in `tm` prop, public/hero only). In
-  React use `<Wordmark/>`, never hand-typed.
+- **Wordmark: "Rakt" RED, "ify" BLACK — never reversed, and ALWAYS THE VECTOR.**
+  Two sources, byte-identical artwork: **`frontend/public/wordmark-tm.svg`** (the
+  file, for anything outside React) and `frontend/src/components/Wordmark.jsx` (the
+  same paths as constants). *(`docs/trademark/`, cited by both this file and
+  `Wordmark.jsx`, **does not exist** — stale reference, ignore it.)*
+  **Never re-type the wordmark as text** — not `<span><i>Rakt</i>ify</span>`, not a
+  styled `<b>`, not in an email, a doc, an OG image or a print sheet. A text
+  approximation drifts with whatever font the renderer actually has, which is the
+  literal reason the vector exists (`Wordmark.jsx`’s header comment says so), and
+  static `docs/*.html` is opened **offline at a print shop** where the Google Fonts
+  Inter link silently fails and the mark renders in Times. So:
+  - **React → `<Wordmark/>`**, never anything else.
+  - **Static HTML → one `<symbol id="rk-wordmark" viewBox="57 107 1185 378">`**
+    holding the paths copied **verbatim** from `wordmark-tm.svg`, then
+    `<svg><use href="#rk-wordmark" /></svg>` at every brand position. Same-document
+    `<use>` prints exactly like it screens; an *external* `<use href="file.svg#id">`
+    does not, and neither does an `<img src>` once the file is emailed elsewhere.
+    Worked example: `docs/Raktify_QR_Posters.html` (18 positions, one sprite).
+  - Aspect ratio is **1185 × 378 = 3.135 : 1** — size by height and derive the width
+    (16mm tall → 50.2mm wide). Cap height lands ≈ 0.58 of the box.
+  - **The wordmark stands ALONE.** All six app call sites render it with no icon
+    square beside it — it already carries the droplet as the `i` tittle, so pairing
+    it with the icon duplicates the droplet. Do not build a lockup.
+- **™, never ® — and the glyph is the whole announcement.** The mark is
+  **filed and PENDING**; printing ® is a §107 offence. `<Wordmark tm/>` on public +
+  marketing surfaces and the landing hero (not authenticated portal chrome).
+  **"trade mark", never "registered"**, and never ®, until registration actually
+  lands. Do not enlarge or restyle the ™ glyph on one surface to make it louder —
+  that forks the mark, which is the exact defect this rule exists to prevent.
+  **A public print artefact carries an owner note, and it is FINE PRINT, not a
+  claim** (founder, 30-Aug-2026: *"dont put trademark notice like we are screamng.
+  just a gentel subtle note is sufficient. even the TM mark give the hint that its
+  already trademarked."*). One muted line, the sheet's **last** element, below the
+  footer rule, **smaller than the footer** (7pt vs 8.5pt in
+  `docs/Raktify_QR_Posters.html`), in `--ink-3`, with **no ink-black bold on
+  "Raktify™" and no prohibition clause**: *"Raktify™ · a trade mark of Choudhari
+  EduHealth India Foundation (application pending)"*. It says who owns the name;
+  the ™ riding on the vector already says the name is claimed. Two specific
+  regressions to avoid: making it the same size as the footer (it then reads as a
+  peer statement rather than fine print), and placing it directly above a footer
+  that already bolds *Choudhari EduHealth India Foundation* (the same owner named
+  twice running reads as a restated claim). A sheet that shouts about its trade
+  mark reads defensive, not professional.
 - **Icon (unified 16-Jul-2026): ONE flat brand-red square + white
   wordmark-droplet + red cell-dot, identical in `icon.svg` + `app-icon.svg`.
   Flat only — no gradient/rings/gloss; no letters/monogram. Edit `app-icon.svg`

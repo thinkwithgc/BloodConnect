@@ -15,10 +15,11 @@ older section it contradicts.
 **Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
 `git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
 (fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
-auto-applies migrations to prod**). Last twenty-one commits, newest first:
+auto-applies migrations to prod**). Last twenty-two commits, newest first:
 
 | Commit | What |
 |---|---|
+| `1a940cc` | `docs`: the commit table pointed at a pre-amend hash — corrected, plus the prod-state claims for the 2026-09-02 push |
 | `420a84d` | `feat(camps)`: an NGO admin can **hard-delete** a camp nobody has touched, from `/admin` — recoverable because `fn_audit_row` files the whole row as JSON. See **A camp can be hard-deleted** below |
 | `e42b32b` | `feat(i18n)`: **English is the default WhatsApp language** (migration **320**), Marathi is a choice. See **English is the default language** below |
 | `3eb8963` | `docs(whatsapp)`: `camp_day_of_v2` `mr`+`hi` submitted — the appsetting flip **waits for all three languages** |
@@ -120,10 +121,14 @@ table below, plus per-day BB camp capacity publishing, per-camp
 brief), the post-camp results worklist, the `GET /camps/:id/registrations`
 institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
 
-**The camp-delete commit `420a84d` is the only thing on this branch not yet in prod**
-(no migration — route + admin UI + smoke only). Everything before it is live:
-`9e4b7cf..e42b32b` went up 2026-09-01 (migration 320 applied, `/health` 200 `db: ok`),
-and before that `30d6ef4..9e4b7cf` was pushed
+**Everything on this branch is now in prod.** `e42b32b..1a940cc` went up
+2026-09-02T08:05 UTC — the camp hard-delete (no migration: route + admin UI + smoke
+only), all three workflows green (CI 24s, `raktify-web` 1m50s, `raktify-api` 3m36s).
+`DELETE /camps/:id` verified live — it answers `missing_token` while
+`/camps/:id/nope` on the same prefix still answers `route_not_found`, which is what
+rules out a deploy-skew false positive rather than merely hoping the window had
+passed. Before that, `9e4b7cf..e42b32b` went up 2026-09-01 (migration 320 applied,
+`/health` 200 `db: ok`), and before that `30d6ef4..9e4b7cf` was pushed
 2026-09-01T08:58 UTC — 5 commits, all three workflows green (CI 29s, `raktify-web`
 1m47s, `raktify-api` 3m41s), migration 319 applied by the `migrate` job. All four
 branding routes verified live against `raktify-api`: `/branding/approve` and

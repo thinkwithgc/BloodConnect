@@ -2723,6 +2723,100 @@ router.post(
   },
 );
 
+// ── DELETE /camps/:id (hard delete — ngo_admin only) ──────────────────────
+// Permanently removes a camp row. A hard DELETE is acceptable here for two
+// reasons, and BOTH have to stay true:
+//   1. `donation_camps` is audited (099_attach_audit_triggers.sql:32), and
+//      fn_audit_row() handles TG_OP='DELETE' by writing ONE audit_log row
+//      whose old_value is to_jsonb(OLD)::text — the ENTIRE camp as JSON —
+//      alongside the actor and the change_reason set below. audit_log is
+//      INSERT-only and hash-chained (hard rule 2), so the delete does not
+//      destroy the record; it moves it to the immutable ledger, attributable
+//      and reconstructable. That is what makes this safe — do not remove the
+//      change_reason, it is the only human explanation the ledger will hold.
+//   2. The guards below refuse any camp with a human attached, so nothing a
+//      donor can see is ever erased. DO NOT WIDEN THEM. Cascading donor
+//      RSVPs away on a mis-click is precisely the failure this must not have;
+//      /cancel (status='CA') is the answer for a camp people engaged with.
+// `coordinator` is deliberately NOT granted this, unlike /cancel — the NGO
+// admin owns the register. RLS is inert at runtime, so requireRole plus the
+// guards ARE the boundary.
+const deleteCampSchema = z.object({
+  reason: z.string().min(3).max(1000),
+});
+router.delete('/:id', verifyJWT, requireRole('ngo_admin', 'super_admin'), async (req, res) => {
+  const parsed = deleteCampSchema.safeParse(req.body || {});
+  if (!parsed.success) {
+    return res.status(400).json({ error: 'invalid_input', details: parsed.error.format() });
+  }
+  const { reason } = parsed.data;
+  const campId = req.params.id;
+
+  // One pre-read for every refusal, so the UI can name the blocker instead of
+  // surfacing a raw 23503 from the NO ACTION FKs on donors.registration_camp_id
+  // (033:80) and donation_history.donation_camp_id (033:84).
+  const pre = await withRlsContext(req, (c) =>
+    c.query(
+      `SELECT c.status,
+              (SELECT COUNT(*) FROM camp_registrations r WHERE r.camp_id = c.id) AS registrations,
+              (SELECT COUNT(*) FROM donation_history d WHERE d.donation_camp_id = c.id) AS donations,
+              (SELECT COUNT(*) FROM donors dn WHERE dn.registration_camp_id = c.id) AS recruited
+         FROM donation_camps c
+        WHERE c.id = $1`,
+      [campId],
+    ),
+  );
+  if (pre.rowCount === 0) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  const pc = pre.rows[0];
+
+  // 'CO' is checked FIRST: it is the most fundamental refusal (a camp that
+  // actually happened is a permanent record, whatever its roster looks like)
+  // and it needs no count to explain itself.
+  if (pc.status === 'CO') {
+    return res.status(409).json({ error: 'camp_is_completed' });
+  }
+  if (Number(pc.registrations) > 0) {
+    return res
+      .status(409)
+      .json({ error: 'camp_has_registrations', count: Number(pc.registrations) });
+  }
+  if (Number(pc.donations) > 0) {
+    return res.status(409).json({ error: 'camp_has_donations', count: Number(pc.donations) });
+  }
+  if (Number(pc.recruited) > 0) {
+    return res.status(409).json({ error: 'camp_recruited_donors', count: Number(pc.recruited) });
+  }
+
+  // camp_access_tokens (262:22) and camp_branding_logo (319:116) are both
+  // ON DELETE CASCADE — the organiser's magic link and any uploaded logo go
+  // with the camp, which is correct. camp_registrations is CASCADE too, but
+  // the guard above means it is never exercised.
+  const r = await withRlsContext(
+    req,
+    (c) =>
+      c.query(
+        `DELETE FROM donation_camps
+               WHERE id = $1
+           RETURNING id, name, status`,
+        [campId],
+      ),
+    { change_reason: `camp deleted: ${reason.slice(0, 200)}` },
+  );
+  if (r.rowCount === 0) {
+    return res.status(404).json({ error: 'not_found' });
+  }
+  // warn, not info: a permanent removal should stand out in the log stream.
+  // The typed reason is deliberately NOT logged — it is free text and lands in
+  // audit_log already; the log line only needs to point at the audit row.
+  logger.warn(
+    { campId, campName: r.rows[0].name, prevStatus: r.rows[0].status, actor: req.user.userId },
+    'camp hard-deleted by admin (full row preserved in audit_log)',
+  );
+  res.json({ deleted: true, id: r.rows[0].id, name: r.rows[0].name, status: r.rows[0].status });
+});
+
 // ── POST /camps/:id/branding/approve · /branding/reject ────────────
 //
 // The same person who verified the camp vets what the organiser put on it — the

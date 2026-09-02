@@ -15,10 +15,18 @@ older section it contradicts.
 **Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
 `git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
 (fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
-auto-applies migrations to prod**). Last thirteen commits, newest first:
+auto-applies migrations to prod**). Last twenty-one commits, newest first:
 
 | Commit | What |
 |---|---|
+| `1761761` | `feat(camps)`: an NGO admin can **hard-delete** a camp nobody has touched, from `/admin` — recoverable because `fn_audit_row` files the whole row as JSON. See **A camp can be hard-deleted** below |
+| `e42b32b` | `feat(i18n)`: **English is the default WhatsApp language** (migration **320**), Marathi is a choice. See **English is the default language** below |
+| `3eb8963` | `docs(whatsapp)`: `camp_day_of_v2` `mr`+`hi` submitted — the appsetting flip **waits for all three languages** |
+| `27b2e37` | `docs(whatsapp)`: `camp_day_of_v2` + `camp_review_pending` `mr`/`hi` submitted |
+| `93c07c3` | `feat(whatsapp)`: `camp_day_of` reworded as **`camp_day_of_v2`** so Meta files it UTILITY, not MARKETING |
+| `1cd3eee` | `docs`: `camp_review_pending`'s appsetting is set and `en` is submitted |
+| `2c66ccf` | `feat(camps)`: a camp application now **TELLS the NGO side** it needs reviewing. See **A camp application told NOBODY** below |
+| `65ad800` | `docs`: camp branding is in prod — migration 319 applied, all four routes verified |
 | `9e4b7cf` | `docs(whatsapp)`: the camp template gap is closed — 24/24 appsettings, 4 templates APPROVED in `en` |
 | `ad84034` | `fix(whatsapp)`: a Meta template body may not **start** with a variable — 9 records reworded. See the leading/trailing-variable bullet under **WhatsApp template pipeline** |
 | `19e3ee3` | `feat(camps)`: an organiser's **own logo + tagline** on the public camp page, NGO-approved (migration **319**). See **Camp branding** below |
@@ -37,7 +45,8 @@ auto-applies migrations to prod**). Last thirteen commits, newest first:
 | `3c4d235` | Camp organiser names a blood bank; NGO admin confirms it (migration 315) |
 
 **Schema head.** **99 migration files, latest `320_default_language_english`.
-Next new migration is `321`.** 320 ships with this push — a catalogue-only
+Next new migration is `321`.** 320 went to **prod** 2026-09-01
+(`✓ 320_default_language_english (960ms)`) — a catalogue-only
 `ALTER COLUMN ... SET DEFAULT 'en'` on three tables, no table rewrite, no scan,
 and **no backfill of existing rows** (see **English is the default language**
 below). 319 went to **prod** at 2026-09-01T08:59:49 UTC
@@ -53,7 +62,7 @@ two of them):
 
 | Command | Count | Notes |
 |---|---|---|
-| `npm run smoke:camps` | **140** | The camp gate. Attendance derivation + capacity + `bb_response` + the PII scoping + the branding approval gate. **One assertion is dev-state-dependent — see below** |
+| `npm run smoke:camps` | **151** | The camp gate. Attendance derivation + capacity + `bb_response` + the PII scoping + the branding approval gate + the hard-delete guards. **One assertion is dev-state-dependent — see below** |
 | `node scripts/smoke_test_phase4.js` | 17 | **Required regression** for anything touching `donation_history` / `donor_screening` |
 | `node scripts/smoke_test_phase2.js` | **172** | Institution onboarding / paper MoU / staff-login editing / the two-404 split / the portal's own-name banner |
 | `node scripts/check_whatsapp_templates.js` | 0 fail, 1 warn | Every `templateType` in `backend/src` must have a handler **and** an env key |
@@ -111,7 +120,10 @@ table below, plus per-day BB camp capacity publishing, per-camp
 brief), the post-camp results worklist, the `GET /camps/:id/registrations`
 institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
 
-**Everything on this branch is now in prod.** `30d6ef4..9e4b7cf` was pushed
+**The camp-delete commit `1761761` is the only thing on this branch not yet in prod**
+(no migration — route + admin UI + smoke only). Everything before it is live:
+`9e4b7cf..e42b32b` went up 2026-09-01 (migration 320 applied, `/health` 200 `db: ok`),
+and before that `30d6ef4..9e4b7cf` was pushed
 2026-09-01T08:58 UTC — 5 commits, all three workflows green (CI 29s, `raktify-web`
 1m47s, `raktify-api` 3m41s), migration 319 applied by the `migrate` job. All four
 branding routes verified live against `raktify-api`: `/branding/approve` and
@@ -500,7 +512,8 @@ or rejects it, and only an approved pair renders publicly. Migration **319**.
   carve-out, not an omission. See **Marathi i18n**.
 - **`poster_storage_key` (migration 033) is untouched.** It predates this and is a
   different thing (the generated poster PDF, not organiser identity).
-- **Gate: `npm run smoke:camps` → 140** (was 117). Section 16 mints its own
+- **Gate: `npm run smoke:camps` → 151** (branding took it 117 → 140; §17’s
+  hard-delete gate took it to 151). Section 16 mints its own
   `camp_access_tokens` row and moves camp1 to `'PL'` **first**, because
   `GET /camps/public/:slug` filters `status IN ('PL','LV')` and a 404 body has no
   `logo_data_uri` — an "absent" assertion would otherwise pass for the wrong
@@ -565,6 +578,64 @@ happening to open the `/admin` Camps tab.
   `blood-bank-options` `LIMIT 25` dev-state assertion — 25 rows returned),
   `check_whatsapp_templates.js` 0 fail / 1 warn (handlers 21, env keys 25),
   lint + `format:check` clean.
+
+## A camp can be hard-deleted, and the audit ledger is what makes that safe (shipped 2026-09-02)
+
+There was no delete path at all: `POST /camps/:id/cancel` only sets `status='CA'` and
+keeps the row, so a stray test camp could only be cleaned up from the database — and
+this repo has **no read/write path to prod's DB by design** (`.env`'s
+`DATABASE_URL_PROD` is empty; the prod URL exists only as a Key Vault secret App
+Service resolves). `DELETE /camps/:id` + a two-step confirm in the `/admin` Camps tab
+close that. **No migration — schema head stays 320.**
+
+- **"And the log is also recorded" needed NO new code, and that is the reusable
+  insight.** `donation_camps` is audited (`099_attach_audit_triggers.sql:32`), and
+  `fn_audit_row()` handles `TG_OP='DELETE'` by writing **one** `audit_log` row whose
+  `old_value` is `to_jsonb(OLD)::text` — **the entire camp as JSON** — with
+  `field_name = NULL`, the actor, and `change_reason` from the GUC
+  (`025_audit_log.sql:135-137`, `:179-196`). `audit_log` is INSERT-only and
+  hash-chained (hard rule 2), so a hard `DELETE` does not destroy the record: it
+  **moves it to the immutable ledger, attributable and reconstructable**. Verified on
+  dev — 1705 chars of camp JSON, `actor_role='super_admin'`, the admin's typed reason.
+  **So a hard delete is only ever acceptable on a table `099` actually audits. Check
+  that before adding another one.**
+- **The `change_reason` is the only human explanation the ledger will ever hold**, so
+  `reason` is a mandatory `z.string().min(3).max(1000)` and the delete runs through
+  `withRlsContext(req, fn, { change_reason: \`camp deleted: ${reason.slice(0,200)}\` })`
+  (`middleware/rlsContext.js:32`, `:48`). **Do not make it optional.**
+- **Four guards, and DO NOT WIDEN THEM.** One pre-read, then a specific 409 each with
+  the offending count so the modal can say *how many*: `camp_is_completed` (checked
+  **first** — a camp that happened is a permanent record whatever its roster looks
+  like), `camp_has_registrations`, `camp_has_donations`, `camp_recruited_donors`.
+  Deletion is refused unless the camp has **nothing human attached**. The founder
+  explicitly rejected the wider "anything except completed camps" option: cascading
+  donor RSVPs away on a mis-click is precisely the failure this must not have.
+  `/cancel` is the answer for a camp people engaged with.
+- **The last two guards sit in front of NO ACTION FKs** —
+  `donors.registration_camp_id` (`033:80`) and `donation_history.donation_camp_id`
+  (`033:84`) would throw a raw `23503`, so the guards turn a 500 into a diagnosable
+  409. `camp_registrations` (`260:14`), `camp_access_tokens` (`262:22`) and
+  `camp_branding_logo` (`319:116`) are **ON DELETE CASCADE** — the organiser's magic
+  link and any uploaded logo go with the camp, which is correct.
+- **`coordinator` is deliberately NOT granted this**, unlike `/cancel` — the register
+  is the NGO admin's. `requireRole('ngo_admin','super_admin')` plus the guards **are**
+  the boundary, because RLS is inert at runtime. `CampsTab.jsx` mirrors the gate with
+  `useAuth()`; client-side gating is honesty about who can click, never the boundary.
+- **The Delete button sits OUTSIDE the `isPending` ternary on purpose.** The camp most
+  likely to need deleting is a stray application still at `'PE'`, and the branch
+  holding the Cancel action never renders for one — putting it "next to Cancel" would
+  have hidden it from the exact case it was built for.
+- **`donation_camps`' title column is `name`, not `camp_name`** (`033:14`) — a
+  `RETURNING camp_name` would throw `42703`.
+- **Gate: `npm run smoke:camps` → 151** (was 140). Section 17 asserts the role gate
+  both ways, the mandatory reason, all four refusals, the CASCADE, a clean second-delete
+  404, and — the assertion the whole feature rests on — that `audit_log` holds one
+  DELETE row carrying both the typed reason and the whole camp as JSON. **If that one
+  ever fails, the delete button is no longer safe to ship.** `'CO'` is asserted first
+  because camp2 is both completed *and* rostered, so a registrations-first order would
+  leave `camp_is_completed` unreachable from the fixtures. `node
+  scripts/smoke_test_phase4.js` (17) is a required regression — the guard reads
+  `donation_history`.
 
 ## English is the default language, Marathi is a CHOICE (shipped 2026-09-01, migration 320)
 

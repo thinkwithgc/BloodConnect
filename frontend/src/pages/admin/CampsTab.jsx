@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiRequest } from '../../lib/api.js';
 import { isoOffsetYears, todayISO } from '../../lib/dateBounds.js';
+import { useAuth } from '../../auth/AuthContext.jsx';
 
 const STATUS = {
   PE: { label: 'Pending review', cls: 'bg-amber-100 text-amber-800' },
@@ -182,6 +183,12 @@ export function CampsTab() {
   const [filter, setFilter] = useState('PE');
   const [statusAction, setStatusAction] = useState(null); // { camp, kind: 'complete' | 'cancel' }
   const [brandingCamp, setBrandingCamp] = useState(null);
+  const [deleteCamp, setDeleteCamp] = useState(null);
+  // Mirrors the server gate (requireRole('ngo_admin','super_admin') on
+  // DELETE /camps/:id). Client-side gating is honesty about who can click,
+  // never the boundary - RLS is inert at runtime, so the route is.
+  const { role } = useAuth();
+  const canDelete = role === 'ngo_admin' || role === 'super_admin';
 
   const listQ = useQuery({
     queryKey: ['admin', 'camps', filter],
@@ -350,65 +357,81 @@ export function CampsTab() {
                     </span>
                   </td>
                   <td className="px-3 py-2 text-right">
-                    {isPending ? (
-                      <button
-                        type="button"
-                        className="text-xs font-medium text-rk-700 hover:underline"
-                        onClick={() => setReviewCamp(c)}
-                      >
-                        Review →
-                      </button>
-                    ) : (
-                      <div className="flex items-center justify-end gap-3 whitespace-nowrap">
-                        {c.bb_response === 'DC' && c.status !== 'CO' && c.status !== 'CA' ? (
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-rk-700 hover:underline"
-                            onClick={() => setReassignCamp(c)}
-                            title="Partner a different blood bank"
-                          >
-                            Reassign
-                          </button>
-                        ) : null}
-                        {(c.status === 'PL' || c.status === 'LV') ? (
-                          <>
-                            <button
-                              type="button"
-                              className="text-xs font-medium text-green-700 hover:underline"
-                              onClick={() => setStatusAction({ camp: c, kind: 'complete' })}
-                              title="Mark this camp as completed"
-                            >
-                              Complete
-                            </button>
-                            <button
-                              type="button"
-                              className="text-xs font-medium text-rk-700 hover:underline"
-                              onClick={() => setStatusAction({ camp: c, kind: 'cancel' })}
-                              title="Mark this camp as cancelled"
-                            >
-                              Cancel
-                            </button>
-                          </>
-                        ) : null}
-                        {c.branding_status === 'PE' ? (
-                          <button
-                            type="button"
-                            className="text-xs font-semibold text-rk-700 hover:underline"
-                            onClick={() => setBrandingCamp(c)}
-                            title="Check the logo and the line this organiser uploaded"
-                          >
-                            Branding
-                          </button>
-                        ) : null}
+                    <div className="flex items-center justify-end gap-3 whitespace-nowrap">
+                      {isPending ? (
                         <button
                           type="button"
                           className="text-xs font-medium text-rk-700 hover:underline"
-                          onClick={() => setSelectedCamp(c)}
+                          onClick={() => setReviewCamp(c)}
                         >
-                          Roster →
+                          Review →
                         </button>
-                      </div>
-                    )}
+                      ) : (
+                        <>
+                          {c.bb_response === 'DC' && c.status !== 'CO' && c.status !== 'CA' ? (
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-rk-700 hover:underline"
+                              onClick={() => setReassignCamp(c)}
+                              title="Partner a different blood bank"
+                            >
+                              Reassign
+                            </button>
+                          ) : null}
+                          {c.status === 'PL' || c.status === 'LV' ? (
+                            <>
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-green-700 hover:underline"
+                                onClick={() => setStatusAction({ camp: c, kind: 'complete' })}
+                                title="Mark this camp as completed"
+                              >
+                                Complete
+                              </button>
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-rk-700 hover:underline"
+                                onClick={() => setStatusAction({ camp: c, kind: 'cancel' })}
+                                title="Mark this camp as cancelled"
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          ) : null}
+                          {c.branding_status === 'PE' ? (
+                            <button
+                              type="button"
+                              className="text-xs font-semibold text-rk-700 hover:underline"
+                              onClick={() => setBrandingCamp(c)}
+                              title="Check the logo and the line this organiser uploaded"
+                            >
+                              Branding
+                            </button>
+                          ) : null}
+                          <button
+                            type="button"
+                            className="text-xs font-medium text-rk-700 hover:underline"
+                            onClick={() => setSelectedCamp(c)}
+                          >
+                            Roster →
+                          </button>
+                        </>
+                      )}
+                      {/* Deliberately OUTSIDE the isPending branch: the camp most likely
+                          to need deleting is a stray application still at 'PE', which
+                          that branch never renders. A completed camp is never deletable
+                          - the backend refuses it too. */}
+                      {canDelete && c.status !== 'CO' ? (
+                        <button
+                          type="button"
+                          className="text-xs font-medium text-slate-500 hover:text-rk-700 hover:underline"
+                          onClick={() => setDeleteCamp(c)}
+                          title="Permanently remove this camp - only possible while nobody has registered"
+                        >
+                          Delete
+                        </button>
+                      ) : null}
+                    </div>
                   </td>
                 </tr>
               );
@@ -442,6 +465,20 @@ export function CampsTab() {
           onClose={() => setStatusAction(null)}
           onDone={() => {
             setStatusAction(null);
+            qc.invalidateQueries({ queryKey: ['admin', 'camps'] });
+          }}
+        />
+      ) : null}
+      {deleteCamp ? (
+        <DeleteCampModal
+          camp={deleteCamp}
+          onClose={() => setDeleteCamp(null)}
+          onCancelInstead={() => {
+            setStatusAction({ camp: deleteCamp, kind: 'cancel' });
+            setDeleteCamp(null);
+          }}
+          onDone={() => {
+            setDeleteCamp(null);
             qc.invalidateQueries({ queryKey: ['admin', 'camps'] });
           }}
         />
@@ -614,6 +651,162 @@ function StatusActionModal({ camp, kind, onClose, onDone }) {
             {m.isPending ? '…' : isComplete ? 'Mark completed' : 'Confirm cancellation'}
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * DeleteCampModal — permanently remove a camp, in two deliberate steps.
+ *
+ * A separate component from StatusActionModal on purpose: that one takes a
+ * single reason and fires. This is irreversible from the UI, so it needs the
+ * two-step shape — say plainly what will happen, then require the camp's own
+ * name typed back before the confirm button arms.
+ *
+ * The backend refuses any camp with a human attached (a registration, a
+ * donation, a donor recruited through it, or a completed camp) and answers a
+ * specific code. A refusal is therefore INFORMATION, not a failure: render the
+ * sentence, keep the modal open, and point at Cancel. The full camp row
+ * survives in audit_log either way — see the route header in camps.js.
+ */
+function DeleteCampModal({ camp, onClose, onDone, onCancelInstead }) {
+  const [step, setStep] = useState(1);
+  const [typed, setTyped] = useState('');
+  const [reason, setReason] = useState('');
+
+  const nameMatches = typed.trim() === String(camp.name || '').trim();
+  const canSubmit = nameMatches && reason.trim().length >= 3;
+
+  const m = useMutation({
+    mutationFn: () => apiRequest('DELETE', `/camps/${camp.id}`, { reason: reason.trim() }),
+    onSuccess: onDone,
+  });
+
+  const code = m.error?.response?.data?.error;
+  const n = m.error?.response?.data?.count;
+  const refusal =
+    code === 'camp_has_registrations'
+      ? `${n ?? 'Some'} donor${n === 1 ? ' has' : 's have'} already registered for this camp, so it cannot be deleted. Cancel it instead — that keeps the record and the roster.`
+      : code === 'camp_has_donations'
+        ? 'Donations have been recorded against this camp, so it is a permanent clinical record. Cancel it instead.'
+        : code === 'camp_recruited_donors'
+          ? `${n ?? 'Some'} donor${n === 1 ? '' : 's'} joined Raktify through this camp, so its record has to stay. Cancel it instead.`
+          : code === 'camp_is_completed'
+            ? 'A completed camp cannot be deleted — it is the permanent record of an event that happened.'
+            : code === 'not_found'
+              ? 'This camp no longer exists. Close this and refresh the list.'
+              : code === 'route_not_found'
+                ? 'Reload the page — the site is briefly ahead of the API after a release.'
+                : code || null;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4">
+      <div className="mt-16 w-full max-w-lg space-y-4 rounded-xl bg-white p-6 shadow-lift">
+        <h3 className="text-lg font-semibold text-slate-900">
+          {step === 1 ? 'Delete this camp permanently?' : 'Confirm permanent deletion'}
+        </h3>
+        <p className="text-sm text-slate-600">
+          <strong>{camp.name}</strong> · {camp.venue} · {String(camp.scheduled_date).slice(0, 10)}
+          <br />
+          <span className="text-xs text-slate-500">
+            Organiser: {camp.organiser_name || '—'}
+          </span>
+        </p>
+
+        {step === 1 ? (
+          <>
+            <div className="space-y-2 rounded-lg border border-slate-200 bg-sand/60 p-3 text-sm text-slate-700">
+              <p>
+                This removes the camp row itself. It is <strong>not</strong> the same as
+                cancelling — there will be nothing left in the register for anyone to see.
+              </p>
+              <p className="text-xs text-slate-600">
+                Deleted with it: the organiser&apos;s magic-link dashboard token, and any logo
+                or tagline they uploaded.
+              </p>
+              <p className="text-xs text-slate-600">
+                The complete camp record is written to the audit trail with your name and your
+                reason, so it stays recoverable by an engineer — but not from this screen.
+              </p>
+            </div>
+            <p className="text-sm text-slate-700">
+              If donors have registered, or a blood bank has recorded donations, deletion will
+              be refused — <strong>cancel</strong> the camp instead. A cancelled camp keeps its
+              history and its roster.
+            </p>
+            <div className="flex justify-end gap-2">
+              <button type="button" className="rk-button-secondary" onClick={onClose}>
+                Keep the camp
+              </button>
+              {camp.status === 'PL' || camp.status === 'LV' ? (
+                <button
+                  type="button"
+                  className="rk-button-secondary"
+                  onClick={onCancelInstead}
+                  title="Mark the camp cancelled and keep its record"
+                >
+                  Cancel it instead
+                </button>
+              ) : null}
+              <button type="button" className="rk-button-primary" onClick={() => setStep(2)}>
+                Continue
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <label className="block">
+              <span className="rk-label">
+                Type the camp name to confirm <span className="text-rk-700">*</span>
+              </span>
+              <input
+                className="rk-input"
+                value={typed}
+                onChange={(e) => setTyped(e.target.value)}
+                placeholder={camp.name}
+                autoComplete="off"
+              />
+              <span className="mt-1 block text-xs text-slate-500">
+                {nameMatches ? 'Matches.' : 'Must match exactly, including capitals.'}
+              </span>
+            </label>
+            <label className="block">
+              <span className="rk-label">
+                Why is it being deleted? <span className="text-rk-700">*</span>
+              </span>
+              <textarea
+                className="rk-input"
+                rows={3}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+                placeholder="e.g. Duplicate test application created while checking the review alert."
+                required
+              />
+              <span className="mt-1 block text-xs text-slate-500">
+                Written to the audit trail alongside the full camp record. This is the only
+                explanation the trail will ever hold — write it for someone reading it in a
+                year.
+              </span>
+            </label>
+
+            {refusal ? <p className="text-sm text-rk-700">{refusal}</p> : null}
+
+            <div className="flex justify-end gap-2">
+              <button type="button" className="rk-button-secondary" onClick={() => setStep(1)}>
+                Back
+              </button>
+              <button
+                type="button"
+                className="rk-button-primary bg-rk-700 hover:bg-rk-800"
+                disabled={!canSubmit || m.isPending}
+                onClick={() => m.mutate()}
+              >
+                {m.isPending ? '…' : 'Delete permanently'}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );

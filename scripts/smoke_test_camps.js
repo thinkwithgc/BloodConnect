@@ -36,6 +36,11 @@
  *      holiday, the public availability strip leaks only counts, PE → AC /
  *      DC-with-reason, the partner-less CHECK, a decline keeps status +
  *      partner + collectability, auto-accept, and the masked results worklist
+ * 16.  organiser branding (319): the logo is a data: URI, an edit resets the
+ *      status to PE, and only an APPROVED pair reaches the public page
+ * 17.  hard delete (ngo_admin only): the four refusals that keep a camp with a
+ *      human attached, the CASCADE, and the audit_log row that makes a
+ *      permanent removal recoverable
  */
 const path = require('path');
 require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
@@ -1849,6 +1854,135 @@ async function main() {
     assert(
       r.status === 200 && !r.body.logo_data_uri && !r.body.organiser_tagline,
       `rejected branding stays off the public page (${r.status})`,
+    );
+
+    // ── 17. a hard delete, and the four things that refuse it ────────────────
+    console.log('');
+    console.log('── 17. hard delete, guarded, and recorded in audit_log ─────');
+
+    // The role gate. `coordinator` owns /cancel but is deliberately NOT granted
+    // this one - the register is the NGO admin's. This file mints no ngo_admin
+    // login, so saToken stands in for it (super_admin supersets ngo_admin
+    // everywhere in this codebase) and coordToken proves the other side.
+    r = await fetchJson('DELETE', `/camps/${TEST.camp3}`, {
+      headers: { Authorization: `Bearer ${TEST.coordToken}` },
+      body: { reason: 'a coordinator must not be able to do this' },
+    });
+    assert(r.status === 403, `a coordinator cannot delete a camp (${r.status})`);
+
+    r = await fetchJson('DELETE', `/camps/${TEST.camp3}`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: { reason: 'no' },
+    });
+    assert(
+      r.status === 400 && r.body.error === 'invalid_input',
+      `a permanent removal cannot be unexplained - reason is mandatory (${r.status} ${r.body.error})`,
+    );
+
+    // 'CO' is asserted FIRST because the handler checks it first, and it has to:
+    // camp2 is both completed AND carries a roster row, so a registrations-first
+    // order would leave camp_is_completed unreachable from this fixture set.
+    r = await fetchJson('DELETE', `/camps/${TEST.camp2}`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: { reason: 'trying to erase an event that actually happened' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'camp_is_completed',
+      `a completed camp is a permanent record (${r.status} ${r.body.error})`,
+    );
+
+    r = await fetchJson('DELETE', `/camps/${TEST.camp1}`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: { reason: 'trying to erase a camp donors signed up for' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'camp_has_registrations' && r.body.count > 0,
+      `donor RSVPs block the delete, and the count comes back so the modal can say how many (${r.status} ${r.body.error}/${r.body.count})`,
+    );
+
+    // A camp far enough out that no bb_camp_capacity row covers it - absence is
+    // "not published", which never blocks - so this seeds cleanly whatever the
+    // capacity sections above left behind.
+    r = await fetchJson('POST', '/camps', {
+      headers: { Authorization: `Bearer ${TEST.coordToken}` },
+      body: campBody(`Camp Smoke Delete ${RUN_TAG}`, isoDay(90)),
+    });
+    if (r.status !== 201) throw new Error(`delete-target camp seed failed: ${r.status}`);
+    const delCampId = r.body.id;
+    const delCampName = r.body.name;
+    const delToken = `cmdel${RUN_TAG}tokenaaaaaaaaaa`;
+    await sql(
+      `INSERT INTO camp_access_tokens (camp_id, token, expires_at)
+       VALUES ($1, $2, NOW() + INTERVAL '30 days')`,
+      [delCampId, delToken],
+      'camp smoke: magic token that must cascade away with the camp',
+    );
+
+    // donors.registration_camp_id is NO ACTION (033:80), so without this guard
+    // the DELETE would surface a raw 23503 as a 500. Point a donor at the camp,
+    // then unpoint them - which also proves the guard was the ONLY thing
+    // standing in the way.
+    await sql(`UPDATE donors SET registration_camp_id = $1 WHERE id = $2`, [
+      delCampId,
+      DONORS.E.id,
+    ]);
+    r = await fetchJson('DELETE', `/camps/${delCampId}`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: { reason: 'trying to erase the camp that recruited someone' },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'camp_recruited_donors' && r.body.count === 1,
+      `a camp that recruited a donor keeps its record (${r.status} ${r.body.error}/${r.body.count})`,
+    );
+    await sql(`UPDATE donors SET registration_camp_id = NULL WHERE id = $1`, [DONORS.E.id]);
+
+    const delReason = 'duplicate test camp created twice by the same organiser';
+    r = await fetchJson('DELETE', `/camps/${delCampId}`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: { reason: delReason },
+    });
+    assert(
+      r.status === 200 && r.body.deleted === true && r.body.name === delCampName,
+      `a camp with nobody attached deletes, and names what went (${r.status} ${r.body.error || ''})`,
+    );
+
+    const goneRow = await sql(`SELECT id FROM donation_camps WHERE id = $1`, [delCampId]);
+    assert(goneRow.rowCount === 0, 'the camp row is really gone, not just flagged');
+
+    const goneTok = await sql(`SELECT camp_id FROM camp_access_tokens WHERE camp_id = $1`, [
+      delCampId,
+    ]);
+    assert(
+      goneTok.rowCount === 0,
+      'the organiser magic link cascaded away with it (262:22 ON DELETE CASCADE)',
+    );
+
+    // This is the assertion the whole feature rests on: a hard DELETE on an
+    // audited table is recoverable, because fn_audit_row() writes ONE row whose
+    // old_value is the entire camp as JSON, attributed and explained. If this
+    // ever fails, the delete button is no longer safe to ship.
+    const auditRow = await sql(
+      `SELECT change_reason, old_value, actor_role
+         FROM audit_log
+        WHERE table_name = 'donation_camps' AND record_id = $1 AND event_type = 'DELETE'`,
+      [delCampId],
+    );
+    assert(
+      auditRow.rowCount === 1 && (auditRow.rows[0].change_reason || '').includes(delReason),
+      `audit_log holds one DELETE row carrying the admin's typed reason (${auditRow.rowCount} rows)`,
+    );
+    assert(
+      (auditRow.rows[0]?.old_value || '').includes(delCampName),
+      'that row carries the WHOLE deleted camp as JSON, so it can be reconstructed',
+    );
+
+    r = await fetchJson('DELETE', `/camps/${delCampId}`, {
+      headers: { Authorization: `Bearer ${TEST.saToken}` },
+      body: { reason: 'deleting the same camp twice' },
+    });
+    assert(
+      r.status === 404 && r.body.error === 'not_found',
+      `deleting it again is a clean 404, not a crash (${r.status} ${r.body.error})`,
     );
 
   } catch (err) {

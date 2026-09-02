@@ -19,7 +19,7 @@ auto-applies migrations to prod**). Last twenty-one commits, newest first:
 
 | Commit | What |
 |---|---|
-| `1761761` | `feat(camps)`: an NGO admin can **hard-delete** a camp nobody has touched, from `/admin` — recoverable because `fn_audit_row` files the whole row as JSON. See **A camp can be hard-deleted** below |
+| `420a84d` | `feat(camps)`: an NGO admin can **hard-delete** a camp nobody has touched, from `/admin` — recoverable because `fn_audit_row` files the whole row as JSON. See **A camp can be hard-deleted** below |
 | `e42b32b` | `feat(i18n)`: **English is the default WhatsApp language** (migration **320**), Marathi is a choice. See **English is the default language** below |
 | `3eb8963` | `docs(whatsapp)`: `camp_day_of_v2` `mr`+`hi` submitted — the appsetting flip **waits for all three languages** |
 | `27b2e37` | `docs(whatsapp)`: `camp_day_of_v2` + `camp_review_pending` `mr`/`hi` submitted |
@@ -120,7 +120,7 @@ table below, plus per-day BB camp capacity publishing, per-camp
 brief), the post-camp results worklist, the `GET /camps/:id/registrations`
 institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
 
-**The camp-delete commit `1761761` is the only thing on this branch not yet in prod**
+**The camp-delete commit `420a84d` is the only thing on this branch not yet in prod**
 (no migration — route + admin UI + smoke only). Everything before it is live:
 `9e4b7cf..e42b32b` went up 2026-09-01 (migration 320 applied, `/health` 200 `db: ok`),
 and before that `30d6ef4..9e4b7cf` was pushed

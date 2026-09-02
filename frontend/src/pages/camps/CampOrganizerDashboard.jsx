@@ -124,7 +124,7 @@ function loadImage(file) {
     img.onload = () => resolve({ img, url });
     img.onerror = () => {
       URL.revokeObjectURL(url);
-      reject(new Error('decode_failed'));
+      reject(new Error('decode_failed_load'));
     };
     img.src = url;
   });
@@ -217,7 +217,7 @@ async function resizeLogo(file) {
     }
     const srcW = img.naturalWidth || img.width;
     const srcH = img.naturalHeight || img.height;
-    if (!srcW || !srcH) throw new Error('decode_failed');
+    if (!srcW || !srcH) throw new Error('decode_failed_dims');
     const scale = Math.min(1, LOGO_MAX_EDGE / Math.max(srcW, srcH));
     const w = Math.max(1, Math.round(srcW * scale));
     const h = Math.max(1, Math.round(srcH * scale));
@@ -226,7 +226,7 @@ async function resizeLogo(file) {
     canvas.height = h;
     const ctx = canvas.getContext('2d');
     await drawScaled(ctx, file, img, w, h);
-    if (canvasIsBlank(ctx, w, h)) throw new Error('decode_failed');
+    if (canvasIsBlank(ctx, w, h)) throw new Error('decode_failed_blank');
     return await encodeBest(canvas, file.type === 'image/png');
   } finally {
     URL.revokeObjectURL(url);
@@ -313,6 +313,19 @@ export function CampOrganizerDashboard() {
     setBrandErr(null);
     setLogoBusy(true);
     try {
+      // A file already inside the byte budget does not need the canvas AT ALL, and the
+      // canvas is where every one of these failures has lived - an object URL revoked
+      // before the draw, a source too large for WebKit's drawImage area cap, a decode()
+      // that resolves and rasterises nothing. The server magic-byte-verifies the bytes
+      // and enforces the same 50 KB ceiling, so this shrink was always an OPTIMISATION,
+      // never the enforcement: sending the original is strictly safer and strictly
+      // higher fidelity. An unresized 40 KB photo is fine - the public page renders the
+      // logo at 56px and BYTES are the budget, not pixels. Canvas now runs only for the
+      // oversized files that genuinely have to shrink.
+      if (file.size <= LOGO_MAX_BYTES) {
+        await uploadLogo.mutateAsync(file);
+        return;
+      }
       const blob = await resizeLogo(file);
       if (!blob) throw new Error('encode_failed');
       // Only reachable if even the lowest JPEG quality is still over budget.
@@ -323,9 +336,16 @@ export function CampOrganizerDashboard() {
       await uploadLogo.mutateAsync(blob);
     } catch (err) {
       const code = err?.response?.data?.error;
+      const msg = String(err?.message || '');
       if (code === 'logo_too_large') setBrandErr(t('camp_brand_e_too_large'));
-      else if (err?.message === 'decode_failed') setBrandErr(t('camp_brand_e_decode'));
-      else setBrandErr(t('camp_brand_e_failed'));
+      else if (msg.startsWith('decode_failed')) {
+        // The stage is deliberately SHOWN to the organiser. This failure only ever
+        // happens on their device, on their file, in their browser - there is no log
+        // and no other channel back - so the three sites that can raise it (load /
+        // dims / blank) have to be distinguishable from a screenshot.
+        const stage = msg.slice('decode_failed'.length).replace(/^_/, '');
+        setBrandErr(stage ? `${t('camp_brand_e_decode')} (${stage})` : t('camp_brand_e_decode'));
+      } else setBrandErr(t('camp_brand_e_failed'));
     } finally {
       setLogoBusy(false);
     }

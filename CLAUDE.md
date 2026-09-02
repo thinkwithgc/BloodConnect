@@ -19,7 +19,7 @@ auto-applies migrations to prod**). Last twenty-two commits, newest first:
 
 | Commit | What |
 |---|---|
-| `a710cab` | `fix(camps)`: an uploaded organiser logo came out **black** - a canvas that was never drawn on encodes to JPEG as opaque black. See **An uploaded camp logo came out BLACK** below |
+| `a710cab` | `fix(camps)`: an uploaded organiser logo came out **black** - a canvas that was never drawn on encodes to JPEG as opaque black. **That fix did not hold** - see **An uploaded camp logo came out BLACK** below, second pass |
 | `1a940cc` | `docs`: the commit table pointed at a pre-amend hash — corrected, plus the prod-state claims for the 2026-09-02 push |
 | `420a84d` | `feat(camps)`: an NGO admin can **hard-delete** a camp nobody has touched, from `/admin` — recoverable because `fn_audit_row` files the whole row as JSON. See **A camp can be hard-deleted** below |
 | `e42b32b` | `feat(i18n)`: **English is the default WhatsApp language** (migration **320**), Marathi is a choice. See **English is the default language** below |
@@ -526,7 +526,7 @@ or rejects it, and only an approved pair renders publicly. Migration **319**.
   reason. **Any new "field is hidden" assertion on a public camp route needs the
   same care.**
 
-## An uploaded camp logo came out BLACK, and black IS the blank canvas (fixed 2026-09-02)
+## An uploaded camp logo came out BLACK - and the fix was to stop using the canvas (2026-09-02)
 
 An organiser uploading a JPEG or PNG from the magic-link dashboard got a solid black
 rectangle. **Black is never a colour this code picks** - `frontend/src/pages/camps/CampOrganizerDashboard.jsx`
@@ -563,11 +563,36 @@ independent mechanisms produce it, and this file had both.
   page, and it would swap a loud failure for a plausible-looking one.
 - **NOTHING in this repo can catch this class of bug.** `smoke:camps` §16 POSTs real PNG
   bytes straight over HTTP and never runs the browser code; the frontend's only gate is the
-  Vite build; there is no headless browser installed. The fix rests on inspection plus the
-  mechanism - and on `canvasIsBlank()` making any residual failure loud instead of silent.
+  Vite build; there is no headless browser installed. Everything above rests on inspection
+  plus the mechanism - and that turned out not to be enough.
 
-No migration; schema head stays **320**. Gates: throwaway `no-undef` pass clean (see **A
-blank page is a render throw**), `npm run smoke:frontend` builds clean.
+### The canvas fix did not work, so the canvas left the common path (second pass)
+
+`a710cab` shipped and the organiser's next upload failed OUTRIGHT - `canvasIsBlank()` fired
+and the message became *"That image could not be read."* for both JPEG and PNG. So the
+backstop did its job (a silent wrong output became a loud refusal) but the two mechanisms
+above are **NOT confirmed as the cause of the original black rectangle**: something in the
+canvas path fails on that device for a reason inspection has not pinned down, and there is
+no device, no log and no headless browser here to narrow it further. Two changes followed,
+and the first is the reusable one:
+
+- **A file already under `LOGO_MAX_BYTES` is now uploaded RAW, with the canvas skipped
+  entirely.** The client-side resize was never the enforcement - the route
+  magic-byte-verifies the bytes and rejects `> 50000` itself (`camps.js:3073`, and
+  `file.size <= LOGO_MAX_BYTES` is exactly aligned with it) - so for every normal small
+  logo the resize was an **optimisation buying nothing and risking everything**. Bytes are
+  the budget, not pixels: an unresized 40 KB photo renders at 56px on the public page. The
+  canvas now runs only for oversized files that genuinely have to shrink. **When a
+  conversion step is optional and it is the only thing that can fail, take it off the
+  path.**
+- **The three `decode_failed` sites carry distinguishable stages** - `_load` (the `<img>`
+  never decoded), `_dims` (no `naturalWidth`), `_blank` (`canvasIsBlank` after both draw
+  paths) - and the suffix is **deliberately shown to the organiser**, e.g. *"... (blank)"*.
+  This failure only ever happens on someone else's device with someone else's file; a
+  screenshot is the only diagnostic channel that exists, so it has to name the site.
+
+No migration; schema head stays **320**. Gates for both passes: throwaway `no-undef` pass
+clean (see **A blank page is a render throw**), `npm run smoke:frontend` builds clean.
 
 ## A camp application told NOBODY it needed reviewing (fixed 2026-09-01)
 

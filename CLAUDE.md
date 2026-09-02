@@ -19,6 +19,7 @@ auto-applies migrations to prod**). Last twenty-two commits, newest first:
 
 | Commit | What |
 |---|---|
+| `a710cab` | `fix(camps)`: an uploaded organiser logo came out **black** - a canvas that was never drawn on encodes to JPEG as opaque black. See **An uploaded camp logo came out BLACK** below |
 | `1a940cc` | `docs`: the commit table pointed at a pre-amend hash — corrected, plus the prod-state claims for the 2026-09-02 push |
 | `420a84d` | `feat(camps)`: an NGO admin can **hard-delete** a camp nobody has touched, from `/admin` — recoverable because `fn_audit_row` files the whole row as JSON. See **A camp can be hard-deleted** below |
 | `e42b32b` | `feat(i18n)`: **English is the default WhatsApp language** (migration **320**), Marathi is a choice. See **English is the default language** below |

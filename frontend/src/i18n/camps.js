@@ -377,6 +377,7 @@ export const mr = {
   camp_brand_e_too_large: 'फाइल खूप मोठी आहे. लहान फोटो निवडा.',
   camp_brand_e_type: 'फक्त JPG किंवा PNG फाइल चालेल.',
   camp_brand_e_failed: 'पाठवता आले नाही. पुन्हा प्रयत्न करा.',
+  camp_brand_e_decode: 'ही फाइल वाचता आली नाही. दुसरा फोटो निवडून पहा.',
 
   camp_od_roster: 'यादी ({n})',
   camp_od_roster_auto: 'रक्तपेढी नोंद करेल तसे हजेरी आपोआप भरेल.',
@@ -785,6 +786,7 @@ export const en = {
   camp_brand_e_too_large: 'That file is too large. Choose a smaller image.',
   camp_brand_e_type: 'Only JPG or PNG files work.',
   camp_brand_e_failed: 'Could not send that. Please try again.',
+  camp_brand_e_decode: 'That image could not be read. Please try a different file.',
 
   camp_od_roster: 'Roster ({n})',
   camp_od_roster_auto: 'Attendance fills itself as the blood bank records donations.',

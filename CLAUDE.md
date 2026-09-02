@@ -525,6 +525,49 @@ or rejects it, and only an approved pair renders publicly. Migration **319**.
   reason. **Any new "field is hidden" assertion on a public camp route needs the
   same care.**
 
+## An uploaded camp logo came out BLACK, and black IS the blank canvas (fixed 2026-09-02)
+
+An organiser uploading a JPEG or PNG from the magic-link dashboard got a solid black
+rectangle. **Black is never a colour this code picks** - `frontend/src/pages/camps/CampOrganizerDashboard.jsx`
+resizes every logo through a canvas, and **a canvas that was never drawn on encodes to JPEG
+as opaque black, because JPEG has no alpha channel.** So the symptom names the bug exactly:
+a `drawImage()` that silently did nothing while the canvas was still sized correctly. Two
+independent mechanisms produce it, and this file had both.
+
+- **`loadImage()` revoked the object URL inside `img.onload`, BEFORE the draw.** `load`
+  promises the metadata is parsed, **not** that the bitmap is rasterised, so on WebKit
+  `drawImage` no-ops against a revoked `blob:` URL. The revoke now lives in a `finally` in
+  `resizeLogo()`, after the draw, and `await img.decode()` runs first - `decode()` is the
+  one that promises a drawable bitmap. **Never revoke an object URL in the handler that
+  merely tells you the image loaded.**
+- **iOS/WebKit caps the total SOURCE pixel area `drawImage()` accepts** (~16.7M px, less on
+  older devices), so a 48MP phone photo draws **nothing** onto a correctly-sized canvas.
+  That is who the magic link is for - a village organiser on a handset. New `drawScaled()`
+  goes through `createImageBitmap(file, { resizeWidth, resizeHeight, resizeQuality,
+  imageOrientation: 'from-image' })`, which downscales **in the decoder** so the canvas
+  never sees a giant source. `imageOrientation:'from-image'` is required or EXIF rotation is
+  lost (`<img>` + `drawImage` honours it natively, a bare bitmap does not). Older browsers
+  reject the options object or ignore the hints - both land in the `<img>` fallback.
+- **New `canvasIsBlank(ctx, w, h)` is the backstop, and it exists because the failure is
+  otherwise INDISTINGUISHABLE from a deliberately dark logo.** Every real image leaves at
+  least one non-transparent pixel; a blank draw now throws `decode_failed` and the organiser
+  reads *"That image could not be read. Please try a different file."* (`camp_brand_e_decode`,
+  MR + EN - the standing `camp_`/`bb_` no-Hindi carve-out). Cheap: the canvas is at most
+  400x400, and a `blob:` source built from a user-picked `File` is same-origin, so
+  `getImageData()` never taints.
+- **`encodeBest()` is deliberately UNTOUCHED.** Its PNG-under-budget branch preserves alpha
+  so a transparent logo gains no white box, and its `destination-over` white fill is correct
+  for the JPEG path. An unconditional white base coat before `drawImage` was **considered and
+  rejected**: it would put a white box behind a transparent PNG on the cream `#fdf8f4` public
+  page, and it would swap a loud failure for a plausible-looking one.
+- **NOTHING in this repo can catch this class of bug.** `smoke:camps` §16 POSTs real PNG
+  bytes straight over HTTP and never runs the browser code; the frontend's only gate is the
+  Vite build; there is no headless browser installed. The fix rests on inspection plus the
+  mechanism - and on `canvasIsBlank()` making any residual failure loud instead of silent.
+
+No migration; schema head stays **320**. Gates: throwaway `no-undef` pass clean (see **A
+blank page is a render throw**), `npm run smoke:frontend` builds clean.
+
 ## A camp application told NOBODY it needed reviewing (fixed 2026-09-01)
 
 A test camp was created in prod and **no NGO coordinator and no NGO admin got a

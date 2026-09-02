@@ -112,14 +112,16 @@ const BRAND_PILL = {
   RJ: 'bg-rk-100 text-rk-900',
 };
 
+// The object URL is deliberately NOT revoked on success - resizeLogo() revokes it
+// in a finally, AFTER the draw. Revoking it here (which this did until 2026-09-02)
+// can leave drawImage() a silent no-op on WebKit, and a canvas that was never drawn
+// on encodes to JPEG as opaque BLACK. That is how an uploaded logo turned into a
+// black rectangle.
 function loadImage(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      resolve(img);
-    };
+    img.onload = () => resolve({ img, url });
     img.onerror = () => {
       URL.revokeObjectURL(url);
       reject(new Error('decode_failed'));
@@ -151,16 +153,84 @@ async function encodeBest(canvas, preferPng) {
   return last;
 }
 
+// A canvas that was never actually drawn on is fully transparent, and encodeBest()
+// then hands back either an invisible PNG or - because JPEG has no alpha - a solid
+// BLACK tile. Nothing downstream can tell that apart from a deliberately dark logo,
+// so it has to be caught here: every real image leaves at least one non-transparent
+// pixel. Cheap, the canvas is at most 400x400, and a blob: source is same-origin so
+// getImageData() never taints.
+function canvasIsBlank(ctx, w, h) {
+  const { data } = ctx.getImageData(0, 0, w, h);
+  for (let i = 3; i < data.length; i += 4) {
+    if (data[i] !== 0) return false;
+  }
+  return true;
+}
+
+// Two ways onto the 400px canvas, and the first exists because of a hard platform
+// limit: iOS/WebKit caps the total SOURCE pixel area drawImage() will accept (~16.7M,
+// less on older devices), so a 48MP phone photo can draw NOTHING onto a correctly
+// sized canvas - which encodes to JPEG as opaque BLACK. That is the second way an
+// uploaded logo turns into a black rectangle, and a village organiser shooting on a
+// modern handset is exactly who hits it. createImageBitmap() with resizeWidth/Height
+// does the downscale in the decoder, so the canvas never sees a giant source at all;
+// imageOrientation:'from-image' keeps the EXIF rotation that <img> + drawImage give
+// natively and a bare bitmap does not. Older browsers reject the options object, or
+// ignore the resize hints - both land in the <img> fallback, and canvasIsBlank() in
+// resizeLogo() has the final say either way.
+async function drawScaled(ctx, file, img, w, h) {
+  if (typeof createImageBitmap === 'function') {
+    let bmp = null;
+    try {
+      bmp = await createImageBitmap(file, {
+        resizeWidth: w,
+        resizeHeight: h,
+        resizeQuality: 'high',
+        imageOrientation: 'from-image',
+      });
+      ctx.drawImage(bmp, 0, 0, w, h);
+      if (!canvasIsBlank(ctx, w, h)) return;
+    } catch {
+      /* fall through to the <img> path */
+    } finally {
+      if (bmp && typeof bmp.close === 'function') bmp.close();
+    }
+    ctx.clearRect(0, 0, w, h);
+  }
+  ctx.drawImage(img, 0, 0, w, h);
+}
+
 async function resizeLogo(file) {
-  const img = await loadImage(file);
-  const scale = Math.min(1, LOGO_MAX_EDGE / Math.max(img.width, img.height));
-  const w = Math.max(1, Math.round(img.width * scale));
-  const h = Math.max(1, Math.round(img.height * scale));
-  const canvas = document.createElement('canvas');
-  canvas.width = w;
-  canvas.height = h;
-  canvas.getContext('2d').drawImage(img, 0, 0, w, h);
-  return encodeBest(canvas, file.type === 'image/png');
+  const { img, url } = await loadImage(file);
+  try {
+    // 'load' only promises the metadata is parsed; decode() promises the bitmap is
+    // rasterised and safe to draw. Without it a large phone photo can size the
+    // canvas correctly and draw nothing at all. A rejected decode() is not fatal -
+    // some WebKit builds reject images that then draw fine - so the blank check
+    // below is what actually decides.
+    if (typeof img.decode === 'function') {
+      try {
+        await img.decode();
+      } catch {
+        /* fall through and let canvasIsBlank() judge the draw */
+      }
+    }
+    const srcW = img.naturalWidth || img.width;
+    const srcH = img.naturalHeight || img.height;
+    if (!srcW || !srcH) throw new Error('decode_failed');
+    const scale = Math.min(1, LOGO_MAX_EDGE / Math.max(srcW, srcH));
+    const w = Math.max(1, Math.round(srcW * scale));
+    const h = Math.max(1, Math.round(srcH * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = w;
+    canvas.height = h;
+    const ctx = canvas.getContext('2d');
+    await drawScaled(ctx, file, img, w, h);
+    if (canvasIsBlank(ctx, w, h)) throw new Error('decode_failed');
+    return await encodeBest(canvas, file.type === 'image/png');
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function CampOrganizerDashboard() {
@@ -253,9 +323,9 @@ export function CampOrganizerDashboard() {
       await uploadLogo.mutateAsync(blob);
     } catch (err) {
       const code = err?.response?.data?.error;
-      setBrandErr(
-        code === 'logo_too_large' ? t('camp_brand_e_too_large') : t('camp_brand_e_failed'),
-      );
+      if (code === 'logo_too_large') setBrandErr(t('camp_brand_e_too_large'));
+      else if (err?.message === 'decode_failed') setBrandErr(t('camp_brand_e_decode'));
+      else setBrandErr(t('camp_brand_e_failed'));
     } finally {
       setLogoBusy(false);
     }

@@ -1,0 +1,533 @@
+<title>Raktify Merch Prompt Kit</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600&family=Noto+Sans+Devanagari:wght@400;500&display=swap">
+
+<style>
+  /* Tokens inherited from the locked Raktify design system
+     (frontend/tailwind.config.js). Sibling sheet to RK-MERCH-01. */
+  :root {
+    --paper:     #fdf8f4;
+    --surface:   #f5ece4;
+    --surface-2: #fffdfb;
+    --code-bg:   #fbf5ef;
+    --ink:       #1c1917;
+    --ink-2:     #57534e;
+    --ink-3:     #8c8279;
+    --rule:      #e7dcd2;
+    --rule-2:    #d6c7ba;
+    --accent-ink:#b8231a;
+    --warn-bg:   #fff5f3;
+    --warn-rule: #ffccc0;
+
+    --sans: 'Inter', 'Noto Sans Devanagari', system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --mono: 'IBM Plex Mono', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --deva: 'Noto Sans Devanagari', 'Inter', sans-serif;
+
+    --measure: 68ch;
+    --pad: clamp(20px, 5vw, 56px);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper:     #17120f;
+      --surface:   #201a16;
+      --surface-2: #251e19;
+      --code-bg:   #120e0c;
+      --ink:       #f2ebe5;
+      --ink-2:     #bdb2a9;
+      --ink-3:     #8e8379;
+      --rule:      #332a24;
+      --rule-2:    #453a32;
+      --accent-ink:#fb7458;
+      --warn-bg:   #2a1512;
+      --warn-rule: #5d2a22;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper:     #17120f;
+    --surface:   #201a16;
+    --surface-2: #251e19;
+    --code-bg:   #120e0c;
+    --ink:       #f2ebe5;
+    --ink-2:     #bdb2a9;
+    --ink-3:     #8e8379;
+    --rule:      #332a24;
+    --rule-2:    #453a32;
+    --accent-ink:#fb7458;
+    --warn-bg:   #2a1512;
+    --warn-rule: #5d2a22;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .sheet { max-width: 1080px; margin: 0 auto; padding: 0 var(--pad) 96px; }
+
+  header.top { padding: clamp(28px, 5vw, 52px) 0 0; }
+  .mark { display: block; height: 28px; width: auto; }
+  .kicker {
+    font-size: 11px; font-weight: 700; letter-spacing: .16em;
+    text-transform: uppercase; color: var(--ink-3); margin: 0 0 10px;
+  }
+  h1 {
+    font-size: clamp(30px, 5.2vw, 50px); line-height: 1.05;
+    letter-spacing: -.028em; font-weight: 800;
+    margin: 24px 0 0; max-width: 24ch; text-wrap: balance;
+  }
+  .standfirst {
+    font-size: clamp(16px, 1.9vw, 19px); color: var(--ink-2);
+    max-width: 60ch; margin: 16px 0 0;
+  }
+
+  /* ── The one rule that has to land before anything else ─────────── */
+  .band {
+    margin: 34px 0 0;
+    border: 1px solid var(--warn-rule); background: var(--warn-bg);
+    display: grid; gap: 22px; padding: 22px 24px;
+  }
+  @media (min-width: 760px) { .band { grid-template-columns: 1fr auto; align-items: center; } }
+  .band .hd {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent-ink); margin: 0 0 8px;
+  }
+  .band p { margin: 0; max-width: 64ch; font-size: 14.5px; }
+  .band p + p { margin-top: .7em; }
+  .zone { text-align: center; }
+  .zone svg { display: block; }
+  .zone figcaption {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+    margin-top: 8px; font-variant-numeric: tabular-nums;
+  }
+
+  section { margin-top: clamp(44px, 6vw, 68px); }
+  .sec-head {
+    display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap;
+    border-bottom: 1px solid var(--ink); padding-bottom: 9px; margin-bottom: 22px;
+  }
+  .sec-head h2 {
+    margin: 0; font-size: clamp(19px, 2.5vw, 25px); font-weight: 700;
+    letter-spacing: -.018em; flex: 1;
+  }
+  .sec-note {
+    font-size: 11px; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--ink-3); font-weight: 600; flex: none;
+  }
+
+  p { max-width: var(--measure); }
+  p + p { margin-top: 1em; }
+  .lede { font-size: 17px; color: var(--ink-2); }
+  strong { font-weight: 650; color: var(--ink); }
+  code {
+    font-family: var(--mono); font-size: .88em; font-weight: 500;
+    background: var(--surface); padding: .12em .38em; border-radius: 3px;
+  }
+
+  /* ── Prompt blocks ───────────────────────────────────────────────── */
+  .pb { border: 1px solid var(--rule-2); background: var(--surface-2); margin-top: 18px; }
+  .pb.primary { border-color: var(--ink); }
+  .pb-head {
+    display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+    padding: 12px 16px; border-bottom: 1px solid var(--rule-2);
+    background: var(--surface);
+  }
+  .pb-head h3 {
+    margin: 0; font-size: 13px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--ink-2); flex: 1;
+  }
+  .pb-head .tag {
+    font-family: var(--mono); font-size: 11px; color: var(--ink-3);
+    letter-spacing: .04em;
+  }
+  .pb pre {
+    margin: 0; padding: 20px 22px; background: var(--code-bg);
+    font-family: var(--mono); font-size: 13px; line-height: 1.72;
+    color: var(--ink); white-space: pre-wrap; word-break: break-word;
+    max-height: 30em; overflow-y: auto;
+  }
+  .pb.primary pre { font-size: 13.5px; max-height: none; }
+  .pb .why {
+    padding: 13px 18px; border-top: 1px solid var(--rule);
+    font-size: 13px; color: var(--ink-2); background: var(--surface-2);
+  }
+  .pb .why p { max-width: none; margin: 0; }
+
+  button.copy {
+    font-family: var(--sans); font-size: 12px; font-weight: 600;
+    letter-spacing: .04em; padding: 6px 13px; cursor: pointer;
+    color: var(--paper); background: var(--accent-ink);
+    border: 1px solid var(--accent-ink); border-radius: 3px;
+    flex: none; transition: opacity .15s ease;
+  }
+  button.copy:hover { opacity: .86; }
+  button.copy:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  button.copy[data-done="1"] { background: transparent; color: var(--accent-ink); }
+
+  .variants { display: grid; gap: 20px; }
+  @media (min-width: 900px) { .variants { grid-template-columns: 1fr 1fr; } }
+  .variants .pb { margin-top: 0; }
+
+  ul.check { list-style: none; padding: 0; margin: 0; }
+  ul.check li {
+    display: grid; grid-template-columns: 24px 1fr; gap: 12px;
+    padding: 14px 0; border-bottom: 1px solid var(--rule);
+    font-size: 14.5px; max-width: 80ch;
+  }
+  ul.check li:first-child { border-top: 1px solid var(--rule); }
+  ul.check .n {
+    font-family: var(--mono); font-size: 12px; font-weight: 600;
+    color: var(--accent-ink); padding-top: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .lock {
+    border: 1px solid var(--warn-rule); background: var(--warn-bg);
+    padding: 18px 20px; margin: 22px 0 0;
+  }
+  .lock .hd {
+    font-size: 10.5px; font-weight: 800; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent-ink); margin: 0 0 8px;
+  }
+  .lock p { margin: 0; max-width: 66ch; font-size: 14.5px; }
+  .lock p + p { margin-top: .7em; }
+
+  .deva-inline { font-family: var(--deva); font-weight: 500; }
+
+  footer {
+    margin-top: 72px; padding-top: 20px; border-top: 1px solid var(--rule-2);
+    font-size: 13px; color: var(--ink-2);
+  }
+  footer p { max-width: 74ch; margin: 0 0 .6em; }
+  .tmline {
+    margin-top: 22px; padding-top: 14px; border-top: 1px solid var(--rule);
+    font-size: 11px; color: var(--ink-3);
+  }
+
+  a { color: var(--accent-ink); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:focus-visible { outline: 2px solid var(--accent-ink); outline-offset: 2px; }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
+  @media print {
+    @page { size: A4; margin: 13mm; }
+    :root {
+      --paper:#fff; --surface:#f7f2ed; --surface-2:#fff; --code-bg:#f7f2ed;
+      --ink:#000; --ink-2:#3f3a36; --ink-3:#6b635c;
+      --rule:#d8cfc7; --rule-2:#b9ada3; --accent-ink:#b8231a;
+      --warn-bg:#fff8f6; --warn-rule:#e8b9ae;
+    }
+    body { font-size: 10pt; }
+    .sheet { max-width: none; padding: 0; }
+    button.copy { display: none; }
+    .pb pre { max-height: none; overflow: visible; }
+    .pb, .band, .lock, section { break-inside: avoid; }
+    .sec-head { break-after: avoid; }
+  }
+</style>
+
+<!-- The wordmark is always the vector: one sprite, paths verbatim from
+     frontend/public/wordmark-tm.svg, <use>d wherever the mark appears. -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true" focusable="false">
+  <symbol id="rk-wordmark" viewBox="57 107 1185 378">
+    <path d="M113.247 420L60.513 420L60.513 201.818L150.641 201.818Q175.143 201.818 192.988 210.607Q210.832 219.396 220.527 235.749Q230.222 252.102 230.222 274.474Q230.222 297.166 220.314 312.987Q210.406 328.807 192.189 337.063Q173.972 345.320 149.043 345.320L92.047 345.320L92.047 303.771L139.241 303.771Q151.173 303.771 159.217 300.629Q167.260 297.486 171.415 291.040Q175.570 284.595 175.570 274.474Q175.570 264.354 171.415 257.695Q167.260 251.037 159.163 247.681Q151.067 244.325 139.241 244.325L113.247 244.325L113.247 420M126.884 320.284L183.347 320.284L237.679 420L180.151 420L126.884 320.284M305.222 422.770Q289.561 422.770 277.469 417.496Q265.378 412.223 258.400 401.516Q251.422 390.810 251.422 374.616Q251.422 360.980 256.216 351.605Q261.010 342.230 269.426 336.371Q277.842 330.511 288.815 327.475Q299.788 324.439 312.253 323.374Q326.209 322.095 334.732 320.657Q343.254 319.219 347.143 316.502Q351.031 313.786 351.031 308.778L351.031 308.246Q351.031 300.043 345.385 295.568Q339.739 291.094 330.151 291.094Q319.817 291.094 313.531 295.568Q307.246 300.043 305.541 307.926L257.494 306.222Q259.625 291.307 268.521 279.535Q277.416 267.763 293.023 260.998Q308.631 254.233 330.577 254.233Q346.237 254.233 359.447 257.908Q372.658 261.584 382.459 268.562Q392.260 275.540 397.640 285.661Q403.020 295.781 403.020 308.778L403.020 420L354.014 420L354.014 397.202L352.736 397.202Q348.368 405.511 341.603 411.264Q334.838 417.017 325.729 419.893Q316.621 422.770 305.222 422.770M321.308 388.679Q329.724 388.679 336.489 385.270Q343.254 381.861 347.303 375.842Q351.351 369.822 351.351 361.832L351.351 346.278Q349.114 347.450 345.971 348.409Q342.828 349.368 339.099 350.220Q335.371 351.072 331.429 351.712Q327.487 352.351 323.865 352.884Q316.514 354.055 311.347 356.506Q306.180 358.956 303.464 362.844Q300.747 366.733 300.747 372.060Q300.747 380.156 306.553 384.418Q312.359 388.679 321.308 388.679M512.111 340.313L481.749 377.067L481.962 314.957L489.206 314.957L535.229 256.364L594.249 256.364L525.854 340.313L512.111 340.313M486.862 420L434.767 420L434.767 201.818L486.862 201.818L486.862 420M596.592 420L536.401 420L493.574 352.031L527.878 315.064L596.592 420M602.132 256.364L705.364 256.364L705.364 294.716L602.132 294.716L602.132 256.364M623.759 374.297L623.759 217.159L675.854 217.159L675.854 368.544Q675.854 373.338 677.398 376.268Q678.943 379.197 681.926 380.423Q684.909 381.648 689.064 381.648Q692.047 381.648 695.403 381.062Q698.759 380.476 700.463 380.050L708.347 417.656Q704.618 418.722 697.853 420.320Q691.088 421.918 681.713 422.344Q663.389 423.196 650.339 418.029Q637.288 412.862 630.417 401.889Q623.545 390.916 623.759 374.297" fill="#b8231a"/>
+    <path d="M780.092 420L727.997 420L727.997 256.364L780.092 256.364" fill="#1c1917"/>
+    <path d="M796.866 256.364L902.122 256.364L902.122 294.716L796.866 294.716L796.866 256.364M870.908 420L818.813 420L818.813 248.054Q818.813 229.091 825.950 216.573Q833.088 204.055 845.766 197.823Q858.443 191.591 875.063 191.591Q885.929 191.591 895.570 193.242Q905.212 194.893 909.899 196.172L901.589 234.311Q898.713 233.352 894.612 232.713Q890.510 232.074 886.888 232.074Q877.726 232.074 874.317 236.122Q870.908 240.170 870.908 247.202L870.908 420M959.118 481.364Q949.743 481.364 941.433 479.925Q933.124 478.487 927.158 476.143L938.663 438.324Q946.334 440.881 952.566 441.307Q958.798 441.733 963.326 439.336Q967.854 436.939 970.304 430.866L972.328 425.966L914.161 256.364L968.706 256.364L998.855 373.125L1000.560 373.125L1031.135 256.364L1086 256.364L1024.317 435.661Q1019.842 449.084 1011.692 459.364Q1003.543 469.645 990.705 475.504Q977.868 481.364 959.118 481.364" fill="#1c1917"/>
+    <g transform="translate(676.04 94.36) scale(6.5)"><path d="M12 2.5c4 4.8 7 8.3 7 11.5a7 7 0 0 1-14 0c0-3.2 3-6.7 7-11.5Z" fill="#dc2f1d"/></g>
+    <text x="1089" y="246" font-family="Inter, Arial, sans-serif" font-weight="700" font-size="135" fill="#1c1917">&#8482;</text>
+  </symbol>
+</svg>
+
+<div class="sheet">
+
+  <header class="top">
+    <p class="kicker">Image-generation brief &middot; companion to RK-MERCH-01</p>
+    <svg class="mark" viewBox="57 107 1185 378" role="img" aria-label="Raktify"><use href="#rk-wordmark"/></svg>
+
+    <h1>Merch prompt kit</h1>
+    <p class="standfirst">Copy-ready prompts for generating Raktify merchandise visuals &mdash; product photography, fabric, drape, light and placement. Hand this to whoever runs the image model. Read the band below first; it is the difference between usable output and output that has to be thrown away.</p>
+
+    <div class="band">
+      <div>
+        <p class="hd">Leave the wordmark zone blank &mdash; the logo is composited afterwards</p>
+        <p>Image models cannot render the Raktify wordmark. They will produce a confident lookalike in an invented typeface, with the droplet in the wrong place and the &trade; missing or mangled &mdash; which is exactly the drift the vector exists to prevent. <strong>Every prompt here asks the model for an empty placeholder area instead.</strong></p>
+        <p>The real <code>wordmark-tm.svg</code> is then placed into that area in Figma, Illustrator or Photoshop. The model does fabric, folds, light and composition &mdash; what it is genuinely good at. It never does the logo.</p>
+      </div>
+      <figure class="zone">
+        <svg width="188" height="60" viewBox="0 0 188 60" role="img" aria-label="Dashed placeholder rectangle at the wordmark's 3.135 to 1 ratio">
+          <rect x="1" y="1" width="186" height="58" fill="none" stroke="var(--accent-ink)" stroke-width="1.25" stroke-dasharray="6 5"/>
+          <line x1="1" y1="30" x2="70" y2="30" stroke="var(--accent-ink)" stroke-width=".6" stroke-dasharray="2 4"/>
+          <line x1="118" y1="30" x2="187" y2="30" stroke="var(--accent-ink)" stroke-width=".6" stroke-dasharray="2 4"/>
+          <text x="94" y="34" text-anchor="middle" font-family="IBM Plex Mono, monospace" font-size="11" fill="var(--accent-ink)">3.135 : 1</text>
+        </svg>
+        <figcaption>50 &times; 16 mm &middot; keep empty</figcaption>
+      </figure>
+    </div>
+  </header>
+
+  <!-- Master prompt ─────────────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <h2>Master prompt</h2>
+      <span class="sec-note">Start here</span>
+    </div>
+
+    <p class="lede">One prompt that establishes the whole visual world: the fabric, the light, the restraint. Run this first, judge the look, then use the variants to change the garment without losing the world.</p>
+
+    <div class="pb primary">
+      <div class="pb-head">
+        <h3>Master &mdash; quiet-luxury product still</h3>
+        <span class="tag">4:5 &middot; photographic</span>
+        <button class="copy" type="button">Copy</button>
+      </div>
+      <pre>Editorial product photograph of a single heavyweight cotton garment, shot for a quiet, expensive clothing label rather than for an event.
+
+GARMENT: an oversized boxy short-sleeve t-shirt in warm undyed cream (#fdf8f4), 260 gsm garment-dyed ring-spun cotton with a faintly uneven, lived-in surface. Tubular body, no side seams. Ribbed collar, twin-needle hem. It is styled flat-lay on a warm sand-coloured paper backdrop (#f5ece4), one sleeve folded naturally across the body so the fabric holds soft, honest creases — not pressed flat, not artificially crumpled.
+
+BRANDING AREA: on the wearer's left chest, leave a completely EMPTY rectangular area approximately 50 mm wide by 16 mm tall, positioned 75 mm below the shoulder seam and 60 mm in from the centre front. This area must be clean, unbranded blank fabric — absolutely no text, no letters, no logo, no symbol, no mark of any kind. A brand mark will be added later in post-production. The fabric weave and lighting must be even and undistorted across this whole area.
+
+LIGHT: single large soft north-facing window light from the upper left, no flash, no reflector. Gentle directional falloff so the weave and the fold shadows read clearly. Warm neutral white balance. Deep but soft shadows in the folds; no blown highlights.
+
+MOOD: restrained, tactile, expensive, calm. The kind of garment photographed for a Japanese or Scandinavian slow-fashion brand — the fabric is the subject. Nothing is shouting. No styling props, no accessories, no flowers, no plants, no coffee cups, no scattered objects.
+
+COLOUR: strictly a warm palette — cream, sand, undyed natural cotton, warm near-black, and one deep earthen red (#b8231a) reserved for the brand mark only, which is NOT in this image. No blues, no greens, no purples, no cool greys, no teal.
+
+CAMERA: 85 mm prime look, shot slightly above and square on, shallow but not blurry depth of field, fine natural film grain. Photorealistic, high resolution, no illustration, no 3D render look.
+
+ASPECT: 4:5 vertical.</pre>
+      <div class="why">
+        <p><strong>Why it reads as luxury:</strong> the fabric is the subject, the light is single-source and soft, and there is no styling clutter. Everything the model is asked to render is a material property. The brand is absent by design &mdash; which is what leaves room for it to be quiet.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Variants ──────────────────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <h2>Variants</h2>
+      <span class="sec-note">Swap one thing at a time</span>
+    </div>
+
+    <p>Six parallel options, not a sequence &mdash; run whichever the deliverable needs. Each one changes the garment, surface or framing while keeping the master&rsquo;s light, palette and restraint. Keep the blank-placeholder paragraph in all of them.</p>
+
+    <div class="variants" style="margin-top:22px">
+
+      <div class="pb">
+        <div class="pb-head">
+          <h3>A &mdash; Cream tee, worn</h3>
+          <span class="tag">on-body</span>
+          <button class="copy" type="button">Copy</button>
+        </div>
+        <pre>Editorial fashion photograph, waist-up, of a young adult of South Asian appearance wearing an oversized boxy cream (#fdf8f4) heavyweight cotton t-shirt, 260 gsm, relaxed dropped shoulder. Shot from the front, slightly off-centre, arms relaxed at the sides, calm neutral expression, looking just off camera.
+
+On the wearer's left chest leave a completely EMPTY blank rectangular area about 50 mm wide by 16 mm tall — no text, no letters, no logo, no symbol whatsoever. Clean unbranded fabric only; a mark is added later in post.
+
+Warm sand studio backdrop (#f5ece4). Single large soft window light from upper left, no flash. Warm neutral grade, fine film grain, 85 mm prime look, shallow depth of field.
+
+Mood: quiet, self-possessed, unbranded confidence — a garment someone chose, not one they were handed. No props, no accessories, no jewellery, no watch, no lanyard, no badge, no event signage.
+
+Photorealistic. 4:5 vertical.</pre>
+        <div class="why"><p>The on-body shot is what makes people want one. Note it asks for someone who <em>chose</em> the garment, not a volunteer on shift.</p></div>
+      </div>
+
+      <div class="pb">
+        <div class="pb-head">
+          <h3>B &mdash; Warm-ink tee, tonal mark</h3>
+          <span class="tag">dark ground</span>
+          <button class="copy" type="button">Copy</button>
+        </div>
+        <pre>Editorial product photograph of an oversized boxy heavyweight cotton t-shirt in warm near-black (#1c1917) — a soft washed black with a warm cast, never a cold blue-black — 270 gsm garment-dyed, faintly faded at the folds as if washed a dozen times.
+
+Flat-lay at a slight angle on a deep warm charcoal paper backdrop, one sleeve folded across the body, natural soft creases.
+
+On the wearer's left chest leave a completely EMPTY blank rectangular area about 50 mm wide by 16 mm tall — no text, letters, logo or symbol of any kind. Even weave and even light across the whole area; a mark is composited later.
+
+Raking side light from the left at a low angle so the cotton texture and the fold shadows read strongly against the dark fabric. Warm neutral white balance, no colour cast. Rich blacks with visible detail, no crushed shadows.
+
+Mood: understated, premium, tactile. No props. Photorealistic, 85 mm look, fine grain. 4:5 vertical.</pre>
+        <div class="why"><p>Raking light is the whole trick on dark fabric &mdash; without it a warm-ink tee photographs as a black rectangle.</p></div>
+      </div>
+
+      <div class="pb">
+        <div class="pb-head">
+          <h3>C &mdash; Sand overshirt</h3>
+          <span class="tag">shirt</span>
+          <button class="copy" type="button">Copy</button>
+        </div>
+        <pre>Editorial product photograph of an unstructured boxy overshirt in washed cotton-linen twill, warm sand colour (#f5ece4), 210 gsm, with the soft rumpled character of linen. One patch chest pocket on the wearer's left, matte corozo buttons, single-needle topstitch, no epaulettes.
+
+Hung on a plain wooden hanger against a warm cream plaster wall (#fdf8f4), lit by a single soft window from the left. Natural fabric drape with visible linen slubs and soft wrinkles.
+
+Directly above the chest pocket leave a completely EMPTY blank area about 50 mm wide by 16 mm tall — no text, no letters, no logo, no symbol. Clean unbranded fabric; a mark is added in post-production.
+
+Mood: calm, artisanal, expensive-but-quiet — a shirt from a small Japanese workwear label. No props, no accessories, no hangers in the background.
+
+Photorealistic, 85 mm prime look, warm neutral grade, fine grain. 4:5 vertical.</pre>
+        <div class="why"><p>Above the pocket, not on it &mdash; a mark on a patch pocket distorts as the pocket moves and cannot be embroidered flat.</p></div>
+      </div>
+
+      <div class="pb">
+        <div class="pb-head">
+          <h3>D &mdash; Natural canvas tote</h3>
+          <span class="tag">accessory</span>
+          <button class="copy" type="button">Copy</button>
+        </div>
+        <pre>Editorial product photograph of a heavyweight undyed natural cotton canvas tote bag, 12 oz / 340 gsm, boxed base, thick cotton webbing handles in the same natural tone bar-tacked at four points. No zip, no lining, no printed panel.
+
+Standing upright and lightly filled so the canvas holds its shape, on a warm sand surface (#f5ece4) against a cream wall. Soft window light from the upper left, gentle shadow to the right.
+
+On the lower half of the front panel leave a completely EMPTY blank horizontal area about 66 mm wide by 20 mm tall, positioned roughly 55 mm above the base seam — no text, no letters, no logo, no symbol at all. The canvas weave must be even and evenly lit across the whole area; a mark is composited later.
+
+Mood: utilitarian but considered — an art-bookshop tote, not event merchandise. The raw fibre colour, the visible weave and the honest webbing are the subject. No props, no contents visible, no other bags.
+
+Photorealistic, 85 mm look, warm neutral grade, fine grain. 4:5 vertical.</pre>
+        <div class="why"><p>Undyed canvas has a yellow-green cast that pushes brand red toward orange &mdash; worth knowing before anyone approves a composite on this one.</p></div>
+      </div>
+
+      <div class="pb">
+        <div class="pb-head">
+          <h3>E &mdash; Embroidery macro</h3>
+          <span class="tag">detail &middot; no wordmark</span>
+          <button class="copy" type="button">Copy</button>
+        </div>
+        <pre>Extreme macro photograph of tonal satin-stitch embroidery on heavyweight cream cotton jersey (#fdf8f4). The embroidery thread is the SAME warm cream as the fabric, so the shape reads only as raised texture and shadow, not as colour.
+
+The embroidered shape is a simple smooth geometric teardrop — a rounded base narrowing to a soft point at the top, about 10 mm tall. Flat satin stitch, no puff, no 3D foam, no outline, no highlight, no tail. Individual thread filaments and stitch direction clearly visible.
+
+Very shallow depth of field, raking soft light from the left so the stitch relief casts fine shadows across the knit. Warm neutral white balance.
+
+No letters, no words, no text anywhere in the frame. Nothing but fabric and the single embroidered teardrop.
+
+Photorealistic macro, 100 mm macro lens look, fine grain. 1:1 square.</pre>
+        <div class="why"><p>This is the only variant that renders brand artwork &mdash; and only because the droplet is a plain geometric teardrop a model can draw. <strong>Never</strong> ask a model for the lettering.</p></div>
+      </div>
+
+      <div class="pb">
+        <div class="pb-head">
+          <h3>F &mdash; Devanagari back panel</h3>
+          <span class="tag">layout comp only</span>
+          <button class="copy" type="button">Copy</button>
+        </div>
+        <pre>Editorial product photograph of the BACK of an oversized boxy heavyweight cotton t-shirt in warm sand (#f5ece4), 260 gsm, flat-lay on a cream paper backdrop, natural soft creases, single soft window light from upper left.
+
+Across the upper back leave a large completely EMPTY blank area roughly 200 mm wide by 90 mm tall, centred, starting about 90 mm below the collar seam — no text, no letters, no characters, no logo, no symbol of any kind. Clean unbranded fabric with even weave and even lighting throughout, because typography is composited in afterwards.
+
+Also leave a small EMPTY blank area about 12 mm square centred 25 mm below the collar seam.
+
+Mood: quiet, tactile, expensive. Warm palette only — cream, sand, warm near-black. No props, no accessories.
+
+Photorealistic, 85 mm look, warm neutral grade, fine grain. 4:5 vertical.</pre>
+        <div class="why"><p>Deliberately asks for <em>nothing</em> in the panel. Image models mangle Devanagari conjuncts invisibly to a non-reader &mdash; <span class="deva-inline" lang="mr">रक्त</span> must be set from the real font and read by a Marathi speaker.</p></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- Negative prompt ───────────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <h2>Negative prompt</h2>
+      <span class="sec-note">Append to every run</span>
+    </div>
+
+    <p>Paste this into the negative field on every prompt above. Most of it exists to stop the model doing the two things it wants to do most: invent a logo, and turn a blood-donation brief into medical clip art.</p>
+
+    <div class="pb">
+      <div class="pb-head">
+        <h3>Negative &mdash; universal</h3>
+        <span class="tag">all variants</span>
+        <button class="copy" type="button">Copy</button>
+      </div>
+      <pre>text, letters, letterforms, words, typography, lettering, logo, wordmark, brand name, monogram, initials, watermark, signature, label, tag, printed slogan, hashtag, date, QR code, barcode, numbers,
+
+medical cross, red cross, syringe, needle, IV bag, blood bag, blood drip, wet blood, glossy liquid, splatter, ECG line, heartbeat line, heart shape, awareness ribbon, stethoscope, hospital, clinic, scrubs, gloves, first aid kit,
+
+blue, teal, cyan, green, purple, violet, pink, orange, neon, cool grey, cold white balance, optic white, blue-black,
+
+gradient, glow, bevel, emboss, drop shadow on artwork, metallic foil, holographic, puff print, 3D print, plastisol shine, glossy ink, sparkle, lens flare, bokeh balls, HDR,
+
+busy background, styling props, flowers, plants, leaves, coffee cup, sunglasses, jewellery, watch, lanyard, badge, banner, signage, crowd, event tent, poster, multiple garments, clothing rack,
+
+3D render, CGI, plastic look, illustration, cartoon, vector art, painting, sketch, mockup template, oversharpened, low resolution, jpeg artifacts, deformed hands, extra limbs, distorted fabric, warped seams, asymmetric collar</pre>
+      <div class="why">
+        <p>The first block does most of the work. Models will insert plausible-looking lettering into an empty chest area unless told repeatedly not to &mdash; which is why each prompt <em>also</em> says it inline.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Composite checklist ───────────────────────────────────────────── -->
+  <section>
+    <div class="sec-head">
+      <h2>Composite checklist</h2>
+      <span class="sec-note">Before anything is shared</span>
+    </div>
+
+    <p>The model output is a background plate. These six steps turn it into an approved Raktify visual, and this <em>is</em> a sequence &mdash; each step depends on the one before it.</p>
+
+    <ul class="check">
+      <li><span class="n">01</span><span><strong>Reject any plate with invented lettering.</strong> If the model has put text, a mark or a symbol into the placeholder area, discard it and re-run. Do not paint it out &mdash; the fabric under it is now wrong.</span></li>
+      <li><span class="n">02</span><span><strong>Place the real vector.</strong> Import <code>frontend/public/wordmark-tm.svg</code>. Scale it <strong>by height</strong> and let the width follow at <strong>3.135&nbsp;:&nbsp;1</strong>. Never scale the axes independently, never retype, never recolour.</span></li>
+      <li><span class="n">03</span><span><strong>Bend the mark into the cloth.</strong> Use a subtle displacement or warp driven by the plate&rsquo;s own fold shadows, and blend at 88&ndash;95% so the weave shows through. A mark sitting perfectly flat on a creased garment is the tell that reads as fake.</span></li>
+      <li><span class="n">04</span><span><strong>Check the &trade;.</strong> It ships inside the vector, already sized and positioned. Do not enlarge it, restyle it, or move it &mdash; and never substitute &reg;. The trade mark application is pending.</span></li>
+      <li><span class="n">05</span><span><strong>Verify the palette.</strong> Sample the composite: cream <code>#fdf8f4</code>, sand <code>#f5ece4</code>, warm ink <code>#1c1917</code>, brand red <code>#b8231a</code>, droplet <code>#dc2f1d</code>. Any blue, green or cool grey that crept in during grading comes out.</span></li>
+      <li><span class="n">06</span><span><strong>Label it as a visual, not a proof.</strong> These images are for pitch decks, social posts and internal review. They are <em>not</em> production artwork &mdash; the vendor works from <strong>RK-MERCH-01</strong>, and only a physical sample approves a run.</span></li>
+    </ul>
+
+    <div class="lock">
+      <p class="hd">Two treatments still need founder sign-off</p>
+      <p><strong>The droplet used on its own</strong>, without its red icon square, is technically a new icon variant &mdash; and it is also the strongest quiet-branding device available here (variant&nbsp;E rests on it). <strong>Tonal-on-tonal embroidery</strong> collapses the wordmark&rsquo;s two-colour split, since <em>Rakt</em> red and <em>ify</em> warm ink become one thread colour. Both are deliberate design-system exceptions, not oversights. Neither goes to a vendor until it is signed off.</p>
+    </div>
+  </section>
+
+  <footer>
+    <p><strong>Choudhari EduHealth India Foundation</strong> &middot; companion to production specification <code>RK-MERCH-01</code>. Queries to <a href="mailto:contact@choudhari.ngo">contact@choudhari.ngo</a>.</p>
+    <p>Generated visuals are internal working material. Nothing on this sheet authorises production; nothing generated by an image model is ever supplied to a printer as artwork.</p>
+    <p class="tmline">Raktify&trade; &middot; a trade mark of Choudhari EduHealth India Foundation (application pending)</p>
+  </footer>
+</div>
+
+<script>
+  document.querySelectorAll('button.copy').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var pre = btn.closest('.pb').querySelector('pre');
+      if (!pre) return;
+      var text = pre.innerText;
+      var done = function () {
+        var was = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.dataset.done = '1';
+        setTimeout(function () { btn.textContent = was; delete btn.dataset.done; }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(done, function () { fallback(text, done); });
+      } else {
+        fallback(text, done);
+      }
+    });
+  });
+
+  function fallback(text, done) {
+    try {
+      var ta = document.createElement('textarea');
+      ta.value = text;
+      ta.setAttribute('readonly', '');
+      ta.style.position = 'fixed';
+      ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand('copy');
+      document.body.removeChild(ta);
+      done();
+    } catch (e) {
+      /* clipboard unavailable — the text is selectable in the block */
+    }
+  }
+</script>

@@ -15,10 +15,12 @@ older section it contradicts.
 **Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
 `git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
 (fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
-auto-applies migrations to prod**). Last twenty-eight commits, newest first:
+auto-applies migrations to prod**). Last thirty commits, newest first:
 
 | Commit | What |
 |---|---|
+| `8fb380e` | `feat(camps)`: **per-camp WhatsApp link previews** (a SWA managed function + a server-rendered PNG) and the **logo resize moves to the server**. Also the one-line `api_location` fix no gate in this repo can catch. See **Per-camp OG is a SWA managed function** and **An uploaded camp logo came out BLACK**, third pass |
+| `9246ff9` | `docs(brand)`: merch tech pack + prompt kit, **the wordmark as the vector in both** (inline `<symbol>` + `<use>`, never re-typed as text) |
 | `f22596b` | `fix(camps)`: a logo already under budget **skips the canvas entirely** - the resize was an optimisation buying nothing and risking everything. Second pass; **also did not hold** |
 | `73dd967` | `docs`: record the black-logo fix in the commit table |
 | `a710cab` | `fix(camps)`: an uploaded organiser logo came out **black** - a canvas that was never drawn on encodes to JPEG as opaque black. **That fix did not hold**, and neither did its successor - the cause was **Firefox blocking canvas readback**, and the resize now lives on the server. See **An uploaded camp logo came out BLACK** below, all three passes |
@@ -150,10 +152,11 @@ table below, plus per-day BB camp capacity publishing, per-camp
 brief), the post-camp results worklist, the `GET /camps/:id/registrations`
 institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
 
-**BOTH the server-side logo resize AND per-camp OG are CODE-COMPLETE and NOT YET
-PUSHED.** They are one uncommitted changeset in the working tree, and an earlier version
-of this paragraph called OG *"not started"* — it was already written. **Trust
-`git status` over this paragraph.** What is in the tree:
+**BOTH the server-side logo resize AND per-camp OG are COMMITTED ON THIS BRANCH AND NOT
+YET PUSHED** — `9246ff9` (docs) then `8fb380e` (the feature). An earlier version of this
+paragraph called OG *"not started"* and a later one called it uncommitted; both were wrong
+in turn. **Trust `git log origin/main..HEAD` over this paragraph.** What is on the branch
+and not in prod:
 
 - **The logo resize + the 96px frame** — backend `services/images/logo.js`, the
   two-ceiling route, the best-effort client canvas, the public-page frame, §16's

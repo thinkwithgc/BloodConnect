@@ -19,6 +19,7 @@ auto-applies migrations to prod**). Last thirty commits, newest first:
 
 | Commit | What |
 |---|---|
+| `2a969a4` | `feat(camps)`: the **downloaded poster carries a QR** — an image has no hyperlink, so a card forwarded on with the caption stripped had no path to RSVP. `?poster=1` is **one boolean on the same renderer**, with a composite cache key; the crawler's card is unchanged. See **The poster is a VARIANT of that same render** |
 | `7d1def8` | `fix(pwa)`: `/c/*` joins the service-worker **navigation-fallback denylist**, so a returning handset stops running a **precached shell from an older build** - which is why the organiser logo block was missing on real phones and fine in a private window. Plus `og:image:type` on both cards. See **A precached SPA shell is a shell from a DIFFERENT BUILD** |
 | `c2362a4` | `fix(og)`: a shared camp URL **previews as the camp card**. Three defects, none of them the renderer: helmet's global `Cross-Origin-Resource-Policy: same-site` made every **browser-based** unfurler refuse the image, the card was pointless **32-bit RGBA**, and the layout left a blank band. See **A link-preview image is a CROSS-SITE subresource** |
 | `61f1d37` | `feat(camps)`: the organiser can **download the share poster**, and it **is** the OG card — a download affordance over bytes the API already renders, not a second renderer. See **The poster export IS the OG card** |

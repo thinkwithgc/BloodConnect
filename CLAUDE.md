@@ -152,11 +152,31 @@ table below, plus per-day BB camp capacity publishing, per-camp
 brief), the post-camp results worklist, the `GET /camps/:id/registrations`
 institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
 
-**BOTH the server-side logo resize AND per-camp OG are COMMITTED ON THIS BRANCH AND NOT
-YET PUSHED** — `9246ff9` (docs) then `8fb380e` (the feature). An earlier version of this
-paragraph called OG *"not started"* and a later one called it uncommitted; both were wrong
-in turn. **Trust `git log origin/main..HEAD` over this paragraph.** What is on the branch
-and not in prod:
+**BOTH the server-side logo resize AND per-camp OG are LIVE IN PROD** — pushed
+2026-09-03 (`9246ff9` docs, `8fb380e` the feature, `f62c498` the doc corrections), all
+three workflows green, **verified against the deployed API**. Earlier versions of this
+paragraph called OG *"not started"*, then uncommitted, then unpushed; each was true only
+briefly. **Trust `git log origin/main..HEAD` over this paragraph** — when it is empty,
+everything here is in prod.
+
+**What the post-deploy probes actually proved** (do not re-derive this; the font one
+cannot be checked from a workstation at all):
+
+| Probe | Result | Why it is the one that matters |
+|---|---|---|
+| `GET /camps/public/og/selftest` | `ok:true`, **`devanagari_font_reachable:true`**, 8/8 files, latin `587x43`, devanagari `430x44` | The librsvg/pango font trap is CLEARED in prod. A local run on Windows proves nothing in either direction — pango's Windows backend ignores `FONTCONFIG_PATH`. It also proves **sharp + libvips render** in prod, which is the logo resize's dependency too |
+| `GET /camps/public/some-slug/og.png` | `200 image/png`, 66 KB | The designed generic fallback for an unknown slug (TTL 300). **Not** proof the renderer works — that comes from the selftest |
+| `GET /camps/public/og/nope` | `404 route_not_found` | Control. Proves the selftest 200 is a real route match, not a catch-all artefact |
+| `POST /camps/access/<fake>/logo-raw` | `403 invalid_token` (PNG bytes) · `415 unsupported_media_type` (PDF header) | Route deployed with `express.raw` intact. **415 and `content_type_mismatch` are DIFFERENT checks** — 415 is express.raw's Content-Type filter, `content_type_mismatch` is magic-byte verification behind it |
+| `/c/*` response headers | `max-age=60` + `x-ms-middleware-request-id`, **no `ETag`** | The SWA managed function is genuinely handling the route. A static-file response always carries `ETag` + `Last-Modified`; a function response does not. The build log also now contains an Oryx *function* build block that does not exist when `api_location` is `""` |
+
+**A 404 on a brand-new route minutes after a green deploy can just be the App Service
+restarting.** The selftest answered `route_not_found` on the first probe and `200` a few
+minutes later with no redeploy — which is the *fourth* case the deploy-skew table above
+does not cover. Re-probe once before concluding anything about stale code; that mistake
+was made here and had to be retracted.
+
+Formerly-pending contents of this push, all now live:
 
 - **The logo resize + the 96px frame** — backend `services/images/logo.js`, the
   two-ceiling route, the best-effort client canvas, the public-page frame, §16's
@@ -834,7 +854,10 @@ share link down with it.
   Marathi camp names would be tofu and those cards serve the generic image. The payload is
   counts, booleans and two pixel sizes — no paths, no environment dump — which is why it is
   safe to leave public. It is declared **before** `/public/:slug/og.png` so no slug can
-  shadow it.
+  shadow it. **Measured on the DEPLOYED API 2026-09-03: `ok:true`,
+  `devanagari_font_reachable:true`, 8/8 files, latin `587x43`, devanagari `430x44`** — the
+  trap is cleared, and the same reading is the only proof there is that sharp + libvips
+  render at all in prod (the logo resize depends on the identical install).
 - **A local `ok:false` on this Windows box proves NOTHING, in either direction.** pango's
   Windows backend resolves fonts through the OS and **ignores `FONTCONFIG_PATH` outright**.
   `services/images/fonts.js` sets `FONTCONFIG_PATH` at module load (only if unset) to

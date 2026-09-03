@@ -19,6 +19,7 @@ auto-applies migrations to prod**). Last thirty commits, newest first:
 
 | Commit | What |
 |---|---|
+| `c2362a4` | `fix(og)`: a shared camp URL **previews as the camp card**. Three defects, none of them the renderer: helmet's global `Cross-Origin-Resource-Policy: same-site` made every **browser-based** unfurler refuse the image, the card was pointless **32-bit RGBA**, and the layout left a blank band. See **A link-preview image is a CROSS-SITE subresource** |
 | `61f1d37` | `feat(camps)`: the organiser can **download the share poster**, and it **is** the OG card — a download affordance over bytes the API already renders, not a second renderer. See **The poster export IS the OG card** |
 | `8fb380e` | `feat(camps)`: **per-camp WhatsApp link previews** (a SWA managed function + a server-rendered PNG) and the **logo resize moves to the server**. Also the one-line `api_location` fix no gate in this repo can catch. See **Per-camp OG is a SWA managed function** and **An uploaded camp logo came out BLACK**, third pass |
 | `9246ff9` | `docs(brand)`: merch tech pack + prompt kit, **the wordmark as the vector in both** (inline `<symbol>` + `<use>`, never re-typed as text) |
@@ -936,6 +937,65 @@ Rules for the code itself:
 No migration; schema head stays **320**. Gates: `npm run smoke:frontend` clean, throwaway
 `no-undef` pass **0 findings** (the `no-console` "rule not found" lines are noise, and
 `URLSearchParams` must be in the throwaway config's globals or it reports 20 false hits).
+
+## A link-preview image is a CROSS-SITE subresource, and the card must be OPAQUE (2026-09-03, `c2362a4`)
+
+`/c/<slug>` served the correct per-camp metas, the SWA function was provably in the
+path, and `og.png` returned a real 108 KB render in 0.4 s to both `WhatsApp/2.23.20.0`
+and `facebookexternalhit/1.1`. Every part of the pipeline measured healthy and the
+preview was still generic or blank. **The renderer was never the problem.** Three
+things were, and the first two are the reusable ones.
+
+- **helmet's `Cross-Origin-Resource-Policy: same-site` (`app.js:69`) made the card
+  unloadable by design.** CORP is enforced by the *browser* on a **no-cors**
+  cross-origin subresource load, and an `<img src>` is exactly that. The share page is
+  `raktify.choudhari.ngo`; the image comes from `raktify-api.azurewebsites.net`, and
+  **`azurewebsites.net` is on the Public Suffix List** — so those are different
+  **sites**, not merely different origins, and `same-site` refuses it. That is correct
+  for the ~220 routes of API JSON and wrong for the one response whose entire purpose
+  is to be embedded somewhere else. **Overridden per-route only**, inside `og.png`'s own
+  `serve()` helper — the single chokepoint every image response funnels through (cache
+  hit, fresh render, generic fallback). **Never relax it globally**; `grep` should
+  continue to find `crossOriginResourcePolicy` at `app.js:69` and nowhere else.
+  - **Why it hid for a release:** every **browser-based** unfurler (WhatsApp Web +
+    Desktop, Slack, Discord, LinkedIn) must honour CORP, while WhatsApp's **native
+    phone app** fetches the bytes with a plain HTTP client and never sees the header.
+    So "it works on my phone" and "it is broken" were both true at once.
+  - **CORS is a different mechanism and was always fine** — with an `Origin` the route
+    already answers `Access-Control-Allow-Origin: https://raktify.choudhari.ngo`, which
+    is why the organiser's `fetch()`-based poster download worked throughout. **A
+    working `fetch()` is not evidence an `<img>` will load.**
+- **The card was 32-bit RGBA with a completely pointless alpha channel** — measured on
+  prod: `channels: 4`, `minAlpha 255`, **0 of 756000** non-opaque pixels. librsvg/sharp
+  hand back 4 channels even when every pixel is opaque, and some crawlers decline an
+  RGBA `og:image` outright. Both cards are 3-channel now.
+  - **The flatten needs an explicit raw intermediate whenever there is a composite.**
+    sharp does not guarantee `flatten` ordering against `composite`, so a chained
+    `.composite(runs).flatten()` can hit the **base** and leave the composited layer's
+    transparency in the output. Two-stage: `.composite(runs).raw().toBuffer({
+    resolveWithObject: true })`, then re-open with `{ raw: {...} }` and flatten.
+  - Nothing is lost — each card paints its own full-bleed opaque `#fdf8f4` ground.
+    **`app-icon.png` and `social-avatar.png` deliberately KEEP alpha** (rounded corners,
+    circular crop), which is why `scripts/build_og_image.js` takes `{ opaque: true }`
+    per call site rather than flattening everything.
+  - Rebuilding `og-image.png` on Windows is safe despite its four `<text>` elements —
+    verified **zero differing RGB bytes** against the copy pulled from prod. **Diff
+    numerically after any rebuild; do not eyeball it.**
+- **The layout left a large blank band under short content.** The content block is now
+  **measured first and centred in a fixed band**, sacrificing lines from the bottom on
+  overflow — the camp **name is never the line that gets dropped**. The date pill
+  carries the date alone and the hours moved onto the venue line, where they read as
+  part of the place instead of a second heading.
+
+**A generic or stale preview is still, most often, the client's cache.** WhatsApp
+caches per exact URL — failures included — for days, so a link shared before a fix
+deployed keeps showing the old card forever. **Retest with a throwaway `?v=2` and never
+conclude anything from re-sharing the same link.** Local renders remain useless for
+judging fonts (pango's Windows backend ignores `FONTCONFIG_PATH`) — read
+`GET /camps/public/og/selftest` on the **deployed** API.
+
+No migration; schema head stays **320**. Gates: lint + `format:check` clean,
+`npm run smoke:frontend` clean.
 
 ## A camp application told NOBODY it needed reviewing (fixed 2026-09-01)
 

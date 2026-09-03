@@ -34,7 +34,21 @@ export default defineConfig(({ mode }) => {
           // /privacy, /terms, /data-deletion are static HTML (public/*.html),
           // served at clean URLs via staticwebapp.config.json rewrites — the SW
           // must let them hit the network, not the SPA shell.
+          // /c/:slug is a REAL React Router route, so the SPA shell is the
+          // right response - but it must come from the NETWORK, never the
+          // precache. Two reasons, and the first one already shipped a bug:
+          //   1. a returning device with an installed SW was served the
+          //      precached shell from a PREVIOUS build, referencing that
+          //      build's JS hash - so the organiser's logo block, added
+          //      later, was simply not in the bundle the phone ran. It
+          //      rendered fine in a private window (no SW) and broken on
+          //      every real handset, which is what made it look like a
+          //      styling bug rather than a caching one.
+          //   2. frontend/api/camp-og rewrites this path to inject per-camp
+          //      OG metas into the shell. A precache hit never reaches the
+          //      function, so the shell would carry the generic card.
           navigateFallbackDenylist: [
+            /^\/c\//,
             /^\/how-raktify-works\.html/,
             /^\/privacy(\.html)?$/,
             /^\/terms(\.html)?$/,

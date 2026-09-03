@@ -238,6 +238,7 @@ const STRIP = [
   ['property', 'og:image'],
   ['property', 'og:image:width'],
   ['property', 'og:image:height'],
+  ['property', 'og:image:type'],
   ['property', 'og:image:alt'],
   ['name', 'twitter:title'],
   ['name', 'twitter:description'],
@@ -293,6 +294,11 @@ function buildHead(camp, slug, origin) {
     '    <meta property="og:image" content="' + esc(image) + '" />',
     '    <meta property="og:image:width" content="1200" />',
     '    <meta property="og:image:height" content="630" />',
+    // The card is always a PNG - services/images/campOg.js encodes one and
+    // the generic fallback on disk is one too. Declaring the type saves a
+    // crawler a sniff and is one of the hints a stricter unfurler wants
+    // before it will render the image at all.
+    '    <meta property="og:image:type" content="image/png" />',
     '    <meta property="og:image:alt" content="' + esc(name) + '" />',
     '    <meta name="twitter:title" content="' + esc(name) + '" />',
     '    <meta name="twitter:description" content="' + esc(description) + '" />',

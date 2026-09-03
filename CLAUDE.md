@@ -19,6 +19,7 @@ auto-applies migrations to prod**). Last thirty commits, newest first:
 
 | Commit | What |
 |---|---|
+| `6156dce` | `fix(pwa)`: `/c/*` joins the service-worker **navigation-fallback denylist**, so a returning handset stops running a **precached shell from an older build** - which is why the organiser logo block was missing on real phones and fine in a private window. Plus `og:image:type` on both cards. See **A precached SPA shell is a shell from a DIFFERENT BUILD** |
 | `c2362a4` | `fix(og)`: a shared camp URL **previews as the camp card**. Three defects, none of them the renderer: helmet's global `Cross-Origin-Resource-Policy: same-site` made every **browser-based** unfurler refuse the image, the card was pointless **32-bit RGBA**, and the layout left a blank band. See **A link-preview image is a CROSS-SITE subresource** |
 | `61f1d37` | `feat(camps)`: the organiser can **download the share poster**, and it **is** the OG card — a download affordance over bytes the API already renders, not a second renderer. See **The poster export IS the OG card** |
 | `8fb380e` | `feat(camps)`: **per-camp WhatsApp link previews** (a SWA managed function + a server-rendered PNG) and the **logo resize moves to the server**. Also the one-line `api_location` fix no gate in this repo can catch. See **Per-camp OG is a SWA managed function** and **An uploaded camp logo came out BLACK**, third pass |
@@ -996,6 +997,39 @@ judging fonts (pango's Windows backend ignores `FONTCONFIG_PATH`) — read
 
 No migration; schema head stays **320**. Gates: lint + `format:check` clean,
 `npm run smoke:frontend` clean.
+
+## A precached SPA shell is a shell from a DIFFERENT BUILD (2026-09-04)
+
+The organiser's logo rendered correctly in a private window and was **missing on every
+real handset**, which read as a mobile styling bug and was not one. `vite-plugin-pwa`
+runs `registerType: 'autoUpdate'` with a Workbox **navigation fallback**: any navigation
+not on `navigateFallbackDenylist` is answered from the **precache**, and `/c/` was not on
+the list. So a device that had visited before was served the `index.html` of the build
+that installed its service worker - referencing **that build's JS hash** - and the logo
+block, added later, simply was not in the bundle the phone ran. A private window has no
+service worker, which is exactly why it looked fine there.
+
+- **The rule is not about `/c/` specifically.** Any path that a **managed function
+  rewrites** must be on the denylist, because a precache hit never reaches the function:
+  `frontend/api/camp-og` injects the per-camp metas into the shell, so a precached
+  navigation would have carried the **generic** card even with everything else correct.
+  Two independent bugs from one missing regex.
+- **A real React Router route belongs on the denylist too, and that is not a
+  contradiction.** The other nine entries are static HTML that must *not* get the SPA
+  shell; `/c/` **does** want the shell - it just has to come from the **network**. The
+  denylist controls where the shell comes from, not whether one is served.
+- **Nothing in this repo can catch it.** The Vite build emits `sw.js` happily either way,
+  and the defect only appears on a device that has the SW from a *previous* deploy - so it
+  is invisible in dev, in CI, in a private window, and on any first visit. **When a
+  shipped element is absent on returning devices and present in a private window, suspect
+  the service worker before the CSS.**
+- **`og:image:type` (`image/png`) is now declared on both cards** - the function's
+  injection *and* `frontend/index.html`. It goes in `STRIP` as well: that array is
+  "every single-value property this function replaces", so an injected property missing
+  from it would ship twice the moment the root shell grows one.
+
+No migration; schema head stays **320**. Gate: `npm run smoke:frontend` clean
+(12 precache entries, `sw.js` regenerated).
 
 ## A camp application told NOBODY it needed reviewing (fixed 2026-09-01)
 

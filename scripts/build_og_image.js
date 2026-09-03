@@ -24,12 +24,25 @@
 const fs = require('fs');
 const path = require('path');
 
-async function render(sharp, svgPath, pngPath, width, height, label) {
+// The cream ground of the locked design system.
+const CREAM = '#fdf8f4';
+
+async function render(sharp, svgPath, pngPath, width, height, label, { opaque = false } = {}) {
   const svg = fs.readFileSync(svgPath);
-  await sharp(svg, { density: 320 })
-    .resize(width, height, { fit: 'cover', position: 'centre' })
-    .png({ compressionLevel: 9, adaptiveFiltering: true })
-    .toFile(pngPath);
+  let pipeline = sharp(svg, { density: 320 }).resize(width, height, {
+    fit: 'cover',
+    position: 'centre',
+  });
+  // A LINK-PREVIEW image must be OPAQUE. librsvg hands back 32-bit RGBA even
+  // when every pixel is fully opaque, and some crawlers decline an RGBA
+  // og:image outright — that was the one property og-image.png shared with the
+  // per-camp card while neither of them previewed. og-image.svg already paints
+  // a full-bleed rect in CREAM, so this drops the alpha channel and changes no
+  // pixel. The two icons deliberately KEEP their alpha: app-icon.png needs it
+  // for the rounded corners, and social-avatar.png is cropped to a circle by
+  // the platform itself.
+  if (opaque) pipeline = pipeline.flatten({ background: CREAM });
+  await pipeline.png({ compressionLevel: 9, adaptiveFiltering: true }).toFile(pngPath);
   const { size } = fs.statSync(pngPath);
   // eslint-disable-next-line no-console
   console.log(`✓ wrote ${label.padEnd(12)} ${pngPath} (${(size / 1024).toFixed(1)} KiB)`);
@@ -54,6 +67,7 @@ async function render(sharp, svgPath, pngPath, width, height, label) {
     path.join(pub, 'og-image.png'),
     1200, 630,
     'og-image',
+    { opaque: true },
   );
 
   // App icon — 1024×1024, the standard for Meta App Dashboard, Play Store,

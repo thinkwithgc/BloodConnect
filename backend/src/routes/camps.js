@@ -696,8 +696,20 @@ router.get('/public/og/selftest', ogLimiter, async (req, res) => {
 router.get('/public/:slug/og.png', ogLimiter, async (req, res) => {
   const slug = String(req.params.slug || '');
 
+  // This is the ONE response on this API that exists to be embedded on
+  // ANOTHER site, so it opts out of helmet's global
+  // Cross-Origin-Resource-Policy: same-site (app.js:69). The share page is
+  // raktify.choudhari.ngo; this host is *.azurewebsites.net, which sits on
+  // the Public Suffix List - so the two are different SITES, not merely
+  // different origins, and an <img> is a no-cors load. Under same-site every
+  // BROWSER-based unfurler (WhatsApp Web + Desktop, Slack, Discord,
+  // LinkedIn) must refuse the image, while WhatsApp's native phone app
+  // decodes the bytes with a plain HTTP client and never sees the header at
+  // all - which is exactly how this stayed hidden. Scoped to this route on
+  // purpose: the other ~220 routes are API JSON and must keep same-site.
   const serve = (buffer, maxAge) => {
     res.set('Content-Type', 'image/png');
+    res.set('Cross-Origin-Resource-Policy', 'cross-origin');
     res.set('Cache-Control', 'public, max-age=' + maxAge);
     return res.send(buffer);
   };

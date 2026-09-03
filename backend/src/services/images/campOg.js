@@ -61,14 +61,39 @@ const INK = '#1c1917';
 const INK_2 = '#44403c';
 const INK_3 = '#78716c';
 
-// Layout. The right column exists only when there is an approved logo.
+// Layout.
+//
+// Two columns: the text stack on the left and - only when there is an approved
+// logo - a sand plate on the right for the logo to sit on. Without the plate a
+// small transparent PNG floats on the cream ground looking like it landed there
+// by accident, which is exactly how the first cut read.
 const PAD_X = 64;
 const LOGO_BOX = 200;
-const LOGO_LEFT = WIDTH - PAD_X - LOGO_BOX;
-const LOGO_TOP = 168;
-const TEXT_TOP = 150;
-const TEXT_BOTTOM = 512; // above the footer rule
-const RULE_Y = 540;
+const PLATE = LOGO_BOX + 48; // a 24px inset all round
+const PLATE_LEFT = WIDTH - PAD_X - PLATE;
+
+// The band the whole text stack is CENTRED in. The first cut top-anchored the
+// stack at y=150, so a one-line camp name left the lower-middle sixth of the
+// card completely empty - the defect reported as "lot of blank space". Centred,
+// a one-line name and a three-line name both look composed.
+const CONTENT_TOP = 128;
+const CONTENT_BOTTOM = 498;
+const BAND_H = CONTENT_BOTTOM - CONTENT_TOP;
+
+const PLATE_TOP = Math.round((CONTENT_TOP + CONTENT_BOTTOM - PLATE) / 2);
+const LOGO_LEFT = PLATE_LEFT + (PLATE - LOGO_BOX) / 2;
+const LOGO_TOP = PLATE_TOP + (PLATE - LOGO_BOX) / 2;
+
+// The footer is a sand BAND, not a 2px rule with one line of text under it: a
+// band reads as a designed edge, a hairline reads as the card running out.
+const FOOTER_TOP = 522;
+const FOOTER_H = HEIGHT - FOOTER_TOP;
+
+// The date rides in a brand-filled pill. These are the paddings only - the box
+// is sized from the MEASURED text run, which is why the chrome SVG can only be
+// assembled after the runs have been rendered.
+const PILL_PAD_X = 26;
+const PILL_PAD_Y = 12;
 
 const WORDMARK_PATH = path.join(
   __dirname,
@@ -273,10 +298,10 @@ async function renderCampOgCard(sharp, camp) {
   const name = String(camp?.name || '').trim();
   if (!name) return null;
 
-  // Any Devanagari anywhere on the card needs the shipped Noto to be genuinely
-  // reachable. If it is not, decline the whole card rather than ship boxes.
-  const needsDevanagari = [name, camp.venue, camp.organiser_name, camp.organiser_tagline].some(
-    (v) => fonts.hasDevanagari(v),
+  // A Devanagari name with no reachable Noto font renders as tofu boxes. A
+  // generic card is degraded; a card full of empty rectangles is broken.
+  const needsDevanagari = [name, camp.venue, camp.organiser_name, camp.district_name].some((s) =>
+    fonts.hasDevanagari(s),
   );
   if (needsDevanagari && !(await fonts.devanagariReachable(sharp))) {
     logger.warn({ slug: camp.slug }, 'og_camp_card_declined_devanagari_unreachable');
@@ -287,49 +312,50 @@ async function renderCampOgCard(sharp, camp) {
   if (!wordmark) return null;
 
   const logo = camp.logo_data_uri ? await renderLogo(sharp, camp.logo_data_uri) : null;
-  const textWidth = (logo ? LOGO_LEFT - 40 : WIDTH - PAD_X) - PAD_X;
+  const textWidth = (logo ? PLATE_LEFT - 40 : WIDTH - PAD_X) - PAD_X;
 
-  // --- the runs, top to bottom -------------------------------------------
   const dateLabel = formatCampDate(camp.scheduled_date);
   const start = formatTime(camp.start_time);
   const end = formatTime(camp.end_time);
-  const when = [dateLabel, start ? (end ? `${start} – ${end}` : start) : null]
-    .filter(Boolean)
-    .join('  ·  ');
+  const hours = start ? (end ? `${start} - ${end}` : start) : null;
 
-  const place = [camp.venue, camp.district_name].filter(Boolean).join(', ');
+  // The pill carries the DATE only. The hours ride with the venue on the line
+  // below so the pill stays short enough to read as a badge rather than as a
+  // sentence somebody drew a box around.
+  const place = [hours, camp.venue, camp.district_name].filter(Boolean).join('  ·  ');
   const host = camp.organiser_name ? `Hosted by ${camp.organiser_name}` : null;
 
-  const [whenRun, nameRun, placeRun, hostRun] = await Promise.all([
-    when
+  const [dateRun, nameRun, placeRun, hostRun, footLeft, footRight] = await Promise.all([
+    dateLabel
       ? fitText(sharp, {
-          text: when,
+          text: dateLabel,
           family: fonts.FAMILY_LATIN,
           weight: 'Bold',
-          sizes: [31, 28, 25],
-          colour: BRAND,
-          width: textWidth,
-          maxHeight: 84,
+          sizes: [28, 25, 22],
+          colour: CREAM, // on the brand pill, not on the cream ground
+          width: textWidth - PILL_PAD_X * 2,
+          maxHeight: 46,
         })
       : null,
     fitText(sharp, {
       text: name,
       family: fonts.FAMILY_LATIN,
       weight: 'ExtraBold',
-      sizes: [66, 58, 50, 44, 38],
+      sizes: [64, 56, 48, 42, 36],
       colour: INK,
       width: textWidth,
-      maxHeight: 176,
+      maxHeight: 172,
+      spacing: -1024,
     }),
     place
       ? fitText(sharp, {
           text: place,
           family: fonts.FAMILY_LATIN,
           weight: 'SemiBold',
-          sizes: [31, 28, 25],
+          sizes: [29, 26, 23],
           colour: INK_2,
           width: textWidth,
-          maxHeight: 84,
+          maxHeight: 78,
         })
       : null,
     host
@@ -337,67 +363,129 @@ async function renderCampOgCard(sharp, camp) {
           text: host,
           family: fonts.FAMILY_LATIN,
           weight: 'Regular',
-          sizes: [26, 23],
+          sizes: [25, 22],
           colour: INK_3,
           width: textWidth,
-          maxHeight: 40,
+          maxHeight: 38,
         })
       : null,
+    // Deliberately not a promise about eligibility or a medical claim - just
+    // what this is and where to go. "Free registration" is true: no fee anywhere.
+    fitText(sharp, {
+      text: 'Blood donation camp  ·  Free registration',
+      family: fonts.FAMILY_LATIN,
+      weight: 'SemiBold',
+      sizes: [22],
+      colour: INK_2,
+      width: 640,
+      maxHeight: 34,
+    }),
+    fitText(sharp, {
+      text: 'raktify.choudhari.ngo',
+      family: fonts.FAMILY_LATIN,
+      weight: 'Bold',
+      sizes: [24],
+      colour: BRAND,
+      width: 420,
+      maxHeight: 34,
+    }),
   ]);
 
   if (!nameRun) return null;
 
-  // Stack with the cursor, dropping the least important run if we run out of
-  // vertical room. Order of sacrifice: host, then place.
-  const GAPS = { afterWhen: 16, afterName: 20, afterPlace: 14 };
+  const pillH = dateRun ? dateRun.height + PILL_PAD_Y * 2 : 0;
+  const pillW = dateRun ? dateRun.width + PILL_PAD_X * 2 : 0;
+
+  // MEASURE the whole stack before placing any of it - centring is impossible
+  // from a running cursor, which is what the first cut used.
+  const items = [];
+  if (dateRun) items.push({ pill: true, h: pillH, gap: 24 });
+  items.push({ run: nameRun, h: nameRun.height, gap: 18 });
+  if (placeRun) items.push({ run: placeRun, h: placeRun.height, gap: 12 });
+  if (hostRun) items.push({ run: hostRun, h: hostRun.height, gap: 0 });
+
+  const stackHeight = () =>
+    items.reduce((acc, it, i) => acc + it.h + (i < items.length - 1 ? it.gap : 0), 0);
+  // Sacrifice from the BOTTOM - host first, then venue - rather than let the
+  // stack collide with the footer band. The camp name never goes.
+  while (items.length > 1 && stackHeight() > BAND_H) items.pop();
+
   const runs = [];
-  let y = TEXT_TOP;
-  if (whenRun) {
-    runs.push({ input: whenRun.buffer, left: PAD_X, top: y });
-    y += whenRun.height + GAPS.afterWhen;
-  }
-  runs.push({ input: nameRun.buffer, left: PAD_X, top: y });
-  y += nameRun.height + GAPS.afterName;
-  if (placeRun && y + placeRun.height <= TEXT_BOTTOM) {
-    runs.push({ input: placeRun.buffer, left: PAD_X, top: y });
-    y += placeRun.height + GAPS.afterPlace;
-  }
-  if (hostRun && y + hostRun.height <= TEXT_BOTTOM) {
-    runs.push({ input: hostRun.buffer, left: PAD_X, top: y });
+  let pill = '';
+  let y = CONTENT_TOP + Math.max(0, Math.round((BAND_H - stackHeight()) / 2));
+  for (let i = 0; i < items.length; i += 1) {
+    const it = items[i];
+    if (it.pill) {
+      pill =
+        `<rect x="${PAD_X}" y="${y}" width="${pillW}" height="${pillH}" ` +
+        `rx="${Math.round(pillH / 2)}" fill="${BRAND}"/>`;
+      runs.push({ input: dateRun.buffer, left: PAD_X + PILL_PAD_X, top: y + PILL_PAD_Y });
+    } else {
+      runs.push({ input: it.run.buffer, left: PAD_X, top: y });
+    }
+    y += it.h + it.gap;
   }
 
-  // --- the footer -------------------------------------------------------
-  // Deliberately not a promise about eligibility or a medical claim - just
-  // where to go. "Register free" is true: there is no fee anywhere.
-  const footer = await fitText(sharp, {
-    text: 'Register free · raktify.choudhari.ngo',
-    family: fonts.FAMILY_LATIN,
-    weight: 'SemiBold',
-    sizes: [25],
-    colour: BRAND,
-    width: 700,
-    maxHeight: 40,
-  });
-  if (footer) runs.push({ input: footer.buffer, left: PAD_X, top: RULE_Y + 22 });
-
+  if (footLeft) {
+    runs.push({
+      input: footLeft.buffer,
+      left: PAD_X,
+      top: FOOTER_TOP + Math.round((FOOTER_H - footLeft.height) / 2),
+    });
+  }
+  if (footRight) {
+    // Right-aligned by measurement, not by a guessed x.
+    runs.push({
+      input: footRight.buffer,
+      left: WIDTH - PAD_X - footRight.width,
+      top: FOOTER_TOP + Math.round((FOOTER_H - footRight.height) / 2),
+    });
+  }
   if (logo) runs.push({ input: logo, left: LOGO_LEFT, top: LOGO_TOP });
 
-  // --- chrome, as one SVG (no <text>, so no font dependency at all) -----
-  const chrome = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
-  <defs>
-    <linearGradient id="band" x1="0" y1="0" x2="1" y2="0">
-      <stop offset="0%" stop-color="${BRAND}"/>
-      <stop offset="100%" stop-color="${BRAND_LIGHT}"/>
-    </linearGradient>
-  </defs>
-  <rect width="${WIDTH}" height="${HEIGHT}" fill="${CREAM}"/>
-  <rect x="0" y="0" width="${WIDTH}" height="10" fill="url(#band)"/>
-  ${wordmark}
-  <rect x="${PAD_X}" y="${RULE_Y}" width="${WIDTH - PAD_X * 2}" height="2" fill="${SAND}"/>
-</svg>`;
+  // The chrome carries no <text> at all, so it has no font dependency - every
+  // glyph on this card comes from a measured pango run composited over it.
+  const plate = logo
+    ? `<rect x="${PLATE_LEFT}" y="${PLATE_TOP}" width="${PLATE}" height="${PLATE}" rx="28" fill="${SAND}"/>`
+    : '';
 
-  return sharp(Buffer.from(chrome), { density: 72 })
+  const chrome = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
+    <defs>
+      <linearGradient id="band" x1="0" y1="0" x2="1" y2="0">
+        <stop offset="0%" stop-color="${BRAND}"/>
+        <stop offset="100%" stop-color="${BRAND_LIGHT}"/>
+      </linearGradient>
+    </defs>
+    <rect width="${WIDTH}" height="${HEIGHT}" fill="${CREAM}"/>
+    <rect x="0" y="0" width="${WIDTH}" height="10" fill="url(#band)"/>
+    ${wordmark}
+    ${plate}
+    ${pill}
+    <rect x="0" y="${FOOTER_TOP}" width="${WIDTH}" height="${FOOTER_H}" fill="${SAND}"/>
+    <rect x="0" y="${FOOTER_TOP}" width="${WIDTH}" height="3" fill="url(#band)"/>
+  </svg>`;
+
+  // FLATTEN - and do it through an explicit raw intermediate.
+  //
+  // WHY OPAQUE: a 32-bit og:image is a link-preview hazard. The crawler
+  // composites the alpha against a ground we do not control, and some clients
+  // decline an RGBA preview outright - which is the one property the camp card
+  // and the site-root card shared while neither previewed. Nothing is lost:
+  // the card's own ground is a full-bleed opaque cream rect.
+  //
+  // WHY RAW: sharp does not guarantee the order of flatten relative to
+  // composite, so a chained .flatten() can be applied to the BASE before the
+  // runs land on it - leaving the logo's own transparency in the output. One
+  // deterministic encode from raw pixels cannot get that wrong.
+  const { data, info } = await sharp(Buffer.from(chrome), { density: 72 })
     .composite(runs)
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+
+  return sharp(data, {
+    raw: { width: info.width, height: info.height, channels: info.channels },
+  })
+    .flatten({ background: CREAM })
     .png({ compressionLevel: 9, adaptiveFiltering: true })
     .toBuffer();
 }

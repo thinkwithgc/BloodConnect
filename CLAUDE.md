@@ -168,7 +168,7 @@ cannot be checked from a workstation at all):
 | `GET /camps/public/some-slug/og.png` | `200 image/png`, 66 KB | The designed generic fallback for an unknown slug (TTL 300). **Not** proof the renderer works — that comes from the selftest |
 | `GET /camps/public/og/nope` | `404 route_not_found` | Control. Proves the selftest 200 is a real route match, not a catch-all artefact |
 | `POST /camps/access/<fake>/logo-raw` | `403 invalid_token` (PNG bytes) · `415 unsupported_media_type` (PDF header) | Route deployed with `express.raw` intact. **415 and `content_type_mismatch` are DIFFERENT checks** — 415 is express.raw's Content-Type filter, `content_type_mismatch` is magic-byte verification behind it |
-| `/c/*` response headers | `max-age=60` + `x-ms-middleware-request-id`, **no `ETag`** | The SWA managed function is genuinely handling the route. A static-file response always carries `ETag` + `Last-Modified`; a function response does not. The build log also now contains an Oryx *function* build block that does not exist when `api_location` is `""` |
+| `/c/*` response headers | `x-ms-middleware-request-id`, **no `ETag`** (`max-age=60` on a slug the function could not resolve, **`300` once it injects a real camp** - do not read one as the other) | The SWA managed function is genuinely handling the route. A static-file response always carries `ETag` + `Last-Modified`; a function response does not. The build log also now contains an Oryx *function* build block that does not exist when `api_location` is `""` |
 
 **A 404 on a brand-new route minutes after a green deploy can just be the App Service
 restarting.** The selftest answered `route_not_found` on the first probe and `200` a few
@@ -217,8 +217,22 @@ deferral), and prod has **zero camps** so the scan was instant. Deploy skew was
 benign here too — a new SPA against the old API just read `undefined` for
 `logo_data_uri` and rendered nothing.
 
-**Nothing has exercised camp branding in prod yet, because prod has zero camps.**
-The manual walk-through below is still the outstanding verification.
+**Camp branding and per-camp OG ARE now exercised in prod** (2026-09-03, camp
+`annual-camp-v4x5u`, `status=PL`, `branding_status=AP`): `/c/<slug>` returns the
+per-camp metas, the SWA function is provably in the path, and the card renders
+correctly - wordmark + TM, date in brand red, venue, organiser name and the
+organiser's own logo. **Earlier "prod has zero camps" claims in this file are
+stale; they were also used once to argue the preview could not be validated,
+which was wrong.** Two real findings came out of that walk-through, and only one
+was a code defect:
+
+- **A generic preview card is almost always the CLIENT's cache, not our bug.**
+  WhatsApp caches per exact URL, failures included, for days - so a link shared
+  before the fix deployed keeps showing the generic card forever. Re-share with a
+  throwaway `?v=2` before touching any code, and never conclude anything from
+  re-sharing the same link.
+- **The marketing-material export genuinely did not exist** and is now built - see
+  **The poster export is the OG card** below.
 
 **Blocked on other people, not on code:**
 1. **MR / HI review for the four new camp templates** — the only Meta-side wait
@@ -240,8 +254,8 @@ The manual walk-through below is still the outstanding verification.
    which is exactly what made it invisible.
 2. **Legal review of the MoU template** — the last sign-off before onboarding
    institutions at scale. Medical sign-off is done (10-Jul-2026).
-3. **Manual prod walk-through of the camp lifecycle.** Prod has **zero camps**,
-   so the flow has never been exercised there: publish a month with a holiday
+3. **Manual prod walk-through of the camp lifecycle.** The public/share half is
+   done (see above); the BB-capacity half has still never been exercised in prod:
    and a reduced day → host against a full day (blocked, alternatives) and an
    open day → accept in the BB tab and confirm the organiser's mobile appears
    only then → record two donations and enter TTI from the worklist without
@@ -877,6 +891,50 @@ share link down with it.
   throwaway `?v=2`; never conclude anything from re-sharing the same link.
 
 No migration — schema head stays **320**, next new is **321**.
+
+## The poster export IS the OG card, so there is no second renderer (2026-09-03)
+
+The organiser asked for "marketing material to export" and `ShareToolkit` had none — a
+copyable URL, five channel buttons, a QR code and `window.print()`, but nothing that
+produces a file. **The answer was not to build a poster generator: the API already
+renders one at 1200x630 for the WhatsApp crawler**, so the missing piece was a download
+affordance over `GET /camps/public/:slug/og.png`. That choice is what makes the whole
+feature small, and it has three consequences worth keeping:
+
+- **The downloaded image and the link preview can never drift apart** — they are the same
+  bytes from the same route. A second renderer would be a second thing to keep in sync
+  with the design system, and the first one to go stale.
+- **No canvas anywhere near it.** That image is cross-origin, which is the exact taint
+  migration 319's header was written around, and canvas readback is what Firefox blocks
+  outright (see **An uploaded camp logo came out BLACK**). Reaching for a canvas here
+  would have reintroduced a bug this repo has already paid for twice.
+- **`poster_storage_key` (migration 033) stays untouched and still unwritten.** It is
+  SELECTed once (`camps.js:772`) and set nowhere; nothing in this app can serve an
+  uploaded file back anyway. Do not read the new export as filling it.
+
+Rules for the code itself:
+
+- **`<a download>` is IGNORED for a cross-origin href** — the browser navigates to the
+  image instead of saving it. So the bytes arrive through `fetch()` and leave as a
+  `blob:` on a synthetic `<a>`. **The object URL is revoked on a timer, never straight
+  after `click()`** — a synchronous revoke cancels the save in some browsers, the same
+  class of mistake that made an uploaded logo come out black.
+- **A blocked fetch falls back to `window.open()`, it does not surface an error.** On the
+  handset this magic link is built for, long-press-save is the native gesture anyway.
+- **`POSTER_STATUSES = new Set(['PL','LV'])` mirrors `og.png`'s own visibility filter.**
+  Outside those two statuses that route serves the **generic** card, so offering it as
+  "your poster" would hand the organiser Raktify's stock image and call it theirs. A
+  pending camp gets `camp_od_card_pending` instead. (Pre-existing drift, deliberately
+  **not** fixed inline: the surrounding share buttons gate only on `slug`, so a `'PE'`
+  camp still gets links to a URL that 404s.)
+- **The og.png URL is built from `import.meta.env.VITE_API_URL`**, because `api.js`'s
+  `baseURL` is module-local and not exported. `/camps` is in the Vite dev proxy, so the
+  empty-string fallback is correct in dev.
+- 8 `camp_od_card_*` keys in **MR + EN**, the standing `camp_`/`bb_` no-Hindi carve-out.
+
+No migration; schema head stays **320**. Gates: `npm run smoke:frontend` clean, throwaway
+`no-undef` pass **0 findings** (the `no-console` "rule not found" lines are noise, and
+`URLSearchParams` must be in the throwaway config's globals or it reports 20 false hits).
 
 ## A camp application told NOBODY it needed reviewing (fixed 2026-09-01)
 

@@ -417,6 +417,16 @@ export const mr = {
     'Story च्या link sticker मध्ये किंवा bio मध्ये टाका.',
   camp_od_scan: 'नोंदणीसाठी स्कॅन करा',
   camp_od_print: 'हे पान छापा',
+  camp_od_card_title: 'शेअर करण्यासाठी पोस्टर',
+  camp_od_card_hint:
+    'WhatsApp, Facebook किंवा Instagram वर दुवा पाठवला की हेच चित्र दिसते. ' +
+    'ते उतरवून घ्या आणि गटांमध्ये थेट पोस्ट करा.',
+  camp_od_card_download: 'चित्र उतरवून घ्या',
+  camp_od_card_busy: 'तयार होत आहे…',
+  camp_od_card_open: 'नवीन टॅबमध्ये उघडा',
+  camp_od_card_alt: '{name} — शेअर करण्याचे पोस्टर',
+  camp_od_card_pending:
+    'एनजीओने शिबिर मंजूर करून जाहीर केल्यावर तुमचे पोस्टर इथे दिसेल.',
   camp_od_share_subject: 'रक्तदान शिबिर: {name}',
   camp_od_share_body:
     '🩸 रक्तदान शिबिर: {name}\n📅 {date} · {time}\n📍 {venue}\n\n' +
@@ -828,6 +838,16 @@ export const en = {
     'ready-to-paste message; add it to your Story link sticker or bio.',
   camp_od_scan: 'Scan to register',
   camp_od_print: 'Print this page',
+  camp_od_card_title: 'Poster image for sharing',
+  camp_od_card_hint:
+    'This is the image WhatsApp, Facebook and Instagram show when your link is ' +
+    'shared. Download it and post it straight into groups.',
+  camp_od_card_download: 'Download image',
+  camp_od_card_busy: 'Preparing…',
+  camp_od_card_open: 'Open in a new tab',
+  camp_od_card_alt: '{name} — share poster',
+  camp_od_card_pending:
+    'Your poster image appears here once the NGO approves and publishes the camp.',
   camp_od_share_subject: 'Blood donation camp: {name}',
   camp_od_share_body:
     '🩸 Blood donation camp: {name}\n📅 {date} · {time}\n📍 {venue}\n\n' +

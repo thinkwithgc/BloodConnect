@@ -763,6 +763,12 @@ export function CampOrganizerDashboard() {
   );
 }
 
+// GET /camps/public/:slug/og.png only serves a real per-camp card for a camp the
+// public page shows; anything else is handed the GENERIC fallback. So the poster
+// download is gated on the same two statuses the route filters on - offering a
+// pending camp's 'poster' would hand the organiser Raktify's generic image.
+const POSTER_STATUSES = new Set(['PL', 'LV']);
+
 // ─── Share toolkit ──────────────────────────────────────────────────────────
 // Generates the public /c/<slug> URL plus a QR code and per-channel share
 // buttons. Each button appends ?via=<channel> so RSVPs can be attributed.
@@ -770,11 +776,23 @@ function ShareToolkit({ camp }) {
   const { t } = useT();
   const slug = camp?.slug;
   const [copyState, setCopyState] = useState('');
+  const [cardBusy, setCardBusy] = useState(false);
 
   // Always use the live origin so QR posters work regardless of dev/staging.
   const origin =
     typeof window !== 'undefined' ? window.location.origin : 'https://raktify.choudhari.ngo';
   const baseUrl = slug ? `${origin}/c/${slug}` : null;
+
+  // The per-camp OG card IS the marketing material - the API already renders it at
+  // 1200x630 for the WhatsApp/Facebook preview, so this is a download affordance,
+  // not a second renderer, and what the organiser posts is byte-identical to what a
+  // donor sees in the link preview. Deliberately NO canvas anywhere near it: this
+  // image is cross-origin, which is the exact taint migration 319 was written
+  // around, and canvas readback is what Firefox blocks outright.
+  const cardUrl =
+    slug && POSTER_STATUSES.has(camp?.status)
+      ? `${import.meta.env.VITE_API_URL || ''}/camps/public/${slug}/og.png`
+      : null;
 
   // The share message is what a donor reads on WhatsApp, so it follows the
   // organiser's own language - they are the one pasting it into their group.
@@ -803,6 +821,35 @@ function ShareToolkit({ camp }) {
       setTimeout(() => setCopyState(''), 1800);
     } catch {
       setCopyState(t('camp_od_copy_fail'));
+    }
+  }
+
+  // `<a download>` is IGNORED for a cross-origin href - the browser navigates to the
+  // image instead of saving it - so the bytes have to arrive via fetch and leave as a
+  // blob. The object URL is revoked on a timer, never straight after click():
+  // revoking synchronously cancels the save in some browsers, which is the same
+  // class of mistake that made an uploaded logo come out black.
+  async function downloadCard() {
+    if (!cardUrl) return;
+    setCardBusy(true);
+    try {
+      const res = await fetch(cardUrl, { cache: 'no-store' });
+      if (!res.ok) throw new Error(`og_${res.status}`);
+      const href = URL.createObjectURL(await res.blob());
+      const a = document.createElement('a');
+      a.href = href;
+      a.download = `${slug}-raktify.png`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(href), 20000);
+    } catch {
+      // A blocked fetch must not dead-end the organiser: opening the PNG lets them
+      // long-press-save, which is the native gesture on the handset this magic link
+      // is built for anyway.
+      window.open(cardUrl, '_blank', 'noopener');
+    } finally {
+      setCardBusy(false);
     }
   }
 
@@ -909,6 +956,47 @@ function ShareToolkit({ camp }) {
             {t('camp_od_print')}
           </button>
         </div>
+      </div>
+
+      {/* Shareable poster. Same PNG the WhatsApp/Facebook crawler fetches, so the
+          downloaded image and the link preview can never drift apart. */}
+      <div className="space-y-2 border-t border-slate-200 pt-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+          {t('camp_od_card_title')}
+        </h3>
+        {cardUrl ? (
+          <>
+            <img
+              src={cardUrl}
+              alt={t('camp_od_card_alt', { name: camp.name })}
+              width={1200}
+              height={630}
+              loading="lazy"
+              className="w-full max-w-md rounded-lg border border-slate-200 bg-white"
+            />
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                disabled={cardBusy}
+                onClick={downloadCard}
+                className="rounded-md bg-rk-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-rk-800 disabled:opacity-60"
+              >
+                {cardBusy ? t('camp_od_card_busy') : t('camp_od_card_download')}
+              </button>
+              <a
+                href={cardUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="text-xs font-medium text-rk-700 hover:underline"
+              >
+                {t('camp_od_card_open')}
+              </a>
+            </div>
+            <p className="text-xs text-slate-500">{t('camp_od_card_hint')}</p>
+          </>
+        ) : (
+          <p className="text-xs text-slate-500">{t('camp_od_card_pending')}</p>
+        )}
       </div>
     </article>
   );

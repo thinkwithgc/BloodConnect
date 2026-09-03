@@ -643,20 +643,27 @@ const ogLimiter = rateLimit({
   message: { error: 'rate_limit_og' },
 });
 
-function ogCacheGet(slug) {
-  const hit = ogCache.get(slug);
+// The key is slug + variant, never the bare slug: the crawler's clean card
+// and the organiser's QR poster are two different images from one route, and
+// keying on the slug alone would serve whichever rendered first to both.
+function ogCacheKey(slug, poster) {
+  return (poster ? 'p:' : 'c:') + slug;
+}
+
+function ogCacheGet(key) {
+  const hit = ogCache.get(key);
   if (!hit) return null;
   if (Date.now() > hit.expires) {
-    ogCache.delete(slug);
+    ogCache.delete(key);
     return null;
   }
   return hit.buffer;
 }
 
-function ogCachePut(slug, buffer) {
+function ogCachePut(key, buffer) {
   // Map iterates in insertion order, so the first key is the oldest entry.
   while (ogCache.size >= OG_CACHE_MAX) ogCache.delete(ogCache.keys().next().value);
-  ogCache.set(slug, { buffer, expires: Date.now() + OG_CACHE_TTL_MS });
+  ogCache.set(key, { buffer, expires: Date.now() + OG_CACHE_TTL_MS });
 }
 
 // ── GET /camps/public/og/selftest (PUBLIC, data-free) ────────────────────
@@ -696,6 +703,20 @@ router.get('/public/og/selftest', ogLimiter, async (req, res) => {
 router.get('/public/:slug/og.png', ogLimiter, async (req, res) => {
   const slug = String(req.params.slug || '');
 
+  // ?poster=1 is the DOWNLOAD variant - the same renderer, one boolean. An
+  // image cannot carry a hyperlink, so the organiser's downloadable poster
+  // gets a QR plus the camp URL as readable text; the crawler keeps the clean
+  // card, because a QR is noise beside a preview that is already tappable.
+  // Only the dashboard's download link sets it - the injected og:image never
+  // does. Same renderer on purpose: a second one would be a second thing to
+  // keep in step with the locked design system, and the first to go stale.
+  const poster = req.query.poster === '1';
+  // env.frontendUrl is the single source for the public origin (see the
+  // manage_url and magic-link builds below). ?via=qr rides the existing
+  // camp_registrations.referral_channel vocabulary - migration 263 already
+  // names 'qr' - so scans are attributed with no schema or route change.
+  const shareUrl = poster ? `${env.frontendUrl || ''}/c/${slug}?via=qr` : '';
+
   // This is the ONE response on this API that exists to be embedded on
   // ANOTHER site, so it opts out of helmet's global
   // Cross-Origin-Resource-Policy: same-site (app.js:69). The share page is
@@ -721,7 +742,8 @@ router.get('/public/:slug/og.png', ogLimiter, async (req, res) => {
     return serve(buf, maxAge);
   };
 
-  const cached = ogCacheGet(slug);
+  const cacheKey = ogCacheKey(slug, poster);
+  const cached = ogCacheGet(cacheKey);
   if (cached) return serve(cached, 86400);
 
   try {
@@ -751,10 +773,10 @@ router.get('/public/:slug/og.png', ogLimiter, async (req, res) => {
     // card should appear as soon as the NGO publishes it, not a day later.
     if (r.rowCount === 0) return generic(300);
 
-    const card = await campOg.renderCampOgCard(sharp, r.rows[0]);
+    const card = await campOg.renderCampOgCard(sharp, r.rows[0], { poster, shareUrl });
     if (!card) return generic(3600);
 
-    ogCachePut(slug, card);
+    ogCachePut(cacheKey, card);
     return serve(card, 86400);
   } catch (err) {
     logger.error({ err: err.message, slug }, 'og_camp_card_failed');

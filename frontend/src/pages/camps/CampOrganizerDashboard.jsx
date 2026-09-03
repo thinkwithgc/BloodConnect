@@ -785,13 +785,20 @@ function ShareToolkit({ camp }) {
 
   // The per-camp OG card IS the marketing material - the API already renders it at
   // 1200x630 for the WhatsApp/Facebook preview, so this is a download affordance,
-  // not a second renderer, and what the organiser posts is byte-identical to what a
-  // donor sees in the link preview. Deliberately NO canvas anywhere near it: this
-  // image is cross-origin, which is the exact taint migration 319 was written
-  // around, and canvas readback is what Firefox blocks outright.
+  // not a second renderer. Deliberately NO canvas anywhere near it: this image is
+  // cross-origin, which is the exact taint migration 319 was written around, and
+  // canvas readback is what Firefox blocks outright.
+  //
+  // ?poster=1 is that same route and that same renderer with one boolean flipped.
+  // A posted IMAGE carries no hyperlink, so the poster variant prints a QR code and
+  // the camp URL as readable text - someone who only ever sees the picture, forwarded
+  // on with the caption stripped, can still reach the RSVP page. The crawler-facing
+  // og:image (injected by frontend/api/camp-og) deliberately does NOT set it: a QR is
+  // noise beside a preview that is already tappable. All three affordances below use
+  // the poster, so the thumbnail is an honest preview of the file that downloads.
   const cardUrl =
     slug && POSTER_STATUSES.has(camp?.status)
-      ? `${import.meta.env.VITE_API_URL || ''}/camps/public/${slug}/og.png`
+      ? `${import.meta.env.VITE_API_URL || ''}/camps/public/${slug}/og.png?poster=1`
       : null;
 
   // The share message is what a donor reads on WhatsApp, so it follows the

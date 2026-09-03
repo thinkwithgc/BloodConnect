@@ -419,8 +419,8 @@ export const mr = {
   camp_od_print: 'हे पान छापा',
   camp_od_card_title: 'शेअर करण्यासाठी पोस्टर',
   camp_od_card_hint:
-    'WhatsApp, Facebook किंवा Instagram वर दुवा पाठवला की हेच चित्र दिसते. ' +
-    'ते उतरवून घ्या आणि गटांमध्ये थेट पोस्ट करा.',
+    'या पोस्टरवर QR कोड आणि शिबिराचा दुवा छापलेला असतो, त्यामुळे ज्याला फक्त चित्र ' +
+    'मिळेल तोही स्कॅन करून नोंदणी करू शकतो. ते उतरवून घ्या आणि गटांमध्ये थेट पोस्ट करा.',
   camp_od_card_download: 'चित्र उतरवून घ्या',
   camp_od_card_busy: 'तयार होत आहे…',
   camp_od_card_open: 'नवीन टॅबमध्ये उघडा',
@@ -840,8 +840,8 @@ export const en = {
   camp_od_print: 'Print this page',
   camp_od_card_title: 'Poster image for sharing',
   camp_od_card_hint:
-    'This is the image WhatsApp, Facebook and Instagram show when your link is ' +
-    'shared. Download it and post it straight into groups.',
+    'This poster carries a QR code and the camp link, so anyone who only sees the ' +
+    'image can still scan it and register. Download it and post it straight into groups.',
   camp_od_card_download: 'Download image',
   camp_od_card_busy: 'Preparing…',
   camp_od_card_open: 'Open in a new tab',

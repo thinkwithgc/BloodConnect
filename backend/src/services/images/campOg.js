@@ -45,6 +45,8 @@
 const fs = require('fs');
 const path = require('path');
 
+const qrcode = require('qrcode');
+
 const logger = require('../../config/logger');
 const fonts = require('./fonts');
 
@@ -94,6 +96,20 @@ const FOOTER_H = HEIGHT - FOOTER_TOP;
 // assembled after the runs have been rendered.
 const PILL_PAD_X = 26;
 const PILL_PAD_Y = 12;
+
+// ── The poster variant (?poster=1) ───────────────────────────────────────
+// The organiser's downloadable poster IS this card, so "make the poster
+// actionable" is a flag on one code path, never a second renderer. An image
+// cannot carry a hyperlink, so the download variant carries a QR plus the camp
+// URL as readable text; the crawler's card stays clean, because a QR is noise
+// beside a link preview that is already tappable.
+const QR_BOX = 185; // a CEILING, not a size - see renderQr
+const QR_DARK = '#7c1d1b'; // rk-900, the exact value the on-screen QR uses
+const POSTER_LOGO_BOX = 80; // on a poster the QR outranks the organiser logo
+const QR_GAP = 14; // logo -> QR
+const QR_CAP_GAP = 16; // QR -> "Scan to register"
+const POSTER_PLATE_PAD = 24; // matches PLATE's own 24px inset
+const QR_PAD = 10; // white surround, so the code's hard square reads rounded
 
 const WORDMARK_PATH = path.join(
   __dirname,
@@ -265,13 +281,13 @@ async function fitText(sharp, { text, family, weight, sizes, colour, width, maxH
   return null;
 }
 
-/** The approved organiser logo, contained in a LOGO_BOX square, alpha kept. */
-async function renderLogo(sharp, dataUri) {
+/** The approved organiser logo, contained in a `box` square, alpha kept. */
+async function renderLogo(sharp, dataUri, box = LOGO_BOX) {
   const m = /^data:image\/(png|jpeg);base64,([A-Za-z0-9+/=]+)$/.exec(String(dataUri || ''));
   if (!m) return null;
   try {
     return await sharp(Buffer.from(m[2], 'base64'), { limitInputPixels: 50e6 })
-      .resize(LOGO_BOX, LOGO_BOX, {
+      .resize(box, box, {
         fit: 'contain',
         // Transparent, never white: the card ground is cream #fdf8f4, so a
         // white plate behind a transparent logo would read as a grey box.
@@ -288,13 +304,49 @@ async function renderLogo(sharp, dataUri) {
 }
 
 /**
+ * The camp URL as a QR, for the poster variant only.
+ *
+ * A WHITE ground and a 2-module quiet zone are a scanner requirement, not a new
+ * palette entry - a code read off cream at arm's length is a support ticket.
+ * The foreground is rk-900, the same token the on-screen QR in
+ * CampOrganizerDashboard already uses, so no new colour enters the tree.
+ *
+ * `width` is a CEILING, not a promise: qrcode floors the module scale to an
+ * integer, so a longer slug (a higher QR version) comes back SMALLER than
+ * QR_BOX. Hence the metadata read - everything downstream centres on the real
+ * size, and centring on the requested width would be off by the remainder.
+ */
+async function renderQr(sharp, url) {
+  try {
+    const buffer = await qrcode.toBuffer(String(url), {
+      type: 'png',
+      width: QR_BOX,
+      margin: 2,
+      errorCorrectionLevel: 'M',
+      color: { dark: QR_DARK, light: '#ffffff' },
+    });
+    const meta = await sharp(buffer).metadata();
+    return { buffer, size: meta.width || QR_BOX };
+  } catch (err) {
+    // Degrade the VARIANT, not the download - the caller falls back to the
+    // plain card so the organiser still gets a usable poster.
+    logger.warn({ err: err.message }, 'og_camp_qr_failed');
+    return null;
+  }
+}
+
+/**
  * Render the card. Returns a PNG Buffer, or null when the caller should serve
  * the generic og-image.png instead.
  *
  * `camp` is the GET /camps/public/:slug shape - which already applies the SQL
  * approval gate, so a logo/tagline present here is one an NGO admin approved.
+ *
+ * `opts.poster` + `opts.shareUrl` render the DOWNLOAD variant: same layout,
+ * same tokens, but the right-hand plate carries a QR and the footer carries the
+ * camp URL as readable text. The crawler never asks for it.
  */
-async function renderCampOgCard(sharp, camp) {
+async function renderCampOgCard(sharp, camp, opts = {}) {
   const name = String(camp?.name || '').trim();
   if (!name) return null;
 
@@ -311,8 +363,29 @@ async function renderCampOgCard(sharp, camp) {
   const wordmark = wordmarkGroup(PAD_X, WM_TOP, WM_HEIGHT);
   if (!wordmark) return null;
 
-  const logo = camp.logo_data_uri ? await renderLogo(sharp, camp.logo_data_uri) : null;
-  const textWidth = (logo ? PLATE_LEFT - 40 : WIDTH - PAD_X) - PAD_X;
+  const shareUrl = String(opts.shareUrl || '').trim();
+  // A poster with no URL to encode is just the plain card.
+  let poster = Boolean(opts.poster && shareUrl);
+  const qr = poster ? await renderQr(sharp, shareUrl) : null;
+  if (poster && !qr) {
+    logger.warn({ slug: camp.slug }, 'og_camp_poster_without_qr');
+    poster = false;
+  }
+
+  const logo = camp.logo_data_uri
+    ? await renderLogo(sharp, camp.logo_data_uri, poster ? POSTER_LOGO_BOX : LOGO_BOX)
+    : null;
+  // In poster mode the plate is present whether or not there is a logo, so the
+  // text column is the narrow one either way - the same 784px the logo case
+  // already uses, which is why the poster adds no new truncation behaviour.
+  const textWidth = (logo || poster ? PLATE_LEFT - 40 : WIDTH - PAD_X) - PAD_X;
+
+  // On a poster the URL is the actionable thing, so it takes the LEFT footer
+  // slot and reads first while the descriptor moves right. It also HAS to move:
+  // the full URL at Bold 24 measures ~480px and cannot fit the 420px right-hand
+  // cap. The printed form drops the scheme and the ?via= tag - the QR carries
+  // attribution; a human retyping the URL should not have to.
+  const urlText = poster ? shareUrl.replace(/^https?:\/\//, '').replace(/\?.*$/, '') : '';
 
   const dateLabel = formatCampDate(camp.scheduled_date);
   const start = formatTime(camp.start_time);
@@ -325,7 +398,7 @@ async function renderCampOgCard(sharp, camp) {
   const place = [hours, camp.venue, camp.district_name].filter(Boolean).join('  ·  ');
   const host = camp.organiser_name ? `Hosted by ${camp.organiser_name}` : null;
 
-  const [dateRun, nameRun, placeRun, hostRun, footLeft, footRight] = await Promise.all([
+  const [dateRun, nameRun, placeRun, hostRun, footLeft, footRight, capRun] = await Promise.all([
     dateLabel
       ? fitText(sharp, {
           text: dateLabel,
@@ -371,24 +444,58 @@ async function renderCampOgCard(sharp, camp) {
       : null,
     // Deliberately not a promise about eligibility or a medical claim - just
     // what this is and where to go. "Free registration" is true: no fee anywhere.
-    fitText(sharp, {
-      text: 'Blood donation camp  ·  Free registration',
-      family: fonts.FAMILY_LATIN,
-      weight: 'SemiBold',
-      sizes: [22],
-      colour: INK_2,
-      width: 640,
-      maxHeight: 34,
-    }),
-    fitText(sharp, {
-      text: 'raktify.choudhari.ngo',
-      family: fonts.FAMILY_LATIN,
-      weight: 'Bold',
-      sizes: [24],
-      colour: BRAND,
-      width: 420,
-      maxHeight: 34,
-    }),
+    // The two footer runs TRADE SLOTS in poster mode - see urlText above.
+    poster
+      ? fitText(sharp, {
+          text: urlText,
+          family: fonts.FAMILY_LATIN,
+          weight: 'Bold',
+          sizes: [28, 25, 22],
+          colour: BRAND,
+          width: 700,
+          maxHeight: 40,
+        })
+      : fitText(sharp, {
+          text: 'Blood donation camp  ·  Free registration',
+          family: fonts.FAMILY_LATIN,
+          weight: 'SemiBold',
+          sizes: [22],
+          colour: INK_2,
+          width: 640,
+          maxHeight: 34,
+        }),
+    poster
+      ? fitText(sharp, {
+          text: 'Blood donation camp  ·  Free registration',
+          family: fonts.FAMILY_LATIN,
+          weight: 'SemiBold',
+          sizes: [20],
+          colour: INK_2,
+          width: 380,
+          maxHeight: 30,
+        })
+      : fitText(sharp, {
+          text: 'raktify.choudhari.ngo',
+          family: fonts.FAMILY_LATIN,
+          weight: 'Bold',
+          sizes: [24],
+          colour: BRAND,
+          width: 420,
+          maxHeight: 34,
+        }),
+    // The QR needs to be told what it is - an unlabelled code on a poster gets
+    // photographed by nobody.
+    poster
+      ? fitText(sharp, {
+          text: 'Scan to register',
+          family: fonts.FAMILY_LATIN,
+          weight: 'SemiBold',
+          sizes: [18],
+          colour: INK_2,
+          width: PLATE - POSTER_PLATE_PAD * 2,
+          maxHeight: 26,
+        })
+      : null,
   ]);
 
   if (!nameRun) return null;
@@ -441,13 +548,56 @@ async function renderCampOgCard(sharp, camp) {
       top: FOOTER_TOP + Math.round((FOOTER_H - footRight.height) / 2),
     });
   }
-  if (logo) runs.push({ input: logo, left: LOGO_LEFT, top: LOGO_TOP });
+  // The right-hand plate. In poster mode its height is MEASURED from what it
+  // actually holds - optional logo, QR, caption - and centred in the same band
+  // as the text, because a fixed 248px square cannot fit a QR plus a caption,
+  // and a fixed taller one would strand whitespace when there is no logo.
+  let plateTop = PLATE_TOP;
+  let plateH = PLATE;
+  let qrRect = '';
+  if (poster) {
+    const capH = capRun ? capRun.height : 0;
+    const inner = (logo ? POSTER_LOGO_BOX + QR_GAP : 0) + qr.size + (capH ? QR_CAP_GAP + capH : 0);
+    plateH = inner + POSTER_PLATE_PAD * 2;
+    plateTop = CONTENT_TOP + Math.max(0, Math.round((BAND_H - plateH) / 2));
+
+    let cursor = plateTop + POSTER_PLATE_PAD;
+    if (logo) {
+      runs.push({
+        input: logo,
+        left: Math.round(PLATE_LEFT + (PLATE - POSTER_LOGO_BOX) / 2),
+        top: cursor,
+      });
+      cursor += POSTER_LOGO_BOX + QR_GAP;
+    }
+    // Centred on the REAL size, never on QR_BOX - see renderQr.
+    const qrLeft = Math.round(PLATE_LEFT + (PLATE - qr.size) / 2);
+    runs.push({ input: qr.buffer, left: qrLeft, top: cursor });
+    // A rounded white surround, invisible against the code's own white quiet
+    // zone, so the QR reads as part of the plate rather than a hard square
+    // somebody dropped on it.
+    qrRect =
+      `<rect x="${qrLeft - QR_PAD}" y="${cursor - QR_PAD}" ` +
+      `width="${qr.size + QR_PAD * 2}" height="${qr.size + QR_PAD * 2}" ` +
+      `rx="14" fill="#ffffff"/>`;
+    cursor += qr.size;
+    if (capRun) {
+      runs.push({
+        input: capRun.buffer,
+        left: Math.round(PLATE_LEFT + (PLATE - capRun.width) / 2),
+        top: cursor + QR_CAP_GAP,
+      });
+    }
+  } else if (logo) {
+    runs.push({ input: logo, left: LOGO_LEFT, top: LOGO_TOP });
+  }
 
   // The chrome carries no <text> at all, so it has no font dependency - every
   // glyph on this card comes from a measured pango run composited over it.
-  const plate = logo
-    ? `<rect x="${PLATE_LEFT}" y="${PLATE_TOP}" width="${PLATE}" height="${PLATE}" rx="28" fill="${SAND}"/>`
-    : '';
+  const plate =
+    logo || poster
+      ? `<rect x="${PLATE_LEFT}" y="${plateTop}" width="${PLATE}" height="${plateH}" rx="28" fill="${SAND}"/>`
+      : '';
 
   const chrome = `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
     <defs>
@@ -460,6 +610,7 @@ async function renderCampOgCard(sharp, camp) {
     <rect x="0" y="0" width="${WIDTH}" height="10" fill="url(#band)"/>
     ${wordmark}
     ${plate}
+    ${qrRect}
     ${pill}
     <rect x="0" y="${FOOTER_TOP}" width="${WIDTH}" height="${FOOTER_H}" fill="${SAND}"/>
     <rect x="0" y="${FOOTER_TOP}" width="${WIDTH}" height="3" fill="url(#band)"/>

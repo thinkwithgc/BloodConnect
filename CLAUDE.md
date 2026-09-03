@@ -939,6 +939,53 @@ No migration; schema head stays **320**. Gates: `npm run smoke:frontend` clean, 
 `no-undef` pass **0 findings** (the `no-console` "rule not found" lines are noise, and
 `URLSearchParams` must be in the throwaway config's globals or it reports 20 false hits).
 
+### The poster is a VARIANT of that same render — `?poster=1` (2026-09-04)
+
+**An image carries no hyperlink.** A card forwarded onward with the caption stripped is a
+dead end — the receiver can see the camp and has no way to RSVP. So the *download* variant
+prints a **QR code plus the camp URL as readable text**, and the crawler's card is left
+exactly as it was. It is **one boolean on one renderer**, which is the whole point of the
+section above: a second poster generator would be a second thing to keep in sync with the
+locked design system, and the first to go stale.
+
+- **The flag is a query string and the cache key is COMPOSITE.** `ogCacheKey(slug, poster)`
+  returns `'p:'+slug` / `'c:'+slug`. Keying on the bare slug would serve whichever variant
+  rendered first to **both** audiences for the full hour — the crawler getting a QR, or the
+  organiser downloading a card without one. `OG_CACHE_MAX` stays 50, so a shared camp now
+  occupies two of those slots.
+- **The crawler card deliberately does NOT get the QR.** The `og:image` injected by
+  `frontend/api/camp-og` stays flagless: a QR is noise beside a preview that is already
+  tappable, and it would take the width the camp name needs.
+- **All THREE organiser affordances point at the poster** — the `<img>` thumbnail, the
+  download button, and the open-in-a-new-tab link. A thumbnail showing a QR-less card above
+  a button that saves one *with* a QR is the small dishonesty that gets filed as a bug.
+- **The payload is `${env.frontendUrl}/c/${slug}?via=qr`.** `env.frontendUrl`
+  (`config/env.js:19`) is the single source for the public origin — already behind
+  `manage_url` and the organiser magic link — **never a second hardcoded copy**. `?via=qr`
+  needs **no migration and no route change**: `camp_registrations.referral_channel` is free
+  `TEXT` and `qr` is already one of migration 263's canonical values.
+- **The printed URL strips the scheme and the query** (`raktify.choudhari.ngo/c/<slug>`). It
+  exists to be *typed* by someone who cannot scan; `?via=qr` is attribution, not address.
+- **`renderQr()` returns `null` on any failure and the caller falls back to the plain
+  card.** Degrade the variant, never the download.
+- **`QR_BOX = 185` is a CEILING, not a size.** `qrcode` floors the module scale, so a longer
+  slug comes back **smaller**, never larger — which is why `renderQr()` **measures** the
+  buffer it got instead of assuming 185, and the plate geometry is derived from that
+  measurement. Measured: a ~56-char payload → version 4, 33x33 modules at 5px = 165px.
+- **The opacity invariant survives the extra composite run** — both variants come back
+  `ch3` / `hasAlpha false`. The raw-intermediate flatten described in **A link-preview image
+  is a CROSS-SITE subresource** is what makes that hold with a QR layer present.
+- **Verify a QR by comparing MODULE GRIDS, not by looking at it.**
+  `QRCode.create(payload).modules.data` against the rendered pixels sampled at each module
+  centre is a decode-equivalent proof in twenty lines, and it is the only thing that
+  actually tests the flag parse, the `env.frontendUrl` derivation and the `?via=qr` suffix
+  end to end. Measured **0 / 1089 module mismatches** against the live route. "It looks like
+  a QR code" proves nothing about the payload.
+
+No migration; schema head stays **320**. Gates: lint + `format:check` clean,
+`npm run smoke:frontend` clean, both variants probed against a local API (two distinct
+byte lengths on a first *and* second request, so the composite keys do not cross-serve).
+
 ## A link-preview image is a CROSS-SITE subresource, and the card must be OPAQUE (2026-09-03, `c2362a4`)
 
 `/c/<slug>` served the correct per-camp metas, the SWA function was provably in the

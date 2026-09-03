@@ -165,8 +165,8 @@ and not in prod:
   `GET /camps/public/:slug/og.png` renderer (`services/images/campOg.js`), the shipped
   fonts + `services/images/fonts.js` and its `/camps/public/og/selftest`. See **Per-camp
   OG is a managed function** below.
-- **A one-line workflow fix that no gate in this repo can catch** —
-  `api_location` was `"api"`, which resolves to a non-existent `<repo>/api`. Now
+- **A one-line workflow fix that no gate in this repo can catch** — `api_location` was
+  **`""`** on `main`, so the SWA build packaged **no managed function at all**. Now
   `"frontend/api"`. See the same section.
 - Two `docs/*.html` merch deliverables, and the vendor-webhook fixtures moved
   `frontend/public/api/` → `frontend/public/integrations/` (that path is **not** an API
@@ -794,11 +794,15 @@ share link down with it.
   constructs a `Date`** — a `'YYYY-MM-DD'` is a calendar label, and `new Date('2026-09-14')`
   is UTC midnight, which is the previous day in IST.
 - **`api_location` is relative to the REPOSITORY ROOT. Only `output_location` is
-  `app_location`-relative.** So the value is **`frontend/api`**, never `"api"` — that would
-  resolve to a non-existent `<repo>/api`, **the SPA would deploy with no function, and
-  `/c/<slug>` would silently keep serving the generic card with nothing failing anywhere**.
-  This was live in the workflow for one editing pass and no gate in this repo can catch it;
-  the fix carries a comment saying why. **Setting `api_location` also puts the SPA's only
+  `app_location`-relative.** It was **`""`** on `main`, and an empty value packages **no
+  function at all**; the correct value is **`frontend/api`**, never `"api"`, which would
+  resolve to a non-existent `<repo>/api`. Both mistakes fail the same way — **the SPA
+  deploys with no function and `/c/<slug>` silently keeps serving the generic card with
+  nothing failing anywhere**. The silence is structural: the rewrite target 404s, and this
+  repo's own `responseOverrides` maps `404` → `/index.html` with `statusCode: 200`, so the
+  shell is served, React Router renders the right camp page, and **only the crawler is
+  wrong**. No gate in this repo can catch it; the fix carries a comment saying why.
+  **Setting `api_location` also puts the SPA's only
   deploy path behind the function building** — validate on the **PR preview environment
   before `main`**.
 - **Half two — `GET /camps/public/:slug/og.png`.** Same visibility rule as the poster page

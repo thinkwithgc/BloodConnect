@@ -36,8 +36,9 @@
  *      holiday, the public availability strip leaks only counts, PE → AC /
  *      DC-with-reason, the partner-less CHECK, a decline keeps status +
  *      partner + collectability, auto-accept, and the masked results worklist
- * 16.  organiser branding (319): the logo is a data: URI, an edit resets the
- *      status to PE, and only an APPROVED pair reaches the public page
+ * 16.  organiser branding (319): the logo is a data: URI, the server resizes
+ *      it to fit the stored budget, an edit resets the status to PE, and only
+ *      an APPROVED pair reaches the public page
  * 17.  hard delete (ngo_admin only): the four refusals that keep a camp with a
  *      human attached, the CASCADE, and the audit_log row that makes a
  *      permanent removal recoverable
@@ -1672,13 +1673,46 @@ async function main() {
       'a camp nobody has branded carries no branding_status and no logo',
     );
 
-    // The four ways the upload route says no, and the ORDER they fire in:
-    // content-type, then empty, then SIZE, then magic bytes. The size check
-    // comes first, so the over-budget buffer below does not need to be a real
-    // JPEG for 413 to be the reason it is refused - the two cases cannot mask
-    // each other.
+    // The ways the upload route says no, and the ORDER they fire in:
+    // content-type (415), empty body (400), the ACCEPTED size ceiling (413),
+    // magic bytes (400), the token (403), and last sharp's own decode (422).
+    // TWO ceilings live in that list and they are NOT the same number:
+    // LOGO_UPLOAD_MAX_BYTES = 6 MB is what the route will ACCEPT,
+    // LOGO_MAX_BYTES = 50 KB is what it will STORE. The server re-encodes
+    // every upload now, so the stored budget is met by construction rather
+    // than by refusing the organiser - which is also why the fixtures below
+    // have to be REAL images. A PNG signature followed by padding used to
+    // earn a 200 here; it earns a 422 now.
+    const sharp = backendRequire('sharp');
     const PNG_SIG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
-    const goodPng = Buffer.concat([PNG_SIG, Buffer.alloc(64, 0x20)]);
+    // PNG magic bytes, nothing decodable behind them - the 422 fixture.
+    const brokenPng = Buffer.concat([PNG_SIG, Buffer.alloc(64, 0x20)]);
+    // 4 channels, so normaliseLogo() sees hasAlpha and keeps PNG. The
+    // 'data:image/png;base64,' assertion further down depends on that.
+    const goodPng = await sharp({
+      create: {
+        width: 240,
+        height: 240,
+        channels: 4,
+        background: { r: 184, g: 35, b: 26, alpha: 1 },
+      },
+    })
+      .png()
+      .toBuffer();
+    // Over the 50 KB STORED budget on the way in, and 3-channel so it comes
+    // back out as JPEG. A flat colour compresses to almost nothing at any
+    // size, so the pixels have to be noise AND the encoder has to be told
+    // not to try - otherwise this fixture silently stops being over budget
+    // and the resize assertion passes for the wrong reason.
+    const noisy = Buffer.alloc(600 * 600 * 3);
+    for (let i = 0; i < noisy.length; i++) noisy[i] = (i * 2654435761) % 251;
+    const bigPng = await sharp(noisy, { raw: { width: 600, height: 600, channels: 3 } })
+      .png({ compressionLevel: 0 })
+      .toBuffer();
+    assert(
+      bigPng.length > 50000,
+      `the over-budget fixture really is over the stored budget (${bigPng.length} bytes)`,
+    );
 
     r = await fetchRaw(
       'POST',
@@ -1702,15 +1736,19 @@ async function main() {
       `a zero-length body is refused before anything else (${r.status})`,
     );
 
+    // express.raw's own limit is '6mb' = 6,291,456 bytes, which sits BELOW a
+    // literal 7 MB - a 7 MB body is rejected by body-parser before the handler
+    // ever runs, so it would prove nothing about OUR ceiling. 6.1 MB gets
+    // through body-parser and is refused by LOGO_UPLOAD_MAX_BYTES itself.
     r = await fetchRaw(
       'POST',
       `/camps/access/${brandToken}/logo-raw`,
-      Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(60000)]),
+      Buffer.concat([Buffer.from([0xff, 0xd8, 0xff]), Buffer.alloc(6100000)]),
       'image/jpeg',
     );
     assert(
-      r.status === 413 && r.body.error === 'logo_too_large' && r.body.max_bytes === 50000,
-      `60 KB is over the 50 KB decoded ceiling (${r.status} ${r.body.error})`,
+      r.status === 413 && r.body.error === 'logo_too_large' && r.body.max_bytes === 6000000,
+      `6.1 MB is over the accepted upload ceiling (${r.status} ${r.body.error})`,
     );
 
     // A .txt renamed .jpg. The raw body never passes through sanitizeInput
@@ -1726,10 +1764,41 @@ async function main() {
       `a text file declared image/jpeg is refused on its bytes (${r.status})`,
     );
 
+    // PNG magic bytes that sharp cannot decode. This is the case the client
+    // canvas used to have to catch on the organiser's own device; it is now a
+    // server-side 422 that lands in the logs.
+    r = await fetchRaw('POST', `/camps/access/${brandToken}/logo-raw`, brokenPng, 'image/png');
+    assert(
+      r.status === 422 && r.body.error === 'image_unreadable',
+      `PNG magic bytes with no decodable image behind them is 422 (${r.status} ${r.body.error})`,
+    );
+
+    // Over the STORED budget, nowhere near the ACCEPTED ceiling: the server
+    // shrinks it instead of refusing the organiser. That is the whole point of
+    // moving the resize off the browser. Runs BEFORE the small PNG below
+    // because an opaque source stores as JPEG and would break the
+    // 'data:image/png;base64,' assertion if it went last.
+    r = await fetchRaw('POST', `/camps/access/${brandToken}/logo-raw`, bigPng, 'image/png');
+    assert(
+      r.status === 200 && r.body.bytes < 50000 && r.body.uploaded_bytes === bigPng.length,
+      `an over-budget upload is resized, not refused (${r.status} ${r.body.bytes} stored from ${bigPng.length})`,
+    );
+    assert(
+      r.body.width <= 400 && r.body.height <= 400,
+      `the stored logo is capped at 400px on its long edge (${r.body.width}x${r.body.height})`,
+    );
+    // No alpha in a 3-channel source, so the JPEG ladder runs. The stored type
+    // follows the BYTES, not the declared upload type.
+    assert(
+      r.body.content_type === 'image/jpeg',
+      `an opaque source is stored as JPEG (${r.body.content_type})`,
+    );
+
     r = await fetchRaw('POST', `/camps/access/${brandToken}/logo-raw`, goodPng, 'image/png');
     assert(
       r.status === 200 &&
-        r.body.bytes === goodPng.length &&
+        r.body.bytes > 0 &&
+        r.body.bytes <= 50000 &&
         r.body.content_type === 'image/png' &&
         r.body.branding_status === 'PE',
       `a real PNG lands and goes straight to PE (${r.status} ${r.body.branding_status})`,

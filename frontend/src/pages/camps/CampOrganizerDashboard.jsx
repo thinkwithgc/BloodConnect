@@ -96,13 +96,18 @@ async function tokenUpload(path, blob) {
   return body;
 }
 
-// The server refuses anything over 50 KB decoded (413 logo_too_large) and that
-// stays the hard gate - this shrink is a courtesy, not the enforcement. An
-// organiser photographing their signboard on a phone should not have to work out
-// why a 4 MB JPEG was rejected. 400 px is generous: the logo renders at 56 px on
-// the camp page.
+// LOGO_MAX_BYTES is the STORED budget - what the public camp page serves inline on
+// every single load. It is no longer something the ORGANISER has to hit: the route
+// re-encodes every upload down to it server-side (backend/src/services/images/logo.js),
+// so the canvas shrink below is now a bandwidth courtesy on the browsers that can
+// do it, and nothing depends on it succeeding. 400 px stays generous - the logo
+// renders in a 96 px frame on the camp page, so that is still 2x DPR with room.
+//
+// LOGO_UPLOAD_MAX_BYTES mirrors the route's ACCEPTED ceiling. Refusing here is
+// purely a kindness: it beats pushing 20 MB over rural 4G to earn a 413.
 const LOGO_MAX_EDGE = 400;
 const LOGO_MAX_BYTES = 50000;
+const LOGO_UPLOAD_MAX_BYTES = 6000000;
 
 // Amber = waiting on someone else, green = live, red = needs the organiser back.
 // Same reading as campStatus.js.
@@ -115,8 +120,11 @@ const BRAND_PILL = {
 // The object URL is deliberately NOT revoked on success - resizeLogo() revokes it
 // in a finally, AFTER the draw. Revoking it here (which this did until 2026-09-02)
 // can leave drawImage() a silent no-op on WebKit, and a canvas that was never drawn
-// on encodes to JPEG as opaque BLACK. That is how an uploaded logo turned into a
-// black rectangle.
+// on encodes to JPEG as opaque BLACK.
+//
+// That ordering is still correct, but it was NOT the cause of the black logo -
+// Firefox blocking canvas readback was, and that is unfixable from in here. See
+// onPickLogo: the canvas can no longer fail an upload at all.
 function loadImage(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
@@ -310,42 +318,50 @@ export function CampOrganizerDashboard() {
       setBrandErr(t('camp_brand_e_type'));
       return;
     }
+    // The route answers 413 above this anyway. Refusing here only spares the
+    // organiser a long upload that was never going to be accepted.
+    if (file.size > LOGO_UPLOAD_MAX_BYTES) {
+      setBrandErr(t('camp_brand_e_too_large'));
+      return;
+    }
     setBrandErr(null);
     setLogoBusy(true);
     try {
-      // A file already inside the byte budget does not need the canvas AT ALL, and the
-      // canvas is where every one of these failures has lived - an object URL revoked
-      // before the draw, a source too large for WebKit's drawImage area cap, a decode()
-      // that resolves and rasterises nothing. The server magic-byte-verifies the bytes
-      // and enforces the same 50 KB ceiling, so this shrink was always an OPTIMISATION,
-      // never the enforcement: sending the original is strictly safer and strictly
-      // higher fidelity. An unresized 40 KB photo is fine - the public page renders the
-      // logo at 56px and BYTES are the budget, not pixels. Canvas now runs only for the
-      // oversized files that genuinely have to shrink.
-      if (file.size <= LOGO_MAX_BYTES) {
-        await uploadLogo.mutateAsync(file);
-        return;
-      }
-      const blob = await resizeLogo(file);
-      if (!blob) throw new Error('encode_failed');
-      // Only reachable if even the lowest JPEG quality is still over budget.
-      if (blob.size > LOGO_MAX_BYTES) {
-        setBrandErr(t('camp_brand_e_too_large'));
-        return;
+      // THE CANVAS CAN NO LONGER FAIL AN UPLOAD, and that is the entire fix.
+      //
+      // Firefox with canvas readback blocked (privacy.resistFingerprinting, strict
+      // ETP, a CanvasBlocker-style extension) hands back a BLANK surface while
+      // drawImage() reports success. Both reported symptoms were that one cause, in
+      // order: a blank canvas encoded to JPEG is opaque BLACK (JPEG has no alpha),
+      // and once canvasIsBlank() started catching it, an outright refusal. It's not
+      // fixable from inside the browser - so the shrink stopped being on the path.
+      //
+      // Whatever the canvas produces is uploaded; every way it can fail falls through
+      // to the ORIGINAL file and normaliseLogo() does the real resize server-side. A
+      // file already inside the budget skips the canvas entirely - BYTES are the
+      // budget, not pixels, and an unresized 40 KB photo renders perfectly well in a
+      // 96 px frame.
+      let blob = file;
+      if (file.size > LOGO_MAX_BYTES) {
+        try {
+          const resized = await resizeLogo(file);
+          // encodeBest() can hand back a blob that is STILL over budget, and that is
+          // no longer an error either - the server re-encodes to fit by construction.
+          // Only take the canvas output when it actually saved bytes.
+          if (resized && resized.size < file.size) blob = resized;
+        } catch {
+          /* canvas blocked, blank, or undecodable - send the original, server resizes */
+        }
       }
       await uploadLogo.mutateAsync(blob);
     } catch (err) {
       const code = err?.response?.data?.error;
-      const msg = String(err?.message || '');
       if (code === 'logo_too_large') setBrandErr(t('camp_brand_e_too_large'));
-      else if (msg.startsWith('decode_failed')) {
-        // The stage is deliberately SHOWN to the organiser. This failure only ever
-        // happens on their device, on their file, in their browser - there is no log
-        // and no other channel back - so the three sites that can raise it (load /
-        // dims / blank) have to be distinguishable from a screenshot.
-        const stage = msg.slice('decode_failed'.length).replace(/^_/, '');
-        setBrandErr(stage ? `${t('camp_brand_e_decode')} (${stage})` : t('camp_brand_e_decode'));
-      } else setBrandErr(t('camp_brand_e_failed'));
+      // The SERVER could not decode it. Unlike the old client-side verdict this one is
+      // trustworthy and it lands in our logs with a stage attached, so it is worth
+      // telling the organiser their file is the problem.
+      else if (code === 'image_unreadable') setBrandErr(t('camp_brand_e_decode'));
+      else setBrandErr(t('camp_brand_e_failed'));
     } finally {
       setLogoBusy(false);
     }

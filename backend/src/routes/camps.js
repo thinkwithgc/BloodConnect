@@ -25,6 +25,9 @@
  *   POST /camps/:id/decline        PE → DC — coordinator/admin
  *   POST /camps/:id/register       donor self-RSVP
  *   DELETE /camps/:id/register     donor cancels RSVP
+ *   GET  /camps/public/:slug       public poster page
+ *   GET  /camps/public/:slug/og.png  per-camp link-preview card
+ *   GET  /camps/public/og/selftest   font reachability, data-free
  *
  * The denormalised donation_camps.registered_donor_count is kept in sync by
  * triggers on camp_registrations (migration 260). Migration 261 widens the
@@ -32,7 +35,9 @@
  */
 const express = require('express');
 const crypto = require('crypto');
+const rateLimit = require('express-rate-limit');
 const { z } = require('zod');
+const sharp = require('sharp');
 
 const { pool } = require('../config/db');
 const { withRlsContext, withRlsContextRaw } = require('../middleware/rlsContext');
@@ -45,6 +50,9 @@ const { openRows } = require('../services/pii');
 const { sendNotification } = require('../services/notifications');
 const { DATE_TOLERANCE_DAYS } = require('../services/donations/camp');
 const capacity = require('../services/camps/capacity');
+const { normaliseLogo, ImageUnreadableError } = require('../services/images/logo');
+const campOg = require('../services/images/campOg');
+const fonts = require('../services/images/fonts');
 
 // Who may see a camp's submitter PII and the NGO's internal review text.
 // Shared by GET /camps and GET /camps/:id so the two can never disagree about
@@ -605,6 +613,141 @@ router.post('/apply', async (req, res) => {
     next_step:
       'Our NGO coordinator will contact you within 2 working days to verify details and arrange volunteer training.',
   });
+});
+
+// ── OG link-preview cards (PUBLIC) ───────────────────────────────────────
+// WhatsApp's crawler does not run JavaScript, so an SPA can only ever serve
+// the ONE static OG block in frontend/index.html - every camp link ever
+// shared previewed the same generic Raktify card. A Static Web Apps managed
+// function rewrites /c/* and injects per-camp meta tags; its og:image points
+// at GET /camps/public/:slug/og.png below.
+//
+// A function at the EXISTING origin, rather than a preview subdomain, is
+// forced: https://raktify.choudhari.ngo/c/{{1}} is baked into NINE APPROVED
+// Meta template buttons, so moving the share URL would drop all nine to
+// PENDING for 1-3 days x 3 languages and orphan the printed QR posters.
+
+// A render is 1200x630 of pango + libvips on a B1 with 1.75 GB serving the
+// whole platform, and a crawler fleet hits one slug from many IPs within
+// seconds of a share. The cache is the real protection; the limiter is only a
+// ceiling on abuse.
+const OG_CACHE_TTL_MS = 60 * 60 * 1000;
+const OG_CACHE_MAX = 50;
+const ogCache = new Map();
+
+const ogLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 120,
+  keyGenerator: (req) => req.ip,
+  standardHeaders: 'draft-8',
+  message: { error: 'rate_limit_og' },
+});
+
+function ogCacheGet(slug) {
+  const hit = ogCache.get(slug);
+  if (!hit) return null;
+  if (Date.now() > hit.expires) {
+    ogCache.delete(slug);
+    return null;
+  }
+  return hit.buffer;
+}
+
+function ogCachePut(slug, buffer) {
+  // Map iterates in insertion order, so the first key is the oldest entry.
+  while (ogCache.size >= OG_CACHE_MAX) ogCache.delete(ogCache.keys().next().value);
+  ogCache.set(slug, { buffer, expires: Date.now() + OG_CACHE_TTL_MS });
+}
+
+// ── GET /camps/public/og/selftest (PUBLIC, data-free) ────────────────────
+// The only honest verification that the committed fonts are reachable, and it
+// HAS to run against the DEPLOYED API: pango on Windows resolves fonts
+// through the OS and ignores FONTCONFIG_PATH outright, so a local pass proves
+// nothing about prod and a local failure proves nothing either - the long
+// version is in services/images/fonts.js, whose header names this exact path.
+// Prod holds no camps to hang a check off, hence a route that needs no data.
+//
+// Returns counts, booleans and two pixel sizes - no paths, no environment
+// dump - which is why it is safe to leave public. Read
+// `devanagari_font_reachable`: false means Marathi camp names would render as
+// tofu boxes and those cards serve the generic image instead. Declared before
+// /public/:slug/og.png so no slug can ever shadow it.
+router.get('/public/og/selftest', ogLimiter, async (req, res) => {
+  try {
+    const result = await fonts.selfTest(sharp);
+    if (!result.ok) logger.warn(result, 'og_selftest_not_ok');
+    res.json(result);
+  } catch (err) {
+    logger.error({ err: err.message }, 'og_selftest_threw');
+    res.status(500).json({ error: 'og_selftest_failed' });
+  }
+});
+
+// ── GET /camps/public/:slug/og.png (PUBLIC link-preview image) ───────────
+// Same visibility rule as the poster page - PL/LV only - and the logo and
+// tagline come through migration 319's approval gate IN SQL, so this route
+// physically cannot forget it.
+//
+// IT NEVER FAILS TO RETURN AN IMAGE. Every decline (no name, unreachable
+// Devanagari, missing wordmark) and every throw serves the generic
+// og-image.png, because a crawler handed a 500 caches the ABSENCE of a
+// preview for days - and it caches per exact URL, so there is no retry.
+// Degraded, never broken.
+router.get('/public/:slug/og.png', ogLimiter, async (req, res) => {
+  const slug = String(req.params.slug || '');
+
+  const serve = (buffer, maxAge) => {
+    res.set('Content-Type', 'image/png');
+    res.set('Cache-Control', 'public, max-age=' + maxAge);
+    return res.send(buffer);
+  };
+  // 200 with the site-wide card, not a 404: see above. Only a missing
+  // og-image.png on disk can produce an error response from here at all.
+  const generic = (maxAge) => {
+    const buf = campOg.readGenericCard();
+    if (!buf) return res.status(404).json({ error: 'og_image_unavailable' });
+    return serve(buf, maxAge);
+  };
+
+  const cached = ogCacheGet(slug);
+  if (cached) return serve(cached, 86400);
+
+  try {
+    const r = await withRlsContextRaw({ actor_role: 'system' }, (c) =>
+      c.query(
+        `SELECT c.name, c.slug,
+                to_char(c.scheduled_date, 'YYYY-MM-DD') AS scheduled_date,
+                c.start_time, c.end_time,
+                c.venue, c.organiser_name,
+                -- THE APPROVAL GATE, IN SQL ON PURPOSE (migration 319).
+                CASE WHEN c.branding_status = 'AP' THEN bl.logo_data_uri END
+                  AS logo_data_uri,
+                CASE WHEN c.branding_status = 'AP' THEN c.organiser_tagline END
+                  AS organiser_tagline,
+                d.name AS district_name
+           FROM donation_camps c
+           JOIN districts d ON d.id = c.district_id
+      LEFT JOIN camp_branding_logo bl ON bl.camp_id = c.id
+          WHERE c.slug = $1
+            AND c.status IN ('PL', 'LV')
+          LIMIT 1`,
+        [slug],
+      ),
+    );
+
+    // Unknown slug, or a camp still at PE. Short cache on purpose: the real
+    // card should appear as soon as the NGO publishes it, not a day later.
+    if (r.rowCount === 0) return generic(300);
+
+    const card = await campOg.renderCampOgCard(sharp, r.rows[0]);
+    if (!card) return generic(3600);
+
+    ogCachePut(slug, card);
+    return serve(card, 86400);
+  } catch (err) {
+    logger.error({ err: err.message, slug }, 'og_camp_card_failed');
+    return generic(300);
+  }
 });
 
 // ── GET /camps/public/:slug (PUBLIC poster page) ─────────────────────────
@@ -3045,21 +3188,50 @@ const LOGO_TYPES = {
 // payload-budget decision about rural 4G, not a patient-safety invariant —
 // hard rule 1 cuts the other way. 50 KB becomes ~67 KB of base64 riding the
 // JSON the RSVP page already fetches; 100 KB would be ~133 KB, a 25x jump on
-// today's payload. The client resizes to a 400 px max edge first, so a real
-// logo lands well inside this. migration 319's 200000-char CHECK is a loose
-// backstop against something pathological, not this cap.
+// today's payload. It is now met BY CONSTRUCTION rather than by refusing the
+// organiser: normaliseLogo() re-encodes every upload down to it server-side
+// (see services/images/logo.js for why the browser is no longer trusted to).
+// migration 319's 200000-char CHECK is a loose backstop against something
+// pathological, not this cap.
 const LOGO_MAX_BYTES = 50000;
+
+// The ACCEPTED ceiling - what an organiser may SEND to be resized, as opposed
+// to what we STORE. Do not collapse the two. A phone photo is routinely 4-6 MB,
+// and the whole point of the server-side resize is that a handset which cannot
+// shrink the file itself (Firefox with canvas readback blocked) can still
+// upload the original and get a usable logo. Bounded well below what a B1
+// instance's 1.75 GB can absorb, and bounded again by logoUploadLimiter.
+const LOGO_UPLOAD_MAX_BYTES = 6000000;
+
+// One organiser, one camp, one logo - this is not a hot path, so a tight budget
+// costs nothing and a 6 MB body reaching an unauthenticated parser deserves one.
+// IP-KEYED, NOT TOKEN-KEYED, and that is forced rather than chosen: express.raw()
+// runs before loadToken(), so at limiter time nothing has validated the token.
+const logoUploadLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 20,
+  keyGenerator: (req) => req.ip,
+  standardHeaders: 'draft-8',
+  message: { error: 'rate_limit_logo_upload' },
+});
 
 // ⚠ express.raw() runs BEFORE loadToken(), because loadToken is a plain
 //   function and not middleware. An unauthenticated request therefore gets its
-//   body parsed — bounded by the limit below and by the global 100/IP/min rate
-//   limiter. Keep that limit tight; it is the only thing in front of the token
-//   check. A raw Buffer body also passes through sanitizeInput untouched (it
-//   only walks strings), which is why the magic-byte test IS the validation
-//   here — the same reasoning as POST /onboarding/:id/mou-scan.
+//   body parsed, and that body is now up to 6 MB — so "keep the limit tight"
+//   is no longer the answer, and three narrower bounds replace it: the global
+//   100/IP/min limiter, logoUploadLimiter's 20/IP/hour sitting IN FRONT of the
+//   parser, and the fact that nothing expensive runs before the token check
+//   (the magic-byte test is a byte compare, and normaliseLogo() — the only
+//   costly step — is deliberately called AFTER loadToken). A token-keyed
+//   limiter is unavailable at this position for the same reason the parser
+//   runs first: the token has not been validated yet.
+//   A raw Buffer body also passes through sanitizeInput untouched (it only
+//   walks strings), which is why the magic-byte test IS the validation here
+//   — the same reasoning as POST /onboarding/:id/mou-scan.
 router.post(
   '/access/:token/logo-raw',
-  express.raw({ type: Object.keys(LOGO_TYPES), limit: '100kb' }),
+  logoUploadLimiter,
+  express.raw({ type: Object.keys(LOGO_TYPES), limit: '6mb' }),
   async (req, res) => {
     const contentType = (req.headers['content-type'] || '').split(';')[0].trim().toLowerCase();
     const spec = LOGO_TYPES[contentType];
@@ -3070,10 +3242,14 @@ router.post(
     }
     const buf = Buffer.isBuffer(req.body) ? req.body : null;
     if (!buf || buf.length === 0) return res.status(400).json({ error: 'empty_body' });
-    if (buf.length > LOGO_MAX_BYTES) {
-      return res
-        .status(413)
-        .json({ error: 'logo_too_large', bytes: buf.length, max_bytes: LOGO_MAX_BYTES });
+    // The ACCEPTED ceiling, not the stored one - normaliseLogo() below is what
+    // gets the bytes down to LOGO_MAX_BYTES.
+    if (buf.length > LOGO_UPLOAD_MAX_BYTES) {
+      return res.status(413).json({
+        error: 'logo_too_large',
+        bytes: buf.length,
+        max_bytes: LOGO_UPLOAD_MAX_BYTES,
+      });
     }
     // A .txt renamed .jpg, or a PNG sent as image/jpeg, stops here.
     if (!spec.magic(buf)) {
@@ -3083,8 +3259,31 @@ router.post(
     const v = await loadToken(req.params.token);
     if (!v.ok) return res.status(403).json({ error: v.reason });
 
-    const dataUri = `data:${contentType};base64,${buf.toString('base64')}`;
-    const sha256 = crypto.createHash('sha256').update(buf).digest('hex');
+    // SERVER-SIDE RESIZE: decode, EXIF-rotate, downscale, re-encode to fit
+    // LOGO_MAX_BYTES. Deliberately AFTER the token check, so an anonymous
+    // request can never spend CPU in libvips, and after the magic-byte test, so
+    // sharp is only ever handed something that at least claims to be JPEG/PNG.
+    let norm;
+    try {
+      norm = await normaliseLogo(buf, LOGO_MAX_BYTES);
+    } catch (e) {
+      if (e instanceof ImageUnreadableError) {
+        // The organiser gets one sentence. The STAGE is what makes this
+        // diagnosable - and unlike the client-side version it lands in OUR logs
+        // instead of only on someone else's handset.
+        logger.warn(
+          { camp_id: v.token.camp_id, stage: e.stage, bytes: buf.length, contentType },
+          'camp logo could not be normalised',
+        );
+        return res.status(422).json({ error: 'image_unreadable', stage: e.stage });
+      }
+      throw e;
+    }
+
+    const dataUri = norm.dataUri;
+    // sha256 over the STORED bytes, not the upload: it identifies what the NGO
+    // admin actually reviewed and what the public page actually serves.
+    const sha256 = crypto.createHash('sha256').update(dataUri).digest('hex');
 
     // ONE statement: the bytes land in the child table and the parent's review
     // state resets together, so the two can never disagree.
@@ -3094,7 +3293,7 @@ router.post(
         actor_system_process: `camp:${v.token.token.slice(0, 12)}`,
         camp_token: v.token.token,
         actor_ip_address: cleanClientIp(req),
-        change_reason: `organizer uploaded branding logo (${buf.length} bytes)`,
+        change_reason: `organizer uploaded branding logo (${buf.length} bytes in, ${norm.bytes} stored)`,
       },
       (c) =>
         c.query(
@@ -3118,7 +3317,7 @@ router.post(
              FROM b
             WHERE c.id = b.camp_id
         RETURNING c.id, c.branding_status`,
-          [v.token.camp_id, dataUri, buf.length, contentType, sha256],
+          [v.token.camp_id, dataUri, norm.bytes, norm.contentType, sha256],
         ),
     );
     if (r.rowCount === 0) return res.status(404).json({ error: 'camp_not_found' });
@@ -3126,8 +3325,11 @@ router.post(
     // Never echo the data URI back — the caller already holds the bytes, and the
     // organiser dashboard re-reads GET /camps/access/:token anyway.
     res.json({
-      bytes: buf.length,
-      content_type: contentType,
+      bytes: norm.bytes,
+      uploaded_bytes: buf.length,
+      content_type: norm.contentType,
+      width: norm.width,
+      height: norm.height,
       branding_status: r.rows[0].branding_status,
     });
   },

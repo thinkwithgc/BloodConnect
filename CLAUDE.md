@@ -15,11 +15,13 @@ older section it contradicts.
 **Branch / commits.** Working branch `feat/paper-mou-onboarding`; deploy is
 `git -c credential.helper='!gh auth git-credential' push origin feat/paper-mou-onboarding:main`
 (fast-forward → fans out to CI + `raktify-api` + `raktify-web` **and
-auto-applies migrations to prod**). Last twenty-two commits, newest first:
+auto-applies migrations to prod**). Last twenty-eight commits, newest first:
 
 | Commit | What |
 |---|---|
-| `a710cab` | `fix(camps)`: an uploaded organiser logo came out **black** - a canvas that was never drawn on encodes to JPEG as opaque black. **That fix did not hold** - see **An uploaded camp logo came out BLACK** below, second pass |
+| `f22596b` | `fix(camps)`: a logo already under budget **skips the canvas entirely** - the resize was an optimisation buying nothing and risking everything. Second pass; **also did not hold** |
+| `73dd967` | `docs`: record the black-logo fix in the commit table |
+| `a710cab` | `fix(camps)`: an uploaded organiser logo came out **black** - a canvas that was never drawn on encodes to JPEG as opaque black. **That fix did not hold**, and neither did its successor - the cause was **Firefox blocking canvas readback**, and the resize now lives on the server. See **An uploaded camp logo came out BLACK** below, all three passes |
 | `1a940cc` | `docs`: the commit table pointed at a pre-amend hash — corrected, plus the prod-state claims for the 2026-09-02 push |
 | `420a84d` | `feat(camps)`: an NGO admin can **hard-delete** a camp nobody has touched, from `/admin` — recoverable because `fn_audit_row` files the whole row as JSON. See **A camp can be hard-deleted** below |
 | `e42b32b` | `feat(i18n)`: **English is the default WhatsApp language** (migration **320**), Marathi is a choice. See **English is the default language** below |
@@ -64,7 +66,7 @@ two of them):
 
 | Command | Count | Notes |
 |---|---|---|
-| `npm run smoke:camps` | **151** | The camp gate. Attendance derivation + capacity + `bb_response` + the PII scoping + the branding approval gate + the hard-delete guards. **One assertion is dev-state-dependent — see below** |
+| `npm run smoke:camps` | **156** | The camp gate. Attendance derivation + capacity + `bb_response` + the PII scoping + the branding approval gate + the hard-delete guards + the per-camp OG card. **TWO assertions are dev-state-dependent — see below** |
 | `node scripts/smoke_test_phase4.js` | 17 | **Required regression** for anything touching `donation_history` / `donor_screening` |
 | `node scripts/smoke_test_phase2.js` | **172** | Institution onboarding / paper MoU / staff-login editing / the two-404 split / the portal's own-name banner |
 | `node scripts/check_whatsapp_templates.js` | 0 fail, 1 warn | Every `templateType` in `backend/src` must have a handler **and** an env key |
@@ -72,16 +74,42 @@ two of them):
 | `npm run smoke:frontend` | — | Vite build. Frontend has no ESLint config, so this is its only gate. **Run from the repo root** |
 | `node scripts/smoke_test_phase3/5/6.js` | — | **Do not run.** Pre-268 staff-auth drift; they fail for unrelated reasons |
 
-**`smoke:camps` reports 139/1 on a well-used Neon dev DB, and that is not a
-regression.** The failing line is *"the public picker needs NO token and lists
-active onboarded BBs"*: `GET /camps/blood-bank-options` is
-`ORDER BY i.display_name LIMIT 25`, and district 501 has accumulated **48**
-active onboarded blood banks from repeated smoke runs, so the two BBs the run
-just seeded sort off the end of the page. Count before touching anything — if
-the district is over 25, the assertion is measuring the dev DB, not the code.
-**That LIMIT is also real product drift**: a district with more than 25 blood
-banks silently truncates the organiser's picker, with no search and no total in
-the payload. Logged, deliberately not fixed.
+**`smoke:camps` reports 154/2 on a well-used Neon dev DB, and NEITHER failure is a
+regression.** Both are the same shape — a freshly-seeded row sorting off the end of a
+`LIMIT`ed list because the dev district is full of previous smoke runs — and both are
+**also real product drift**. Measured on Neon dev 2026-09-03:
+
+| Failing assertion | Query | Dev state | Product drift |
+|---|---|---|---|
+| *"the public picker needs NO token and lists active onboarded BBs"* | `GET /camps/blood-bank-options`, `ORDER BY i.display_name LIMIT 25` | district 501 holds **72** active onboarded BBs, so the 2 just-seeded ones sort off the page | >25 BBs in a district silently truncates the organiser's picker — no search, no total in the payload |
+| *"the partnered blood bank sees the camp in its collectable list"* | `GET /camps/collectable`, `ABS(scheduled_date - $1) <= 2` `ORDER BY ABS(diff) ASC, scheduled_date DESC LIMIT 20` | district 501 holds **46** camps in the ±2-day window — **38 of them on offset 1**, the exact day the fixture uses (`isoDay(1)`) | >20 camps in a ±2-day window silently truncates the BB's collectable picker, same absent search/total |
+
+**The collectable one is INTERMITTENT, and the tie is why.** Those 38 offset-1 camps tie
+on **both** ORDER BY keys, so Postgres returns them in arbitrary order and whether the
+fixture lands in the first 20 is a coin flip — it passes some runs and fails others
+against identical code. Do not read a flip as a regression, and **do not chase it by
+re-running until it passes**: count first. `smoke:camps` is **not in CI** (no workflow
+references it), so this misleads a developer at the terminal but can never flake a
+deploy.
+
+**Count before touching anything** — if the district is over the LIMIT, the assertion is
+measuring the dev DB, not the code:
+
+```sql
+-- collectable competitors (LIMIT 20)
+SELECT ABS(scheduled_date - CURRENT_DATE) AS off, COUNT(*) FROM donation_camps
+ WHERE status IN ('PL','LV','CO') AND ABS(scheduled_date - CURRENT_DATE) <= 2
+   AND district_id = 501 GROUP BY 1 ORDER BY 1;
+-- picker competitors (LIMIT 25)
+SELECT COUNT(*) FROM institutions
+ WHERE kind='BB' AND is_active=TRUE AND onboarding_status='AC' AND district_id=501;
+```
+
+Both counts only grow with each smoke run, so both lines drift **toward** failing, never
+away. `DELETE /camps/:id` (shipped on this branch) is now a real cleanup path for the
+unattached ones — the guards will correctly refuse any smoke camp that has a roster or a
+donation, so it thins the pile rather than clearing it. Both LIMITs are logged,
+deliberately not fixed.
 
 ### Deploy skew: the SPA goes live ~1 minute before the API
 
@@ -122,7 +150,30 @@ table below, plus per-day BB camp capacity publishing, per-camp
 brief), the post-camp results worklist, the `GET /camps/:id/registrations`
 institution-scoping fix, `<DateOfBirthInput>` and bounded native date inputs.
 
-**Everything on this branch is now in prod.** `e42b32b..1a940cc` went up
+**BOTH the server-side logo resize AND per-camp OG are CODE-COMPLETE and NOT YET
+PUSHED.** They are one uncommitted changeset in the working tree, and an earlier version
+of this paragraph called OG *"not started"* — it was already written. **Trust
+`git status` over this paragraph.** What is in the tree:
+
+- **The logo resize + the 96px frame** — backend `services/images/logo.js`, the
+  two-ceiling route, the best-effort client canvas, the public-page frame, §16's
+  rewritten fixtures. See **An uploaded camp logo came out BLACK**, third pass.
+- **Per-camp OG** — the SWA managed function `frontend/api/camp-og/`, the
+  `GET /camps/public/:slug/og.png` renderer (`services/images/campOg.js`), the shipped
+  fonts + `services/images/fonts.js` and its `/camps/public/og/selftest`. See **Per-camp
+  OG is a managed function** below.
+- **A one-line workflow fix that no gate in this repo can catch** —
+  `api_location` was `"api"`, which resolves to a non-existent `<repo>/api`. Now
+  `"frontend/api"`. See the same section.
+- Two `docs/*.html` merch deliverables, and the vendor-webhook fixtures moved
+  `frontend/public/api/` → `frontend/public/integrations/` (that path is **not** an API
+  and sat one rewrite away from the new `/api/*` function namespace).
+
+All gates green: `smoke:camps` **154/2** (both documented dev-state `LIMIT` lines above),
+`smoke_test_phase2.js` 172, `smoke_test_phase4.js` 17,
+`check_whatsapp_templates.js` 0 fail / 1 warn, lint + `format:check`,
+`smoke:frontend`, throwaway `no-undef` 0 findings. **No migration — schema head stays
+320, next new is 321.** Everything else on this branch is in prod. `e42b32b..1a940cc` went up
 2026-09-02T08:05 UTC — the camp hard-delete (no migration: route + admin UI + smoke
 only), all three workflows green (CI 24s, `raktify-web` 1m50s, `raktify-api` 3m36s).
 `DELETE /camps/:id` verified live — it answers `missing_token` while
@@ -593,6 +644,209 @@ and the first is the reusable one:
 
 No migration; schema head stays **320**. Gates for both passes: throwaway `no-undef` pass
 clean (see **A blank page is a render throw**), `npm run smoke:frontend` builds clean.
+
+### It was FIREFOX blocking canvas readback, and the resize moved to the server (third pass)
+
+The founder ran the discriminating test: **the same file uploads correctly on Edge and fails
+on Firefox, Windows 11.** That pins the cause the two passes above could only guess at, and
+it is neither of the mechanisms `a710cab` fixed - **both of those are WebKit-only and cannot
+occur on Windows/Firefox at all.** Firefox blocks **canvas readback** when
+`privacy.resistFingerprinting` is on, under strict ETP, or with a CanvasBlocker-style
+extension: `drawImage()` silently succeeds while `getImageData()` / `toBlob()` return a
+**blank surface**. That produces both observed symptoms, in the order they were reported -
+a blank canvas encoded to JPEG is **opaque black** (JPEG has no alpha), which was the
+original rectangle; then `canvasIsBlank()` correctly caught the same blank surface and
+turned it into *"That image could not be read."* **Nothing was ever wrong with the
+organiser's file.** The second pass's own note that the cause was unconfirmed was the
+correct call - it claimed no fix that had not held.
+
+The fix is `CLAUDE.md`'s own rule taken one step further than the second pass took it:
+**the client canvas is now best-effort and can no longer fail an upload.**
+
+- **`normaliseLogo()` in `backend/src/services/images/logo.js` is where the resize lives
+  now**, on `sharp`. `MAX_EDGE = 400`, `fit: 'inside'`, `withoutEnlargement`, `.rotate()`
+  for EXIF (the server-side equivalent of the client's `imageOrientation: 'from-image'`),
+  `limitInputPixels: 50e6` so an absurd input is refused **before** allocation - the API is
+  a **B1 with 1.75 GB serving the whole platform**, so that cap is not decoration.
+  `encodeBest()`'s reasoning is preserved exactly: PNG first when `metadata.hasAlpha` so a
+  transparent logo gains **no white box** on the cream `#fdf8f4` page, else flatten onto
+  white and step JPEG 85 -> 75 -> 65 -> 55 until it fits.
+- **The budget is a PARAMETER, not a constant in that file** (`normaliseLogo(buf, maxBytes)`)
+  so the route stays the single source of truth for the number. Every sharp throw becomes one
+  typed `ImageUnreadableError` carrying a `stage` (`metadata` / `dims` / `budget`), which the
+  route maps to **`422 image_unreadable`** and logs. That is the same diagnosis the second
+  pass had to show the organiser as *"... (blank)"* - it is now server-side and in the logs,
+  so the diagnostic channel is no longer a screenshot.
+- **TWO ceilings, and they are NOT the same number. Do not collapse them.**
+  `LOGO_MAX_BYTES = 50000` (`camps.js:3055`) is what is **STORED** - a payload budget for
+  rural 4G, inlined into every public camp page load. `LOGO_UPLOAD_MAX_BYTES = 6000000`
+  (`:3063`) is what is **ACCEPTED**, with `express.raw`'s own `limit: '6mb'` behind it. The
+  stored budget is now met **by construction** - the server re-encodes - instead of by
+  refusing the organiser.
+- **`express.raw`'s `'6mb'` is 6,291,456 bytes, which sits BELOW a literal 7 MB.** A 7 MB
+  test body is rejected by body-parser before the handler runs and proves nothing about our
+  ceiling; §16 uses **6,100,000** so the refusal comes from `LOGO_UPLOAD_MAX_BYTES` itself.
+- **The upload limiter is keyed on `req.ip`, and that is FORCED, not chosen.**
+  `express.raw()` parses the body before `loadToken()` runs, so the token is not available
+  where the limiter has to sit. 20/hour. It cannot trip during `smoke:camps` (9 uploads, and
+  express-rate-limit's MemoryStore resets per process).
+- **The client keeps the canvas only as an optimisation.** A file already under
+  `LOGO_MAX_BYTES` still uploads raw; a larger one *tries* `resizeLogo()` inside a bare
+  `try/catch` and **falls through to the original bytes on any failure**. `canvasIsBlank()`
+  survives as the detector that triggers that fallback, no longer as an error. The three
+  `decode_failed_*` messages are gone from the client because there is no longer a
+  client-side failure to surface - `camp_brand_e_decode` is **repurposed** for the server's
+  `422 image_unreadable`, where its existing copy is already exactly right (no i18n edit).
+- **The honest cost:** on Firefox the organiser now uploads the original, up to 6 MB, instead
+  of a few KB. Correctness beats bandwidth for the browser that cannot be trusted to resize.
+- **The logo frame on the public page is 96px** (`h-24 w-24`, was `h-14 w-14`; row `gap-3` ->
+  `gap-4`) - founder decision 02-Sep-2026, taken knowing it was the one change that could
+  plausibly disturb visual primacy. It does not: primacy is carried by the **type** scale
+  (camp name is the `text-2xl` `<h1>`, organiser name is `text-sm`) and the image sits
+  **below** the heading, never beside it. `PublicCampPage.jsx`'s comment block now says so,
+  because "at a smaller scale than the camp name" sitting above a 96px image reads like a
+  bug to fix. The organiser-dashboard preview and the admin review panel are review
+  surfaces and were deliberately left alone.
+
+**`sharp` is a real backend dependency now, and the deploy path is why that is safe.**
+`.github/workflows/main_raktify-api.yml` runs `npm ci --omit=dev --workspace=backend
+--include-workspace-root` on **ubuntu-latest** and uploads the tree *including
+`node_modules`* (OneDeploy bypasses Oryx), so the `linux-x64` prebuilt binary CI installs is
+exactly what App Service Linux runs. `--omit=dev` does **not** drop `optionalDependencies`,
+so `@img/sharp-linux-x64` comes with it - **verify that entry is in `package-lock.json` and
+not dev-flagged**, because installing on this Windows box only pulls `@img/sharp-win32-x64`.
+It also makes `scripts/build_og_image.js`'s lazy `require('sharp')` honest.
+
+**Three things §16 taught that generalise to any test of a route that now DECODES bytes:**
+1. **A fake image stops being a valid fixture.** A PNG signature followed by padding earned
+   a 200 before and earns a **422** now; every success fixture has to be a real image, built
+   with `backendRequire('sharp')` (the smoke script reaches backend deps through
+   `createRequire`, not bare `require`).
+2. **A dimension-cap assertion proves nothing unless the fixture exceeds the cap.** The
+   first draft used a 300x300 source against a 400px cap and printed a green
+   `(300x300)` - passing trivially. It is 600x600 now and measures 400x400 out.
+3. **A flat-colour PNG compresses to almost nothing at any size**, so the over-budget
+   fixture needs pseudo-random pixels **and** `compressionLevel: 0`, **and its own
+   assertion** that it really is over budget - otherwise a future sharp that compresses
+   better silently makes the resize test pass for the wrong reason.
+   Also: alpha decides the stored type (4-channel -> PNG, 3-channel -> JPEG), which is why
+   the oversized fixture has to be uploaded **before** the small PNG whose assertion is
+   `data:image/png;base64,`.
+
+**`scripts/` is covered by NEITHER `lint` NOR `format:check`** - both are
+`npm --workspace backend run ...`, so `scripts/smoke_test_camps.js` cannot fail CI on
+formatting and must not be run through prettier.
+
+No migration; schema head stays **320**. Gates: `npm run smoke:camps` **155/1** (156
+assertions, was 151 - the one failure is the documented `blood-bank-options` `LIMIT 25`
+dev-state line), lint + `format:check` clean, `npm run smoke:frontend` clean, throwaway
+`no-undef` pass clean.
+
+## A camp link shared on WhatsApp previewed the GENERIC card, and the share URL cannot move
+
+`frontend/index.html` carries **one** OG block with every value hardcoded to the site root,
+and **WhatsApp's crawler does not execute JavaScript** - so an SPA can only ever serve that
+one static card, whatever `/c/:slug` renders in a browser. Prod probes confirmed the markup,
+the routing and the image are all fine; the gap is structural. Per-camp OG is **BUILT now** -
+the implementation is the next section. What was settled first, and is expensive to re-derive,
+is the constraint:
+
+- **The share URL is PINNED by nine APPROVED Meta template buttons.** `https://raktify.
+  choudhari.ngo/c/{{1}}` is baked into nine of them (`docs/Raktify_WhatsApp_Templates.md:181`,
+  `:1036`, `:1163`; `scripts/submit_whatsapp_templates_v2.js` x9). Serving the preview from a
+  subdomain would mean editing nine approved templates - **each drops to PENDING for 1-3 days,
+  x3 languages** - or minting nine `_v3` names, and it would orphan the already-spec'd 130mm
+  QR posters. So per-camp OG must be served **at the existing SWA URL**. That is what forces a
+  Static Web Apps **managed function** (supported on the Free tier; a *linked* backend needs
+  Standard, ~$9/mo), reached by a `staticwebapp.config.json` rewrite, recovering the slug from
+  the **`x-ms-original-url`** header - SWA `rewrite` cannot target an external absolute URL and
+  route rules cannot match a user agent.
+- **The librsvg font trap.** `sharp` renders SVG `<text>` with whatever fonts the **host** has,
+  and App Service Linux has neither Inter nor Noto Sans Devanagari - a **Marathi** camp name
+  renders as boxes. Ship both `.ttf` files plus a `fonts.conf` under `backend/assets/` and
+  point `FONTCONFIG_PATH` at it. **Verify on the deployed API, never locally** - this Windows
+  box has the fonts and hides the problem entirely. Fallback is the generic `og-image.png`
+  for that camp: degraded, never broken.
+- **Setting `api_location` puts the SPA's only deploy path behind the function building.**
+  Validate on the PR preview environment before `main`. And **WhatsApp caches previews per
+  exact URL, failures included**, for days - test with a throwaway `?v=2`.
+
+## Per-camp OG is a SWA managed function + a server-rendered PNG (built 2026-09-03)
+
+The constraint above says the preview must be served **at the existing origin**. The
+implementation is two halves that fail independently, and neither can take the SPA or the
+share link down with it.
+
+- **Half one — `frontend/api/camp-og/` (SWA managed function, Node 20).**
+  `frontend/staticwebapp.config.json` declares `"platform": { "apiRuntime": "node:20" }`
+  and rewrites `/c/*` to `/api/camp-og` as its **first** route. The function recovers the
+  slug from **`x-ms-original-url`** (a rewrite erases the path; SWA route rules cannot match
+  a user agent, so **every** `/c/*` visitor — human and crawler — goes through it), fetches
+  the camp, then rewrites the shell: it **strips** the 12 single-value metas + `<title>` +
+  canonical and re-injects after `<head…>`. **Every failure path returns `index.html`
+  untouched**, so a broken function degrades to the generic card, never to a broken page.
+  It caches the shell **by origin** (never in one variable — a PR preview must not be served
+  prod's shell) and the camp by slug. `SLUG_RE = /^[a-z0-9][a-z0-9-]{0,80}$/i`,
+  `NAME_MAX = 90`, `DESC_MAX = 200`. `formatCampDate` uses an anchored regex and **never
+  constructs a `Date`** — a `'YYYY-MM-DD'` is a calendar label, and `new Date('2026-09-14')`
+  is UTC midnight, which is the previous day in IST.
+- **`api_location` is relative to the REPOSITORY ROOT. Only `output_location` is
+  `app_location`-relative.** So the value is **`frontend/api`**, never `"api"` — that would
+  resolve to a non-existent `<repo>/api`, **the SPA would deploy with no function, and
+  `/c/<slug>` would silently keep serving the generic card with nothing failing anywhere**.
+  This was live in the workflow for one editing pass and no gate in this repo can catch it;
+  the fix carries a comment saying why. **Setting `api_location` also puts the SPA's only
+  deploy path behind the function building** — validate on the **PR preview environment
+  before `main`**.
+- **Half two — `GET /camps/public/:slug/og.png`.** Same visibility rule as the poster page
+  (`status IN ('PL','LV')`) and the same migration-319 approval gate **expressed in SQL**
+  (`CASE WHEN c.branding_status = 'AP' THEN bl.logo_data_uri END`), so this route physically
+  cannot forget it. **IT NEVER FAILS TO RETURN AN IMAGE**, because a crawler handed a 500
+  caches the **absence** of a preview for days, per exact URL, with no retry. Four TTLs, each
+  chosen for what it means: cache hit or fresh render **86400**; unknown slug or a camp still
+  at `'PE'` → generic **300** (the real card must appear when the NGO publishes, not a day
+  later); `renderCampOgCard()` declining → generic **3600**; a throw → generic **300**. The
+  only error response it can produce at all is a missing `og-image.png` on disk.
+- **The render is cached in-process, and that is the real protection.** 1200×630 of pango +
+  libvips on a **B1 with 1.75 GB serving the whole platform**, hit by a crawler fleet from
+  many IPs seconds after one share. `OG_CACHE_TTL_MS` 1 h, `OG_CACHE_MAX` 50, FIFO eviction
+  (a `Map` iterates in insertion order). `ogLimiter` is 120/15min per IP — a ceiling on
+  abuse, not the capacity plan.
+- **`services/images/campOg.js` returns `null` rather than a wrong card**, and the route
+  reads that as "serve the generic one". It declines on: no camp name, a **Devanagari name
+  with the Noto font unreachable**, or a wordmark it could not read. The wordmark is read
+  **from the canonical vector at runtime** (`frontend/public/wordmark-tm.svg`,
+  `WM_VB = {x:57,y:107,w:1185,h:378}`) — the locked design system's "always the vector" rule
+  applies to a generated PNG exactly as it does to a print sheet.
+- **`GET /camps/public/og/selftest` is data-free on purpose, and must be read on the
+  DEPLOYED API.** Prod holds no camps to hang a check off, so the check takes no data. It is
+  a **differential** test: render the Marathi sample in `Noto Sans Devanagari`, render it
+  again in `RaktifyNoSuchFamily7913`, and compare buffers — both arms with `fallback: false`.
+  Equal buffers mean pango fell back and the shipped font is **not** reachable, however
+  plausible the pixel dimensions look. Read **`devanagari_font_reachable`**; `false` means
+  Marathi camp names would be tofu and those cards serve the generic image. The payload is
+  counts, booleans and two pixel sizes — no paths, no environment dump — which is why it is
+  safe to leave public. It is declared **before** `/public/:slug/og.png` so no slug can
+  shadow it.
+- **A local `ok:false` on this Windows box proves NOTHING, in either direction.** pango's
+  Windows backend resolves fonts through the OS and **ignores `FONTCONFIG_PATH` outright**.
+  `services/images/fonts.js` sets `FONTCONFIG_PATH` at module load (only if unset) to
+  `backend/assets/fonts`, whose `fonts.conf` declares `<dir prefix="relative">.</dir>` as the
+  **whole font world** with deliberately **no `<include>`** of system config. Its load-bearing
+  line is `<alias><family>Inter</family><accept><family>Noto Sans Devanagari</family></accept></alias>`
+  — that alias is what makes a mixed Latin/Devanagari string render in one pass.
+- **`hasDevanagari()` iterates codepoints numerically, and that is not a style choice.**
+  U+0900 is itself a combining mark, so **any** regex character class containing it trips
+  eslint's `no-misleading-character-class` — escaping does not help, the rule reads the
+  codepoint. Iterating also catches **U+0964 DANDA**, which is `Script=Common` and would slip
+  past a `Script=Devanagari` property escape.
+- **`sharp` is a real backend dependency now** and the deploy path is what makes that safe —
+  see the third-pass logo section above for the `npm ci --omit=dev` / `optionalDependencies` /
+  `@img/sharp-linux-x64` reasoning. The same install serves the logo resize and this renderer.
+- **WhatsApp caches previews per exact URL, failures included, for days.** Test with a
+  throwaway `?v=2`; never conclude anything from re-sharing the same link.
+
+No migration — schema head stays **320**, next new is **321**.
 
 ## A camp application told NOBODY it needed reviewing (fixed 2026-09-01)
 

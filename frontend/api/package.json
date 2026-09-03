@@ -1,0 +1,7 @@
+{
+  "name": "raktify-swa-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Static Web Apps managed function: per-camp Open Graph tags for /c/<slug>. ZERO dependencies on purpose - see camp-og/index.js.",
+  "dependencies": {}
+}

@@ -298,6 +298,13 @@ export function PublicCampPage() {
 // wordmark, never an equal-scale pairing, and never says "in partnership with"
 // - Raktify is the platform, not a co-host.
 //
+// The logo BOX is 96px (founder, 02-Sep-2026, raised from 56px so a village
+// organisation is actually recognisable on a phone). That does not contradict
+// the rule above: primacy is carried by the TYPE scale - the camp name is the
+// text-2xl <h1>, the organiser name is text-sm body copy - and the image sits
+// below the heading, never beside it. Do not read "smaller scale" as a cap on
+// the picture and shrink this back.
+//
 // logo_data_uri and organiser_tagline arrive NULL unless branding_status='AP'
 // (the gate lives in SQL, in GET /camps/public/:slug), so both are optional and
 // this block must read correctly with neither. On a brand-new camp it is just
@@ -311,14 +318,14 @@ function OrganiserBlock({ camp }) {
   const showType = typeLabel && typeLabel !== typeKey;
 
   return (
-    <div className="flex items-start gap-3">
+    <div className="flex items-start gap-4">
       {camp.logo_data_uri ? (
         <img
           src={camp.logo_data_uri}
           // Decorative: the organisation name sits right beside it, so an alt
           // text here would only make a screen reader say the name twice.
           alt=""
-          className="h-14 w-14 shrink-0 rounded-lg object-contain ring-1 ring-slate-200"
+          className="h-24 w-24 shrink-0 rounded-lg object-contain ring-1 ring-slate-200"
         />
       ) : null}
       <div className="min-w-0">

@@ -1,5 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/staticwebapp.config.json",
+  "platform": { "apiRuntime": "node:20" },
   "navigationFallback": {
     "rewrite": "/index.html",
     "exclude": [
@@ -10,6 +11,7 @@
     ]
   },
   "routes": [
+    { "route": "/c/*", "rewrite": "/api/camp-og" },
     { "route": "/privacy", "rewrite": "/privacy.html" },
     { "route": "/terms", "rewrite": "/terms.html" },
     { "route": "/data-deletion", "rewrite": "/data-deletion.html" },
@@ -35,7 +37,22 @@
       }
     },
     {
+      "route": "/integrations/vendor-webhook-v1.yaml",
+      "headers": {
+        "cache-control": "public, max-age=3600",
+        "content-type": "text/yaml; charset=utf-8"
+      }
+    },
+    {
+      "route": "/integrations/vendor-webhook-v1.postman_collection.json",
+      "headers": {
+        "cache-control": "public, max-age=3600",
+        "content-type": "application/json; charset=utf-8"
+      }
+    },
+    {
       "route": "/api/vendor-webhook-v1.yaml",
+      "rewrite": "/integrations/vendor-webhook-v1.yaml",
       "headers": {
         "cache-control": "public, max-age=3600",
         "content-type": "text/yaml; charset=utf-8"
@@ -43,6 +60,7 @@
     },
     {
       "route": "/api/vendor-webhook-v1.postman_collection.json",
+      "rewrite": "/integrations/vendor-webhook-v1.postman_collection.json",
       "headers": {
         "cache-control": "public, max-age=3600",
         "content-type": "application/json; charset=utf-8"

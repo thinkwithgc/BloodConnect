@@ -19,6 +19,7 @@ auto-applies migrations to prod**). Last thirty commits, newest first:
 
 | Commit | What |
 |---|---|
+| `61f1d37` | `feat(camps)`: the organiser can **download the share poster**, and it **is** the OG card — a download affordance over bytes the API already renders, not a second renderer. See **The poster export IS the OG card** |
 | `8fb380e` | `feat(camps)`: **per-camp WhatsApp link previews** (a SWA managed function + a server-rendered PNG) and the **logo resize moves to the server**. Also the one-line `api_location` fix no gate in this repo can catch. See **Per-camp OG is a SWA managed function** and **An uploaded camp logo came out BLACK**, third pass |
 | `9246ff9` | `docs(brand)`: merch tech pack + prompt kit, **the wordmark as the vector in both** (inline `<symbol>` + `<use>`, never re-typed as text) |
 | `f22596b` | `fix(camps)`: a logo already under budget **skips the canvas entirely** - the resize was an optimisation buying nothing and risking everything. Second pass; **also did not hold** |

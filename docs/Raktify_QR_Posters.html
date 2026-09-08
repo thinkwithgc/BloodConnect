@@ -87,6 +87,65 @@
     cursor: pointer;
     margin: 4px 0 8px;
   }
+  .ghostbtn {
+    display: inline-block;
+    background: #fff;
+    color: var(--ink-2);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 14px;
+    font: 600 14px/1 var(--sans);
+    cursor: pointer;
+  }
+
+  /* The personalisation control. Screen-only like the rest of .howto: it is
+     an input, not part of any sheet, so it disappears on paper with the
+     surrounding chrome. */
+  .hostform {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 14px 16px 12px;
+    margin: 8px 0 14px;
+  }
+  .hostform label {
+    display: block;
+    font-weight: 600;
+    color: var(--ink);
+    margin-bottom: 6px;
+  }
+  .hostform label em {
+    font-style: normal;
+    font-weight: 500;
+    color: var(--ink-3);
+  }
+  .hostform input {
+    width: 100%;
+    font: 500 15px/1.4 var(--sans);
+    color: var(--ink);
+    background: var(--cream);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 9px 11px;
+  }
+  .hostform input:focus {
+    outline: 2px solid var(--accent-200);
+    outline-offset: 1px;
+    border-color: var(--accent);
+  }
+  .hostform .hint {
+    margin: 8px 0 0;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--ink-3);
+  }
+  .hostform .row {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 10px;
+  }
 
   /* ── A page is a real A4 sheet ─────────────────────────────────────── */
   .page {
@@ -121,6 +180,64 @@
     flex-direction: column;
     padding: 4mm 2mm 0;
     text-align: center;
+  }
+
+/* ── The host institution's own name ────────────────────────────────────
+     A hospital that gives Raktify a corridor wall is lending its own space,
+     so its name reads FIRST and biggest on the sheet and the Raktify mark
+     sits UNDER it: their sheet, our service. Nothing here claims a
+     partnership, an endorsement or a sponsorship, because none of those has
+     been signed — the name is a statement of where the sheet is hanging and
+     nothing more.
+     Injected from the screen-only box at the top of the page, and `hidden`
+     whenever that box is empty. An empty band would print as a stray rule
+     over a gap, which is the same reason CampOrganizerDashboard holds its
+     tagline as `null` and never `''`.
+     Sized by character count in one step function (see the script at the end
+     of this file) rather than by measurement: the sheet is a fixed 297mm
+     column and the 130mm QR below it is NOT allowed to shrink, so a long
+     name is what has to give. Typed text is the one thing on these sheets
+     that may render in a fallback font — that is fine here and is fine only
+     here. The Raktify wordmark stays the vector, always.
+     ─────────────────────────────────────────────────────────────────── */
+  .hostband {
+    margin: 0 0 3mm;
+    padding: 0 0 2.4mm;
+    border-bottom: 1.2px solid var(--line);
+    text-align: center;
+  }
+  .hostband .hn {
+    font-size: 20pt;
+    font-weight: 700;
+    line-height: 1.12;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    text-wrap: balance;
+  }
+  .hn.is-m {
+    font-size: 15.5pt;
+  }
+  .hn.is-s {
+    font-size: 12.5pt;
+  }
+
+  /* Same name on the two hand-out-card sheets, as the sheet header rather
+     than on each card: a card is 42mm tall with four tuned lines in it, and
+     this file has NO gate of any kind beyond print preview, so the card grid
+     is left exactly as measured. */
+  .cards-hostline {
+    font-size: 13pt;
+    font-weight: 700;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+    margin: 0 0 2.5mm;
+  }
+  .cards-hostline.is-m {
+    font-size: 11.5pt;
+  }
+  .cards-hostline.is-s {
+    font-size: 10pt;
   }
 
   .brand {
@@ -476,12 +593,39 @@
     lose up to <strong>30% of its surface</strong> — a tear, a tape mark, a sun-faded corner, a
     trim a millimetre too deep — and still scan.
   </p>
-  <button class="printbtn" onclick="window.print()">Print all four sheets</button>
+  <div class="hostform">
+    <label for="hostname">
+      Name of the hospital, blood bank, college or office putting these up
+      <em>— optional</em>
+    </label>
+    <input
+      id="hostname"
+      type="text"
+      autocomplete="off"
+      spellcheck="false"
+      maxlength="120"
+      placeholder="Dr. Panjabrao Deshmukh Memorial Medical College, Amravati"
+    />
+    <p class="hint">
+      Type it once and it appears at the top of <strong>both posters and both card
+      sheets</strong>, above the Raktify mark — the sheet is theirs, the service is ours.
+      Use the name they use on their own board, in Marathi or English. The saved PDF is
+      named after them too, so one folder can hold a sheet per institution.
+      <strong>Leave it blank and nothing at all is added</strong>, exactly as before.
+      Nothing is uploaded anywhere; the name stays in this browser.
+    </p>
+    <div class="row">
+      <button class="printbtn" onclick="window.print()">Print all four sheets</button>
+      <button class="ghostbtn" type="button" id="hostclear">Clear the name</button>
+    </div>
+  </div>
 </div>
 
 <!-- ══ SHEET 1 — donor window poster ══════════════════════════════════ -->
 <div class="page">
   <section class="poster">
+    <div class="hostband" data-host hidden><div class="hn"></div></div>
+
     <div class="brand">
       <svg class="wm" role="img" aria-label="Raktify"><use href="#rk-wordmark" /></svg>
     </div>
@@ -536,6 +680,8 @@
 <!-- ══ SHEET 2 — camp window poster ═══════════════════════════════════ -->
 <div class="page">
   <section class="poster">
+    <div class="hostband" data-host hidden><div class="hn"></div></div>
+
     <div class="brand">
       <svg class="wm" role="img" aria-label="Raktify"><use href="#rk-wordmark" /></svg>
     </div>
@@ -590,6 +736,7 @@
 
 <!-- ══ SHEET 3 — donor hand-out cards ═════════════════════════════════ -->
 <div class="page">
+  <div class="cards-hostline" data-host hidden></div>
   <div class="cards-head">
     <h2>रक्तदाता नोंदणी — वाटण्यासाठी कार्डे</h2>
     <p>
@@ -686,6 +833,7 @@
 
 <!-- ══ SHEET 4 — camp hand-out cards ══════════════════════════════════ -->
 <div class="page">
+  <div class="cards-hostline" data-host hidden></div>
   <div class="cards-head">
     <h2>शिबिर आयोजन — वाटण्यासाठी कार्डे</h2>
     <p>
@@ -779,3 +927,66 @@
     Raktify™ · a trade mark of Choudhari EduHealth India Foundation (application pending)
   </div>
 </div>
+
+<script>
+  /* Personalisation. One typed name, stamped onto all four sheets. No network
+     call and no dependency, because this file is opened offline at a print
+     shop — the same reason the wordmark is an inlined vector rather than a
+     linked one. */
+  (function () {
+    var KEY = 'rk.qr.host';
+    var input = document.getElementById('hostname');
+    var bands = document.querySelectorAll('[data-host]');
+    var baseTitle = document.title;
+    var clear = document.getElementById('hostclear');
+
+    function apply(raw) {
+      var name = String(raw == null ? '' : raw)
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      for (var i = 0; i < bands.length; i++) {
+        var band = bands[i];
+        /* The poster band nests a .hn so the rule above it can stay; the card
+           sheets carry the text on the element itself. */
+        var slot = band.querySelector('.hn') || band;
+        /* textContent, never innerHTML. A pasted institution name is
+           untrusted input even when the person pasting it wrote this file. */
+        slot.textContent = name;
+        slot.classList.remove('is-m', 'is-s');
+        if (name.length > 58) slot.classList.add('is-s');
+        else if (name.length > 34) slot.classList.add('is-m');
+        /* hidden, not an empty string: a blank band still prints its rule. */
+        band.hidden = name === '';
+      }
+
+      /* Browsers default a printed PDF filename to document.title, so the
+         saved file arrives already labelled with the institution. */
+      document.title = name ? baseTitle + ' — ' + name : baseTitle;
+
+      try {
+        if (name) localStorage.setItem(KEY, name);
+        else localStorage.removeItem(KEY);
+      } catch (e) {
+        /* file:// with site data blocked. The sheets still personalise; only
+           the remembering is lost, so this must never be fatal. */
+      }
+    }
+
+    var saved = '';
+    try {
+      saved = localStorage.getItem(KEY) || '';
+    } catch (e) {}
+    if (saved && !input.value) input.value = saved;
+    apply(input.value);
+
+    input.addEventListener('input', function () {
+      apply(input.value);
+    });
+    clear.addEventListener('click', function () {
+      input.value = '';
+      apply('');
+      input.focus();
+    });
+  })();
+</script>

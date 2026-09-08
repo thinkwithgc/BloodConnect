@@ -49,6 +49,21 @@ export default defineConfig(({ mode }) => {
           //      function, so the shell would carry the generic card.
           navigateFallbackDenylist: [
             /^\/c\//,
+            // One-shot / magic-link entry points. Same reason 1 as /c/ above:
+            // the person arrives from a WhatsApp message on a device holding
+            // an arbitrarily old precached shell, acts ONCE, and a field
+            // shipped after that shell was cached is silently absent. That is
+            // exactly how the self-chosen staff username (a11192b) appeared
+            // to be missing from /activate on real handsets while rendering
+            // correctly in a private window - and there is no
+            // username-change endpoint, so completing setup on a stale shell
+            // locks in the derived placeholder for good. Unlike /c/, NO
+            // managed function rewrites these; do not merge the two groups.
+            /^\/setup\//,
+            /^\/activate\//,
+            /^\/consent\//,
+            /^\/camp\//, // NOT /camps/host - the trailing slash excludes it
+            /^\/alert\//,
             /^\/how-raktify-works\.html/,
             /^\/privacy(\.html)?$/,
             /^\/terms(\.html)?$/,

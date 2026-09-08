@@ -23,6 +23,7 @@ most recent, and what each one bought:
 
 | Commit | What |
 |---|---|
+| `a1d94b9` | **The post-mortems leave CLAUDE.md** for `docs/Raktify_Engineering_Lessons.md` + `docs/Raktify_Phase_History.md`; this file keeps one invariant each. 2374 → 517 lines. Move, don't lose: 0 dangling anchors, 3 homeless facts written to the doc first |
 | `0efa2f1` | The **host institution's own name on the printed QR sheets** — a hospital lending a corridor wall should read as the owner of the sheet. Blank field prints the old sheet exactly; a long name shrinks itself, never the 130mm code |
 | `a11192b` | **Staff pick their OWN username at setup** — activation and invitation are one seam. A failed rename must not burn the token, which holds only because those routes run with no open transaction |
 | `2a969a4` | The **downloaded poster carries a QR** — an image has no hyperlink, so a forwarded card had no path to RSVP. `?poster=1` is one boolean on the same renderer, composite cache key |
@@ -32,7 +33,6 @@ most recent, and what each one bought:
 | `8fb380e` | **Per-camp WhatsApp link previews** (SWA managed function + server-rendered PNG), the **logo resize moves to the server**, and the one-line `api_location` fix no gate here can catch |
 | `a710cab` | An uploaded organiser logo came out **black** — three passes before it held; the cause was **Firefox blocking canvas readback**, not the encoder |
 | `420a84d` | An NGO admin can **hard-delete** an untouched camp, recoverable only because `fn_audit_row` files the whole row as JSON into the INSERT-only ledger |
-| `e42b32b` | **English is the default WhatsApp language** (migration **320**); Marathi is a choice, and existing rows are deliberately not backfilled |
 
 **Schema head.** **99 migration files, latest `320_default_language_english`;
 the next new migration is `321`.** Everything `≤320` is immutable (hard rule 5).

@@ -58,7 +58,10 @@ export function InviteForm({ institutionId, onIssued, onDone, defaultOpen = fals
   });
 
   // Mirrors username_suffix in the invite schema (routes/institutions.js) — the
-  // full username is `<shortname>_<suffix>`, derived server-side.
+  // full username is `<shortname>_<suffix>`, derived server-side. That derived
+  // name is only PROVISIONAL now: the invitee renames over it at the magic-link
+  // setup screen, so this field decides the SUGGESTION they see, not the name
+  // they end up logging in with.
   const suffixOk = !suffix.trim() || /^[a-z0-9][a-z0-9_-]{0,19}$/.test(suffix.trim().toLowerCase());
   const mobileOk = /^(\+91)?[6-9]\d{9}$/.test(mobile.trim().replace(/[\s-]/g, ''));
   const canSubmit = suffixOk && mobileOk && !invite.isPending;
@@ -86,8 +89,9 @@ export function InviteForm({ institutionId, onIssued, onDone, defaultOpen = fals
     >
       <h3 className="text-sm font-semibold text-slate-900">Invite a colleague</h3>
       <p className="text-xs text-slate-600">
-        They get a WhatsApp with a single-use link to set their own password — you never choose it
-        for them. If the WhatsApp does not send, the link is shown here once so you can pass it on.
+        They get a WhatsApp with a single-use link to choose their own username and password — you
+        never pick either for them. If the WhatsApp does not send, the link is shown here once so
+        you can pass it on.
       </p>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -131,7 +135,8 @@ export function InviteForm({ institutionId, onIssued, onDone, defaultOpen = fals
             </p>
           ) : (
             <p className="mt-1 text-xs text-slate-500">
-              Their username becomes your shortname + this. Defaults to “user”.
+              Only the username we suggest to them: your shortname + this, or “user” if you leave it
+              blank. They can pick a different one when they claim the account.
             </p>
           )}
         </div>

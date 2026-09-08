@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 
 import { apiRequest } from '../../lib/api.js';
+import { USERNAME_RE } from '../../lib/usernameRe.js';
 
 const FILTERS = [
   { id: '', label: 'All' },
@@ -278,7 +279,7 @@ function InviteCoordinatorModal({ onClose }) {
                 onChange={(e) =>
                   setForm({ ...form, username: e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, '') })
                 }
-                pattern="^[a-z][a-z0-9_\-]{2,31}$"
+                pattern={USERNAME_RE.source}
                 placeholder="e.g. priya_coord"
               />
             </label>

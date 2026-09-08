@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 
 import { apiRequest } from '../../lib/api.js';
+import { USERNAME_RE } from '../../lib/usernameRe.js';
 
 // Admin recovery for staff 2FA. When a staff member loses or changes the phone
 // that holds their authenticator, an admin clears their enrolment here — the
@@ -20,7 +21,7 @@ export function StaffSecurityTab() {
     e.preventDefault();
     setMsg('');
     const u = username.trim().toLowerCase();
-    if (!/^[a-z][a-z0-9_-]{2,31}$/.test(u)) {
+    if (!USERNAME_RE.test(u)) {
       setMsg('✗ Enter a valid username.');
       return;
     }

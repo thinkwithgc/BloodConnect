@@ -106,6 +106,9 @@ const applySchema = z
     // applicant still fills them here. Shortname must leave 9 chars of budget
     // for the `-bb_admin` suffix on the BB admin username (regex caps username
     // at 32 chars; 32 - 9 = 23).
+    // The derived name is only a PROVISIONAL placeholder now: the person claiming
+    // the account renames over it at the magic-link setup screen. The budget still
+    // has to be reserved here, because the provisional is what gets INSERTed.
     if (data.kind === 'HO' && data.has_inhouse_blood_bank === true) {
       if (!data.cdsco_licence_number) {
         ctx.addIssue({

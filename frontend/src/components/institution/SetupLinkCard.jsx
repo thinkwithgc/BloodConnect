@@ -60,10 +60,22 @@ export function SetupLinkCard({
         <p className="font-semibold text-slate-900">{label}</p>
         {username ? (
           <p className="font-mono text-xs text-slate-600">
-            username <span className="font-semibold text-slate-900">{username}</span>
+            suggested username <span className="font-semibold text-slate-900">{username}</span>
           </p>
         ) : null}
       </div>
+
+      {/* The name above is only a PROVISIONAL placeholder — the setup screen
+          pre-fills it and the person claiming the account may replace it with
+          something they can remember. So it is not safe to write down here as
+          "their login": tell the operator to read it back off the roster once
+          setup is done. */}
+      {username ? (
+        <p className="mt-1 text-xs text-slate-600">
+          Only a suggestion — they may pick a different username when they claim the account. Check
+          the users roster afterwards for the name they chose.
+        </p>
+      ) : null}
 
       {deliveryNotAttempted ? (
         <p className="mt-1 text-xs text-slate-600">

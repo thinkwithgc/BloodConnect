@@ -5,11 +5,12 @@ import { z } from 'zod';
 import { Header } from '../../components/Header.jsx';
 import { apiRequest } from '../../lib/api.js';
 import { errorMessage } from '../../lib/errorMessage.js';
+import { USERNAME_RE } from '../../lib/usernameRe.js';
 import { useAuth } from '../../auth/AuthContext.jsx';
 import { useT } from '../../i18n/useT.js';
 
 const loginSchema = z.object({
-  username: z.string().regex(/^[a-z][a-z0-9_-]{2,31}$/),
+  username: z.string().regex(USERNAME_RE),
   password: z.string().min(8),
   totp_code: z
     .string()
@@ -103,7 +104,7 @@ export function StaffLogin() {
               value={form.username}
               onChange={(e) => update('username', e.target.value.toLowerCase())}
               required
-              pattern="^[a-z][a-z0-9_\-]{2,31}$"
+              pattern={USERNAME_RE.source}
               placeholder="e.g. irwin_admin"
             />
           </div>

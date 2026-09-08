@@ -667,16 +667,35 @@ router.post(
   },
 );
 
-// ── Setup-link password setup (institutional admins) ──────────────────────
+// ── Setup-link account setup (institutional staff) ────────────────────────
 //
 // GET  /auth/setup/:token  — public; returns user/institution info for the
-//                            password-setup form (or 404 invalid / 410 used+expired).
-// POST /auth/setup/:token  — public; body { password, confirm_password };
-//                            consumes the token, sets password.
+//                            setup form (or 404 invalid / 410 used+expired).
+// POST /auth/setup/:token  — public; body { password, confirm_password,
+//                            username? }. Consumes the token, sets the
+//                            password, and — when `username` is sent — renames
+//                            the row off the provisional derived name that
+//                            activate.js / POST /institutions/:id/users mint
+//                            at INSERT time.
+// GET  /auth/setup/:token/username-available?u=  — public; live availability.
 //
-// Token issued by /onboarding/mou-signed (single-use, 7-day TTL).
-// See `services/users/setup.js` for the storage / validation logic.
+// Tokens are issued by services/onboarding/activate.js (institution
+// activation), POST /institutions/:id/users (team invitation) and
+// POST /institutions/:id/users/:userId/reissue-setup (password reset).
+// Single-use, 7-day TTL. See `services/users/setup.js` for the storage /
+// validation logic.
+//
+// `username` is OPTIONAL on purpose: this same route is the staff
+// PASSWORD-RESET path, and a password reset must never force a rename.
 const setupSvc = require('../services/users/setup');
+
+// The roles migration 268's `auth_path_required` CHECK requires a username +
+// password for. The three setup_token_* columns are ALSO the donor DPDP consent
+// link (routes/consent.js reuses them and guards the same way), so a token
+// belonging to any other role has to be refused here:
+// `idx_platform_users_username` is GLOBAL, so without this guard a donor
+// consent link could be POSTed here to claim a staff username.
+const STAFF_ROLES = new Set(['hospital', 'blood_bank', 'ngo_admin', 'super_admin', 'dho']);
 
 const setupLimiter = rateLimit({
   windowMs: 60 * 60 * 1000, // 1 hour
@@ -684,6 +703,18 @@ const setupLimiter = rateLimit({
   keyGenerator: (req) => req.ip,
   standardHeaders: 'draft-8',
   message: { error: 'rate_limit_setup' },
+});
+
+// Deliberately NOT setupLimiter. That one is 20/hour on req.ip, and a debounced
+// username field spends a request per typing pause — it would exhaust the
+// budget in one sitting and lock the person out of their own setup screen.
+// Token-gated either way, so this is not an open username oracle.
+const usernameCheckLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  limit: 120,
+  keyGenerator: (req) => req.ip,
+  standardHeaders: 'draft-8',
+  message: { error: 'rate_limit_username_check' },
 });
 
 router.get('/setup/:token', setupLimiter, async (req, res) => {
@@ -696,7 +727,11 @@ router.get('/setup/:token', setupLimiter, async (req, res) => {
       return res.status(status).json({ error: v.code });
     }
     return res.json({
+      // The provisional derived name. The setup screen pre-fills it as a
+      // SUGGESTION — it already embeds the institution shortname, which is the
+      // institution hint — and the person may keep it or replace it.
       username: v.user.username,
+      username_editable: true,
       email: v.user.email,
       role: v.user.role,
       institution_name: v.institution.name,
@@ -726,6 +761,16 @@ router.post('/setup/:token', setupLimiter, async (req, res) => {
       .regex(/[A-Za-z]/, 'need_letter')
       .regex(/[0-9]/, 'need_digit'),
     confirm_password: z.string(),
+    // Optional. Absent = keep the provisional derived name, which is also
+    // exactly what a password reset through this same route does. The regex is
+    // the service's own constant, which mirrors migration 268's
+    // `username_format` CHECK — the DB stays the binding gate.
+    username: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(setupSvc.USERNAME_RE, 'username_format')
+      .optional(),
   });
   const parsed = schema.safeParse(req.body || {});
   if (!parsed.success) {
@@ -738,14 +783,80 @@ router.post('/setup/:token', setupLimiter, async (req, res) => {
   const c = await pool.connect();
   try {
     await c.query(`SELECT set_config('raktify.actor_role', 'system', TRUE)`);
-    const r = await setupSvc.consumeSetupToken(c, req.params.token, parsed.data.password);
+    // Validate BEFORE consuming, so the role can be checked and so the chosen
+    // name can be compared against the provisional one. Cheap (one indexed
+    // SELECT), and consumeSetupToken re-validates internally — the single-use
+    // guarantee still lives in the UPDATE's own WHERE clause, not here.
+    const v = await setupSvc.validateSetupToken(c, req.params.token);
+    if (!v.ok) {
+      const status = v.code === 'invalid' ? 404 : 410;
+      return res.status(status).json({ error: v.code });
+    }
+    if (!STAFF_ROLES.has(v.user.role)) {
+      return res.status(409).json({ error: 'wrong_token_scope' });
+    }
+
+    const r = await setupSvc.consumeSetupToken(
+      c,
+      req.params.token,
+      parsed.data.password,
+      // Send a rename only when the person actually changed it. Setting a row's
+      // username to its own value is a no-op against the unique index anyway,
+      // but omitting it keeps the UPDATE's column list minimal.
+      parsed.data.username && parsed.data.username !== v.user.username
+        ? parsed.data.username
+        : null,
+    );
     if (!r.ok) {
+      // These three are FIELD errors, and they must NEVER map to 404/410: the
+      // setup screen treats those as terminal and replaces itself with an
+      // ErrorCard, when in fact a rejected name does not burn the token and
+      // the link is still perfectly usable.
+      if (r.code === 'username_taken' || r.code === 'username_reserved') {
+        return res.status(409).json({ error: r.code });
+      }
+      if (r.code === 'username_format') {
+        return res.status(400).json({ error: r.code });
+      }
       const status = r.code === 'invalid' ? 404 : 410;
       return res.status(status).json({ error: r.code });
     }
-    return res.json({ status: 'set', user_id: r.user_id });
+    return res.json({ status: 'set', user_id: r.user_id, username: r.username });
   } catch (err) {
     logger.error({ err: err.message }, 'setup token POST failed');
+    res.status(500).json({ error: 'internal' });
+  } finally {
+    c.release();
+  }
+});
+
+// ── GET /auth/setup/:token/username-available?u=<candidate> ───────────────
+//
+// Live availability for the username field on the setup screen, so the person
+// finds out before submitting rather than after. Token-gated, so it is not an
+// open username oracle, and it returns { available, reason } only — never who
+// holds a taken name, nor whether the holder is staff or a donor. The index is
+// global, so a leak here would be a cross-institution one.
+//
+// Three path segments, so it cannot be shadowed by GET /setup/:token above.
+router.get('/setup/:token/username-available', usernameCheckLimiter, async (req, res) => {
+  const c = await pool.connect();
+  try {
+    await c.query(`SELECT set_config('raktify.actor_role', 'system', TRUE)`);
+    const v = await setupSvc.validateSetupToken(c, req.params.token);
+    if (!v.ok) {
+      const status = v.code === 'invalid' ? 404 : 410;
+      return res.status(status).json({ error: v.code });
+    }
+    if (!STAFF_ROLES.has(v.user.role)) {
+      return res.status(409).json({ error: 'wrong_token_scope' });
+    }
+    // selfUserId: the field is pre-filled with this row's own current name, so
+    // accepting the suggestion has to come back available.
+    const r = await setupSvc.isUsernameAvailable(c, req.query.u, v.user.id);
+    return res.json(r);
+  } catch (err) {
+    logger.error({ err: err.message }, 'username availability check failed');
     res.status(500).json({ error: 'internal' });
   } finally {
     c.release();

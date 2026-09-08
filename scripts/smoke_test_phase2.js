@@ -50,6 +50,7 @@ const totp = require('../backend/src/utils/totp');
 const encryption = require('../backend/src/services/encryption');
 const createApp = require('../backend/src/app');
 const db = require('../backend/src/config/db');
+const setupSvc = require('../backend/src/services/users/setup');
 
 /** Read a repo file as text, for assertions about the code itself. */
 function readSource(rel) {
@@ -78,6 +79,11 @@ const TEST = {
   childInstitutionId: null,
   ngoAdminToken: null,
   hoAdminUsername: null,
+  // The name activation DERIVES (a provisional placeholder), and the one the
+  // person actually claims at the setup screen. hoAdminUsername is retargeted
+  // to the chosen name once §9 renames it, so every later fixture follows.
+  hoDerivedUsername: null,
+  hoChosenUsername: `p2pick${RUN_TAG}`,
   hoSetupToken: null,
   hoAdminPwd: 'HospitalPass2026',
   hoAdminToken: null,
@@ -569,16 +575,128 @@ async function main() {
       `second activate → 409 already_active (got ${r.status} ${r.body.error})`,
     );
 
-    console.log('── 9. HO admin sets password via the magic setup link ───────');
+    console.log('── 9. HO admin claims the account: own username + password ──');
+    // The derived name is a PROVISIONAL placeholder — it has to exist at INSERT
+    // time (auth_path_required, activate.js's idempotency key, and the paired-BB
+    // pending-token surface all read it). At setup the person renames over it.
+    TEST.hoDerivedUsername = TEST.hoAdminUsername;
     r = await fetchJson('GET', `/auth/setup/${TEST.hoSetupToken}`);
     assert(
-      r.status === 200 && r.body.username === TEST.hoAdminUsername,
-      `setup token resolves to ${TEST.hoAdminUsername} (got ${r.status} ${r.body.username})`,
+      r.status === 200 && r.body.username === TEST.hoDerivedUsername,
+      `setup token resolves to ${TEST.hoDerivedUsername} (got ${r.status} ${r.body.username})`,
+    );
+    assert(
+      r.body.username_editable === true,
+      `setup payload marks the username editable (got ${r.body.username_editable})`,
+    );
+
+    // ── the availability probe, five ways. Note the param is `u`, not `username`.
+    const avail = (u) =>
+      fetchJson(
+        'GET',
+        `/auth/setup/${TEST.hoSetupToken}/username-available?u=${encodeURIComponent(u)}`,
+      );
+    r = await avail(TEST.hoChosenUsername);
+    assert(
+      r.status === 200 && r.body.available === true && r.body.reason === 'ok',
+      `a free name reads available (got ${r.status} ${JSON.stringify(r.body)})`,
+    );
+    r = await avail(TEST.ngoAdminUsername);
+    assert(
+      r.status === 200 && r.body.available === false && r.body.reason === 'taken',
+      `a name someone holds reads taken (got ${JSON.stringify(r.body)})`,
+    );
+    r = await avail('admin');
+    assert(
+      r.status === 200 && r.body.available === false && r.body.reason === 'reserved',
+      `a reserved name reads reserved (got ${JSON.stringify(r.body)})`,
+    );
+    r = await avail('A');
+    assert(
+      r.status === 200 && r.body.available === false && r.body.reason === 'format',
+      `a malformed name reads format (got ${JSON.stringify(r.body)})`,
+    );
+    r = await avail(TEST.hoDerivedUsername);
+    assert(
+      r.status === 200 && r.body.available === true,
+      "the caller's OWN provisional name reads available, not taken",
+    );
+
+    // ── three refusals, and NONE of them may burn the single-use token ────────
+    r = await fetchJson('POST', `/auth/setup/${TEST.hoSetupToken}`, {
+      body: { password: TEST.hoAdminPwd, confirm_password: TEST.hoAdminPwd, username: 'A' },
+    });
+    assert(
+      r.status === 400 && r.body.error === 'validation_failed',
+      `a malformed username is refused by Zod first (got ${r.status} ${r.body.error})`,
     );
     r = await fetchJson('POST', `/auth/setup/${TEST.hoSetupToken}`, {
-      body: { password: TEST.hoAdminPwd, confirm_password: TEST.hoAdminPwd },
+      body: { password: TEST.hoAdminPwd, confirm_password: TEST.hoAdminPwd, username: 'admin' },
     });
-    assert(r.status === 200 && r.body.status === 'set', `password set (got ${r.status})`);
+    assert(
+      r.status === 409 && r.body.error === 'username_reserved',
+      `a reserved username → 409 username_reserved (got ${r.status} ${r.body.error})`,
+    );
+    r = await fetchJson('POST', `/auth/setup/${TEST.hoSetupToken}`, {
+      body: {
+        password: TEST.hoAdminPwd,
+        confirm_password: TEST.hoAdminPwd,
+        username: TEST.ngoAdminUsername,
+      },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'username_taken',
+      `a taken username → 409 username_taken, never a 500 (got ${r.status} ${r.body.error})`,
+    );
+    // THE load-bearing assertion. The UPDATE that would stamp setup_token_used_at
+    // is the same statement that violates the unique index, so a mistyped name
+    // must leave the person's only link intact. It holds ONLY because these routes
+    // run on a bare pooled client with NO open transaction — wrap them in one and
+    // this silently breaks.
+    // password_set_at is deliberately NOT asserted here: activation stamps it
+    // NOW() alongside the UNUSABLE placeholder hash (activate.js x4 sites), so it
+    // is non-NULL from the moment the row exists. setup_token_used_at is the only
+    // column that says whether the link was spent.
+    let tokRow = await dbRow(
+      `SELECT setup_token_used_at FROM platform_users WHERE username = $1`,
+      [TEST.hoDerivedUsername],
+    );
+    assert(
+      tokRow && tokRow.setup_token_used_at === null,
+      `a rejected username does NOT burn the setup token (used_at still NULL; got ${
+        tokRow ? JSON.stringify(tokRow.setup_token_used_at) : 'no row'
+      })`,
+    );
+    r = await fetchJson('GET', `/auth/setup/${TEST.hoSetupToken}`);
+    assert(r.status === 200, `the token still resolves after three refusals (got ${r.status})`);
+
+    // ── the real claim ───────────────────────────────────────────────────────
+    r = await fetchJson('POST', `/auth/setup/${TEST.hoSetupToken}`, {
+      body: {
+        password: TEST.hoAdminPwd,
+        confirm_password: TEST.hoAdminPwd,
+        username: TEST.hoChosenUsername,
+      },
+    });
+    assert(
+      r.status === 200 && r.body.status === 'set' && r.body.username === TEST.hoChosenUsername,
+      `password set + renamed to ${TEST.hoChosenUsername} (got ${r.status} ${r.body.username})`,
+    );
+    // The chosen name is the login now, and the derived one is gone.
+    r = await fetchJson('POST', '/auth/institutional/login', {
+      body: { username: TEST.hoDerivedUsername, password: TEST.hoAdminPwd },
+    });
+    assert(
+      r.status === 401 && r.body.error === 'invalid_credentials',
+      `the derived name no longer logs in (got ${r.status} ${r.body.error})`,
+    );
+    tokRow = await dbRow(`SELECT id FROM platform_users WHERE username = $1`, [
+      TEST.hoDerivedUsername,
+    ]);
+    assert(!tokRow, 'the provisional username is released, not left as a second row');
+    // Everything downstream addresses this admin by name — §10's login, §16's
+    // roster lookup, §21's audit subject_label — so retarget the fixture.
+    TEST.hoAdminUsername = TEST.hoChosenUsername;
 
     console.log('── 10. HO admin login → TOTP enrolment → re-login ───────────');
     r = await fetchJson('POST', '/auth/institutional/login', {
@@ -665,12 +783,37 @@ async function main() {
       `OTP verify returns donor JWT (got ${r.status})`,
     );
     const donorToken = r.body.token;
+    const donorUserId = r.body.user_id;
 
     console.log('── 13. Donor cannot reach ngo_admin endpoint ────────────────');
     r = await fetchJson('GET', '/onboarding/applications', {
       headers: { Authorization: `Bearer ${donorToken}` },
     });
     assert(r.status === 403, `donor → /onboarding/applications returns 403 (got ${r.status})`);
+
+    // A donor's DPDP consent link reuses the SAME three setup_token_* columns
+    // (routes/consent.js). Harmless while /auth/setup only set a password;
+    // material now that it also claims a GLOBALLY unique username — a donor could
+    // otherwise squat a staff name.
+    const donorSetup = await (async () => {
+      const c = await db.pool.connect();
+      try {
+        return await setupSvc.generateSetupToken(c, donorUserId);
+      } finally {
+        c.release();
+      }
+    })();
+    r = await fetchJson('POST', `/auth/setup/${donorSetup.token}`, {
+      body: {
+        password: 'DonorSquat2026x',
+        confirm_password: 'DonorSquat2026x',
+        username: `p2squat${RUN_TAG}`,
+      },
+    });
+    assert(
+      r.status === 409 && r.body.error === 'wrong_token_scope',
+      `donor setup token → 409 wrong_token_scope (got ${r.status} ${r.body.error})`,
+    );
 
     console.log('── 14. Wrong OTP attempts → eventual lock ───────────────────');
     // Get a fresh OTP issued so the user has otp_hash set, then try wrong codes.

@@ -493,7 +493,7 @@ export function OnboardingDetail() {
                     </h3>
                     <p className="mt-1 text-xs text-slate-600">
                       Filed as MoU v{activate.data.version}. Each link lets that person choose their
-                      own password; nobody, including you, ever sets it for them.
+                      own username and password; nobody, including you, ever sets either for them.
                     </p>
                   </div>
 

@@ -785,18 +785,54 @@ service worker, which is exactly why it looked fine there.
   injection *and* `frontend/index.html`. It goes in `STRIP` as well: that array is
   "every single-value property this function replaces", so an injected property missing
   from it would ship twice the moment the root shell grows one.
+- **IT RECURRED FOUR DAYS LATER, on `/activate/` (fixed 2026-09-08, `26d32bf`).** An
+  invited blood-bank staff member tapped their activation link and got the password
+  field **alone** - the self-chosen username field from `a11192b` was absent. Prod was
+  innocent on every axis checked: `git log origin/main..HEAD` empty, the deployed
+  bundle containing both `username-available` and `setup_username_hint`, and
+  `GET /auth/setup/<t>/username-available` answering from a real handler rather than
+  `route_not_found` (so not deploy skew either). It was this bug again, on a path
+  nobody had thought of as cacheable. **So the denylist has a SECOND membership rule
+  beyond the function-rewrite one: every one-shot / magic-link entry point belongs on
+  it** - `/setup/`, `/activate/`, `/consent/`, `/camp/`, `/alert/`. What they share is
+  the shape that makes a stale shell unrecoverable rather than merely wrong: the person
+  arrives from a **WhatsApp message**, on a device holding an arbitrarily old shell,
+  and acts **once**. There is **no username-change endpoint anywhere in the codebase**,
+  so completing setup on the stale shell locks in the derived placeholder permanently -
+  recoverable only by an admin `POST /institutions/:id/users/:userId/reissue-setup`.
+  `/alert/` (a donor answering an emergency) and `/camp/` (an organiser returning over
+  weeks, so the **oldest** cached shell of the five) carry the same exposure, which is
+  why the whole class went on at once instead of just the path that broke. Two details
+  worth keeping: `/^\/camp\//` does **not** shadow the `/camps/host` route (the
+  trailing slash excludes it), and denylisting is safe precisely because
+  `staticwebapp.config.json`'s `navigationFallback` already rewrites these paths to the
+  current `index.html` - the change only moves them from precache to network. The one
+  behaviour change is offline, where they now fail loudly instead of rendering a stale
+  shell, which is correct for five flows that cannot function without the API.
+- **The fix does not retroactively heal the handset that is already broken.** The
+  navigation that discovers the new `sw.js` is still served by the **old** worker, so
+  the invitee must reload **once**. It heals fast rather than eventually because
+  `sw.js` is served `Cache-Control: no-cache` (revalidated every navigation) and
+  `autoUpdate` injects `skipWaiting()` + `clientsClaim()` - both verified present in
+  the deployed worker. Tell a stuck user to hard-reload or use a private window; do not
+  tell them to wait.
 
-No migration; schema head stays **320**. Gate: `npm run smoke:frontend` clean
-(12 precache entries, `sw.js` regenerated).
+No migration either time; schema head stays **320**. Gate both times:
+`npm run smoke:frontend` clean, then **grep the generated `dist/sw.js` for the
+patterns** - the build succeeds whether or not they are there, so the emitted worker is
+the only thing that actually proves the edit landed.
 
 ## Staff pick their OWN username at setup (shipped 2026-09-08, `a11192b`)
 
-**Status: BACKEND + FRONTEND + SMOKE ASSERTIONS ALL WRITTEN, all six gates
-measured green, and UNCOMMITTED / UNPUSHED on `feat/paper-mou-onboarding`** — so
-this is not in prod and there is deliberately no row for it in the commit table
-above. 13 modified files plus the new untracked `frontend/src/lib/usernameRe.js`,
-~690 insertions / 44 deletions; nothing has been committed. Approved plan:
+**Status: SHIPPED to prod 2026-09-08 as `a11192b`** (13 modified files plus the new
+`frontend/src/lib/usernameRe.js`, 618 insertions / 44 deletions; all six gates green,
+all three workflows green, the availability route probed live). Approved plan:
 `~/.claude/plans/wondrous-zooming-hummingbird.md`.
+
+**The first real invitation after it shipped appeared to not have the feature at all** —
+the invitee got the password field alone. That was **not** this change: it was the
+precached-shell bug above, recurring on `/activate/` (fixed `26d32bf`). Worth knowing
+because the symptom points straight at this seam and every check of it comes back clean.
 
 Founder ask: platform-derived staff usernames are *"really dificullt for the
 hospital/bloodbank staff to remember and type again"*, so the person **claiming**

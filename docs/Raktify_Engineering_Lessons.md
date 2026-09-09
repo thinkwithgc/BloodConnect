@@ -815,7 +815,9 @@ service worker, which is exactly why it looked fine there.
   `sw.js` is served `Cache-Control: no-cache` (revalidated every navigation) and
   `autoUpdate` injects `skipWaiting()` + `clientsClaim()` - both verified present in
   the deployed worker. Tell a stuck user to hard-reload or use a private window; do not
-  tell them to wait.
+  tell them to wait. **Confirmed in the field 2026-09-09:** the invitee whose handset
+  showed the password field alone reloaded once and got the username field, so this is
+  the instruction to give rather than a theory about how Workbox ought to behave.
 
 No migration either time; schema head stays **320**. Gate both times:
 `npm run smoke:frontend` clean, then **grep the generated `dist/sw.js` for the
@@ -829,10 +831,14 @@ the only thing that actually proves the edit landed.
 all three workflows green, the availability route probed live). Approved plan:
 `~/.claude/plans/wondrous-zooming-hummingbird.md`.
 
-**The first real invitation after it shipped appeared to not have the feature at all** —
-the invitee got the password field alone. That was **not** this change: it was the
-precached-shell bug above, recurring on `/activate/` (fixed `26d32bf`). Worth knowing
-because the symptom points straight at this seam and every check of it comes back clean.
+**WALKED END-TO-END BY A REAL INVITEE ON A REAL HANDSET, 2026-09-09.** The first
+invitation after it shipped appeared to not have the feature at all — the invitee got
+the password field alone — and that was **not** this change: it was the precached-shell
+bug above, recurring on `/activate/` (fixed `26d32bf`). After the one reload an
+already-broken handset needs, the invitee chose their own username and it worked first
+time. **Keep the false alarm on the record**, because the symptom points straight at
+this seam while every check of the seam comes back clean (bundle, route, no skew) — the
+next person to see it should look at the service worker, not here.
 
 Founder ask: platform-derived staff usernames are *"really dificullt for the
 hospital/bloodbank staff to remember and type again"*, so the person **claiming**
